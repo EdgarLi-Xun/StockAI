@@ -1,0 +1,45 @@
+name: stockai-cloud
+services:
+  app:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: deploy/cloud/Dockerfile
+    image: stockai-cloud:3.0.0
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 16m
+    env_file: ${STOCKAI_ENV_FILE:-.env}
+    environment:
+      STOCKAI_CLOUD_DATA_DIR: /var/lib/stockai/live
+      STOCKAI_ERASURE_DIR: /var/lib/stockai-erasures
+      STOCKAI_MASTER_KEY_FILE: /run/stockai/keys.json
+    volumes:
+      - research:/var/lib/stockai
+      - erasures:/var/lib/stockai-erasures
+      - credentials:/run/stockai
+    expose: ["8766"]
+    networks: [private]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    tmpfs: ["/tmp:mode=1777,size=128M"]
+  caddy:
+    platform: linux/amd64
+    image: caddy:2.11.7-alpine@sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a
+    restart: unless-stopped
+    env_file: ${STOCKAI_ENV_FILE:-.env}
+    depends_on: [app]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [private]
+volumes:
+  research:
+  erasures:
+  credentials:
+  caddy_data:
+  caddy_config:
+networks:
+  private:

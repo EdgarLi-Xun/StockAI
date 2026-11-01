@@ -1,0 +1,38 @@
+{
+  "ollama_url": "http://127.0.0.1:11434",
+  "model": "qwen3-14b-16k:latest",
+  "ai_enabled": true,
+  "ai_timeout": 180,
+  "budget": 1000.0,
+  "fees": {
+    "stock_commission": 0.0003,
+    "stock_minimum": 5.0,
+    "etf_commission": 0.0003,
+    "etf_minimum": 5.0,
+    "stock_transfer": 0.00001,
+    "stock_stamp_sell": 0.0005,
+    "slippage_bps": 5.0,
+    "confirmed": false,
+    "note": "默认费率仅为模拟假设，尚未核对券商交割单。ETF不套用股票印花税和过户费。"
+  },
+  "timezone": "Asia/Shanghai",
+  "scheduler_enabled": true,
+  "morning_time": "08:00",
+  "closing_time": "16:00",
+  "weekly_time": "20:00",
+  "min_daily_amount": 1000000.0,
+  "max_risk_age_hours": 24,
+  "data_provider": "akshare",
+  "email_enabled": false,
+  "smtp_host": "",
+  "smtp_port": 465,
+  "smtp_user": "",
+  "email_to": "",
+  "lan_enabled": false,
+  "proxy_hostname": "",
+  "allowed_networks": [
+    "192.168.0.0/16",
+    "10.0.0.0/8",
+    "172.16.0.0/12"
+  ]
+}
