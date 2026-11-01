@@ -149,6 +149,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 -SkipBui
 
 真实 age 加密往返测试需要额外提供 age / age-keygen；缺少工具时会明确跳过对应测试。测试使用隔离数据，不需要真实模型 Key，也不会以自动化测试结果冒充真实 SMTP、域名 TLS 或跨机器安装验收。验证记录见 [本地版验收](docs/ACCEPTANCE.md)、[公网版验收](docs/验收记录-公网多用户与模型接入.md) 和 [首发验证](docs/RELEASE-2.0.0.md)。
 
+开发流程另在隔离 Linux 容器中验证了 46 项公网专项，以及 20 用户 / 两个执行槽的受控任务处理，详见 [Linux 补充验证](docs/CLOUD-LINUX-VALIDATION.md)。
+
 ## 数据与使用边界
 
 - 行情主要通过 AKShare 接入免费数据源；接口可能限流、延迟、停用或无法覆盖部分代码。页面展示数据来源、采集时间与缺口，项目不保证实时行情。

@@ -101,15 +101,16 @@ docker compose up -d app
 
 ## 开发验证
 
+以下命令从仓库根目录执行：
+
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-cloud.lock "pytest==9.2.0"
 .\.venv\Scripts\python.exe -m pytest tests
-cd frontend
-npm run build:public
+npm --prefix frontend run build:public
 ```
 
 Windows 本机若 SQLite 尚无 WAL-reset 修复，明确开发模式使用 DELETE journal；生产模式拒绝启动。部署镜像从官方源码构建 SQLite 3.54.1，并核验上游 SHA3-256；运行时再次检查实际动态库版本。[SQLite 修复说明](https://sqlite.org/wal.html#walreset)、[官方下载](https://sqlite.org/download.html)。
 
-本机预览可运行 `python scripts/preview-cloud.py`，地址为 `http://127.0.0.1:8766`。它只在 `.tmp/cloud-preview` 创建隔离的开发账号和数据；登录信息存放于其中的 `preview-login.txt`，不作为正式公网账号，也不读取原本地数据。
+本机预览从仓库根目录运行 `.\.venv\Scripts\python.exe scripts\preview-cloud.py`，地址为 `http://127.0.0.1:8766`。它只在 `.tmp/cloud-preview` 创建隔离的开发账号和数据；登录信息存放于其中的 `preview-login.txt`，不作为正式公网账号，也不读取原本地数据。
 
-详细测试覆盖和仍需真实外部服务验证的项目见 [验收记录](../../docs/验收记录-公网多用户与模型接入.md)。
+详细测试覆盖和仍需真实外部服务验证的项目见 [验收记录](../../docs/验收记录-公网多用户与模型接入.md)；隔离 Linux 容器、20 用户任务测量与 Compose / Caddy 检查见 [Linux 补充验证](../../docs/CLOUD-LINUX-VALIDATION.md)。
