@@ -1,3 +1,4 @@
+# 管理邀请注册、邮箱验证、登录、会话、二次认证和账号停用。
 from __future__ import annotations
 
 import hmac
@@ -19,16 +20,20 @@ from .store import stamp,json_text
 HASHER=PasswordHasher(time_cost=2,memory_cost=65536,parallelism=2)
 
 
+# 携带稳定错误码、展示消息和 HTTP 状态，统一表达身份与权限失败。
 class AuthError(ValueError):
+    # 保存错误上下文，并将可展示消息传给异常基类。
     def __init__(self,code,message,status=400):
         self.code,self.message,self.status=code,message,status
         super().__init__(message)
 
 
+# 以 UTC 当前时间计算带微秒精度的过期时间。
 def later(seconds):
     return (datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat(timespec="microseconds")
 
 
+# 规范化邮箱并校验长度和格式，作为一致的账号标识。
 def email_value(value):
     value=str(value).strip().lower()
     if len(value)>254 or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}",value):
@@ -36,12 +41,14 @@ def email_value(value):
     return value
 
 
+# 检查密码长度后使用密码哈希器生成验证摘要。
 def hash_password(value):
     if not isinstance(value,str) or not 12<=len(value)<=200:
         raise AuthError("WEAK_PASSWORD","密码须为12至200个字符")
     return HASHER.hash(value)
 
 
+# 安全验证密码摘要，格式或验证失败时统一返回不匹配。
 def password_matches(encoded,password):
     try:
         return HASHER.verify(encoded,password)
@@ -49,6 +56,7 @@ def password_matches(encoded,password):
         return False
 
 
+# 保存已认证用户及当前会话的最小身份信息。
 @dataclass(frozen=True)
 class Actor:
     id:str
@@ -58,15 +66,19 @@ class Actor:
     verified_at:str|None
     session_hash:str=""
 
+    # 仅返回允许暴露给客户端的身份与验证状态。
     def public(self):
         return {"id":self.id,"email":self.email,"role":self.role,"status":self.status,"verified":bool(self.verified_at)}
 
 
+# 集中处理账号状态、认证令牌、限流和邀请的原子消费。
 class Auth:
+    # 绑定存储与密钥，并准备防止账号存在性计时泄漏的占位哈希。
     def __init__(self,store,keys):
         self.store,self.keys,self.cfg=store,keys,store.cfg
         self._dummy_hash=HASHER.hash(secrets.token_urlsafe(32))
 
+    # 按用途和身份记录时间窗内的请求次数，超限时拒绝继续。
     def limit(self,purpose,identity,maximum,seconds=300):
         key=digest(purpose+":"+identity)
         at=time.time()
@@ -79,10 +91,12 @@ class Auth:
             else:
                 c.execute("UPDATE rate_limits SET hits=hits+1 WHERE key=?",(key,))
 
+    # 创建用户与默认偏好，可复用外部事务确保关联数据同时提交。
     def new_user(self,email,password,role="user",verified=False,c=None):
         uid=uuid.uuid4().hex
         ts=stamp()
         args=(uid,email_value(email),hash_password(password),role,"active" if verified else "pending",ts if verified else None,ts)
+        # 在调用方事务内同时写入用户和个人默认配置。
         def insert(conn):
             conn.execute("INSERT INTO users(id,email,password_hash,role,status,verified_at,created_at) VALUES(?,?,?,?,?,?,?)",args)
             conn.execute("INSERT INTO user_settings VALUES(?,?,NULL)",(uid,Preferences().model_dump_json()))
@@ -93,6 +107,7 @@ class Auth:
                 insert(conn)
         return uid
 
+    # 校验邮箱与密码，并创建已验证的初始管理员账号。
     def create_admin(self,email,password):
         encoded=hash_password(password)
         normalized=email_value(email)
@@ -104,6 +119,7 @@ class Auth:
             c.execute("INSERT INTO user_settings VALUES(?,?,NULL)",(uid,Preferences().model_dump_json()))
         return uid
 
+    # 生成一次性邀请码，数据库中仅保存其摘要及有效期。
     def invitation(self,admin):
         code=secrets.token_urlsafe(24)
         ident=uuid.uuid4().hex
@@ -111,6 +127,7 @@ class Auth:
         self.store.audit(admin,"invitation_create",ident)
         return {"id":ident,"code":code,"expires_at":self.store.one("SELECT expires_at FROM invitations WHERE id=?",(ident,))["expires_at"]}
 
+    # 生成验证或重置令牌，并将受保护的邮件内容加入发件队列。
     def _mail_token(self,c,uid,purpose):
         ts=stamp(); token=secrets.token_urlsafe(40); ident=uuid.uuid4().hex
         ttl=86400 if purpose=="verify" else 1800
@@ -118,10 +135,11 @@ class Auth:
         c.execute("UPDATE mail_outbox SET state='cancelled',payload_json=NULL WHERE user_id=? AND purpose=? AND state!='sent'",(uid,purpose))
         c.execute("INSERT INTO auth_tokens VALUES(?,?,?,?,?,NULL,?)",(ident,uid,purpose,digest(token),later(ttl),ts))
         out_id=uuid.uuid4().hex
-        # Raw tokens only exist in an authenticated encrypted outbox until delivery.
+        # 原始令牌只在经过认证加密的待发送邮件中短暂保留。
         envelope=self.keys.seal(json_text({"token":token,"purpose":purpose}),site=self.store.site_id,user=uid,resource=out_id,purpose="mail")
         c.execute("INSERT INTO mail_outbox(id,user_id,purpose,payload_json,state,next_at,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)",(out_id,uid,purpose,envelope,"queued",ts,later(ttl),ts))
 
+    # 校验邀请与注册信息，在同一事务中消费邀请码并创建待验证用户。
     def register(self,email,password,code,peer):
         self.limit("register-ip",peer,12,3600)
         normalized=email_value(email); encoded=hash_password(password)
@@ -140,6 +158,7 @@ class Auth:
             self._mail_token(c,uid,"verify")
         return {"accepted":True,"message":"注册已提交，请检查邮箱完成验证；如未收到，可重发验证邮件。"}
 
+    # 对邮件请求限流，按用途发送新令牌并避免暴露账号是否存在。
     def resend(self,email,peer,purpose="verify"):
         self.limit("mail-ip",peer,10,3600)
         normalized=email_value(email)
@@ -151,6 +170,7 @@ class Auth:
                 self._mail_token(c,u["id"],purpose)
         return {"accepted":True,"message":"如账号符合条件，邮件将发送至对应邮箱。"}
 
+    # 原子消费有效的验证或重置令牌，更新身份状态并撤销必要会话。
     def consume(self,token,purpose,password=None):
         encoded=hash_password(password) if purpose=="reset" else None
         with self.store.tx(immediate=True) as c:
@@ -166,6 +186,7 @@ class Auth:
             c.execute("UPDATE mail_outbox SET payload_json=NULL,state='cancelled' WHERE user_id=? AND purpose=? AND state!='sent'",(r["user_id"],purpose))
         return {"success":True}
 
+    # 检查限流、密码与账号状态，生成会话及对应 CSRF 令牌。
     def login(self,email,password,peer):
         self.limit("login-ip",peer,20,300)
         normalized=email_value(email)
@@ -187,6 +208,7 @@ class Auth:
                 c.execute("UPDATE users SET password_hash=? WHERE id=? AND password_hash=?",(rehashed,row["id"],row["password_hash"]))
         return token,csrf,self.actor(token)
 
+    # 按会话摘要查询有效登录身份，拒绝过期、撤销或停用的会话。
     def actor(self,token):
         if not token:
             raise AuthError("LOGIN_REQUIRED","请先登录",401)
@@ -195,12 +217,14 @@ class Auth:
             raise AuthError("LOGIN_REQUIRED","登录已失效，请重新登录",401)
         return Actor(row["id"],row["email"],row["role"],row["status"],row["verified_at"],row["token_hash"])
 
+    # 生成 CSRF 令牌，并在已有会话时更新其绑定摘要。
     def csrf(self,session=None):
         value=secrets.token_urlsafe(32)
         if session:
             self.store.execute("UPDATE sessions SET csrf_hash=? WHERE token_hash=? AND revoked_at IS NULL",(digest(value),digest(session)))
         return value
 
+    # 重新验证密码，签发与用户、会话、用途和资源绑定的短期授权。
     def reauth(self,actor,password,resource,purpose="backup_export"):
         self.limit("reauth",actor.id,6,300)
         row=self.store.one("SELECT password_hash FROM users WHERE id=? AND status='active'",(actor.id,))
@@ -210,12 +234,14 @@ class Auth:
         self.store.execute("INSERT INTO reauth_grants VALUES(?,?,?,?,?,?,NULL)",(digest(token),actor.id,actor.session_hash,purpose,resource,later(300)))
         return token
 
+    # 在事务中校验并单次消费二次认证授权，防止跨资源复用。
     def consume_grant(self,actor,token,resource):
         with self.store.tx(immediate=True) as c:
             n=c.execute("UPDATE reauth_grants SET consumed_at=? WHERE token_hash=? AND user_id=? AND session_hash=? AND purpose='backup_export' AND resource_id=? AND expires_at>? AND consumed_at IS NULL",(stamp(),digest(token),actor.id,actor.session_hash,resource,stamp())).rowcount
             if not n:
                 raise AuthError("REAUTH_REQUIRED","请再次验证管理员密码后导出",403)
 
+    # 禁止管理员停用自己，并在账号变更时撤销会话和待执行任务。
     def disable(self,actor,target,disabled):
         if target==actor.id:
             raise AuthError("SELF_DISABLE","不能在此停用当前管理员")

@@ -1,0 +1,30 @@
+{
+  "verified_date": "2026-11-03",
+  "version": "3.2.0-preview.2",
+  "source_snapshot": ".tmp/ui-refresh/release-source",
+  "source_files_verified": 109,
+  "frontend_assets_verified": 18,
+  "local_frontend_build": "passed",
+  "public_frontend_build": "passed",
+  "snapshot_public_frontend_build": "passed",
+  "visual_widths_checked": [
+    390,
+    768,
+    1440
+  ],
+  "checks": [
+    "No horizontal page overflow",
+    "Readable watchlist filters on mobile",
+    "Mobile sidebar opens and closes",
+    "Add-security form saves in isolated data",
+    "Only one active assistant navigation item",
+    "No browser console errors"
+  ],
+  "exe_self_test": "passed",
+  "exe_sha256": "7156c51a879949c0deee927070e4774dc6dab5f675bda655cd4eb86dd41c2660",
+  "screenshots": {
+    "desktop": "desktop.jpg",
+    "mobile": "mobile.jpg"
+  },
+  "data": "Isolated visual-review account; no real market or model requests"
+}

@@ -1,3 +1,4 @@
+# 组合个人研究工作区事实，统一校验报告、实验与模拟资源的用户归属。
 from __future__ import annotations
 
 import hashlib
@@ -16,6 +17,7 @@ from .preferences import get_preferences,Preferences
 from .store import json_text,stamp
 
 
+# 仅从允许的表中按资源及用户共同查询，拒绝访问其他用户对象。
 def owned(store,table,uid,ident):
     if table not in {"personal_reports","personal_jobs","personal_backtests","sim_accounts","sim_orders"}:
         raise ValueError("不支持的个人资源")
@@ -25,6 +27,7 @@ def owned(store,table,uid,ident):
     return row
 
 
+# 列出本人报告的索引、版本、摘要和生成状态。
 def report_list(store,uid,mode="",q=""):
     rows=store.query("SELECT id,series_id,version,parent_id,mode,report_date,generated_at,payload_json FROM personal_reports WHERE user_id=? ORDER BY generated_at DESC",(uid,))
     out=[]
@@ -36,6 +39,7 @@ def report_list(store,uid,mode="",q=""):
     return out
 
 
+# 读取归属已核对的报告，并解析完整事实与版本信息。
 def report_detail(store,uid,ident):
     row=owned(store,"personal_reports",uid,ident)
     payload=json.loads(row.pop("payload_json"));payload.pop("source_facts",None)
@@ -44,6 +48,7 @@ def report_detail(store,uid,ident):
     return {**row,"payload":payload,"versions":versions}
 
 
+# 从共享行情和个人设置构建研究事实，补充本人模拟与实验摘要。
 def facts(store,uid,mode,prefs=None):
     from .simulation import portfolio
     prefs=prefs or get_preferences(store,uid);ctx=market.calendar(store)
@@ -92,9 +97,13 @@ def facts(store,uid,mode,prefs=None):
         value["deep_context"]=[{**{k:r[k] for k in ("id","category","instrument_id","source","source_url","as_of","fetched_at")},"data":json.loads(r["payload_json"])} for r in store.query("SELECT * FROM research_context ORDER BY category,instrument_id")]
         value["announcements"]=store.query("SELECT instrument_id,title,source_url,verified_at,severity FROM risk_events WHERE event_type='announcement' ORDER BY verified_at DESC LIMIT 40")
     value["snapshot_id"]=hashlib.sha256(json_text(value).encode()).hexdigest()
+    from .research import readiness
+    value['readiness']=readiness(store,uid,size=50,persist=False)
+    value['snapshot_id']=hashlib.sha256(json_text({k:v for k,v in value.items() if k!='snapshot_id'}).encode()).hexdigest()
     return value
 
 
+# 在本人范围执行回测，归档行情、产品规则、费用和结果快照。
 def create_backtest(store,uid,params):
     item=market.instrument(store,params.instrument_id)
     if item["market"] not in {"SH","SZ"} or item["asset_class"] not in {"stock","etf"}:
@@ -111,9 +120,17 @@ def create_backtest(store,uid,params):
     return {"id":ident,"data_hash":hashed,"strategy_version":STRATEGY_VERSION,**result}
 
 
+# 用本人已保存快照重演实验，比较结果以检查可复现性。
 def reproduce(store,uid,ident):
     row=owned(store,"personal_backtests",uid,ident);saved=json.loads(row["result_json"])
     if row["strategy_version"]!=STRATEGY_VERSION or hashlib.sha256(json_text(saved["data_snapshot"]).encode()).hexdigest()!=row["data_hash"]:
         raise ValueError("回测版本或快照校验失败")
     result=backtest.evaluate(saved["data_snapshot"],backtest.Parameters.model_validate_json(row["params_json"]),saved["instrument_snapshot"],Fees.model_validate(saved["fee_snapshot"]),saved["budget_snapshot"])
-    return {"identical":all(result[k]==saved[k] for k in ("full","out_of_sample","cost_sensitivity")),"data_hash":row["data_hash"],"summary":result["summary"]}
+    identical=all(result[k]==saved[k] for k in ('full','out_of_sample','cost_sensitivity'))
+    benchmark_identical=None
+    if saved.get('benchmarks'):
+        from .experiments import benchmarks
+        index=saved['benchmarks'].get('index_snapshot')
+        recomputed=benchmarks(store,saved['data_snapshot'],backtest.Parameters.model_validate_json(row['params_json']),saved['instrument_snapshot'],Fees.model_validate(saved['fee_snapshot']),saved['budget_snapshot'],result,index['instrument']['id'] if index else None,index)
+        benchmark_identical=recomputed==saved['benchmarks'];identical=identical and benchmark_identical
+    return {'identical':identical,'benchmark_identical':benchmark_identical,'data_hash':row['data_hash'],'summary':result['summary']}

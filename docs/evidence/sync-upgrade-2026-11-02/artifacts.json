@@ -1,0 +1,45 @@
+{
+  "version": "3.2.0-preview.1",
+  "artifacts": [
+    {
+      "file": "StockAI-3.2.0-preview.1-Windows.exe",
+      "bytes": 286546029,
+      "sha256": "cac3066c34d5a6a68c1c7f3ecca8314c2388227755af910af0bc162bf36043a4",
+      "build": {
+        "version": "3.2.0-preview.1",
+        "platform": "Windows x64",
+        "single_file": true,
+        "sha256": "cac3066c34d5a6a68c1c7f3ecca8314c2388227755af910af0bc162bf36043a4",
+        "bytes": 286546029,
+        "python": "3.13.7",
+        "pyside6": "6.12.0",
+        "entry": "stockai_desktop.py",
+        "source_sha256": "ea080416c9d33a120870c908c9d5418203eb809a39bb1adcfb60b4fdcb1f9228",
+        "frontend_sha256": "695e54e7c0e5e0a12e357fe93f45a7ace7dfb05d2eae85848bb86844d329da8a",
+        "personal_data_included": false,
+        "requires_python_installation": false,
+        "requires_node_installation": false
+      }
+    },
+    {
+      "file": "StockAI-3.2.0-preview.1-Public.zip",
+      "bytes": 1533515,
+      "sha256": "1cd537106f7a4ed005fbd458f438cc736533c6e5468f4c83df4e7dcd20323fd4",
+      "files": 232,
+      "all_manifest_hashes_verified": true,
+      "private_runtime_files_absent": true
+    },
+    {
+      "file": "StockAI-3.2.0-preview.1-Hub.zip",
+      "bytes": 492520,
+      "sha256": "74156d65241ebc1bdb0f221584fd617f3a8bf939bd117cb934fa99ec2b155e7c",
+      "files": 112,
+      "all_manifest_hashes_verified": true,
+      "private_runtime_files_absent": true
+    }
+  ],
+  "previous_3_1_exe_preserved": true,
+  "production_release_root_bundled": false,
+  "production_update_source_configured": false,
+  "deployment_to_user_servers_performed": false
+}

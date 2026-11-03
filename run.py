@@ -1,3 +1,4 @@
+# 统一启动共享后端，并按参数打开浏览器或 Windows 桌面客户端。
 """One shared server, two client entry points. Run with --help for options."""
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from backend.config import DATA, ROOT
 URL="http://127.0.0.1:8765"
 
 
+# 通过健康接口确认本机端口上运行的是 StockAI 模拟研究服务。
 def healthy():
     try:
         with urllib.request.urlopen(URL+"/api/health",timeout=1) as r:
@@ -24,6 +26,7 @@ def healthy():
         return False
 
 
+# 复用健康的后端；未运行时在后台启动，并等待服务就绪。
 def ensure_server():
     if healthy():
         return
@@ -38,6 +41,7 @@ def ensure_server():
     raise RuntimeError("本地服务启动失败，请查看 data/server.log；8765端口可能被其他程序占用。")
 
 
+# 解析启动参数，管理服务实例锁、监听地址及客户端入口。
 def main():
     parser=argparse.ArgumentParser(description="StockAI 本地股票与贵金属研究终端")
     parser.add_argument("--serve",action="store_true",help="仅启动共享后端（前台）")
@@ -72,6 +76,7 @@ def main():
         os.environ["STOCKAI_BIND_HOST"]=host
         pidfile=DATA/"server.pid"
         pidfile.write_text(str(os.getpid()),encoding="ascii")
+        # 仅清理当前进程写入的 PID 文件，避免误删其他实例的记录。
         def cleanup():
             if pidfile.exists() and pidfile.read_text().strip()==str(os.getpid()):
                 pidfile.unlink()

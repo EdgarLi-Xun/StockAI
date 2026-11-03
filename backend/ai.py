@@ -1,3 +1,4 @@
+# 调用本机模型解释已确定的研究事实，并校验输出结构与引用。
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ from .config import ROOT
 MODEL_LOCK = threading.Lock()
 
 
+# 约束单个候选的定性解释，禁止模型增加未声明字段。
 class Explanation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     instrument_id: str
@@ -24,6 +26,7 @@ class Explanation(BaseModel):
     source_ids: list[str]
 
 
+# 约束报告解释、风险提示、缺失数据和来源引用的输出结构。
 class ResearchText(BaseModel):
     model_config = ConfigDict(extra="forbid")
     summary: str = Field(max_length=2000)
@@ -34,6 +37,7 @@ class ResearchText(BaseModel):
     source_ids: list[str]
 
 
+# 探测配置中的本地模型是否可用，并返回可展示的状态说明。
 def health() -> dict:
     cfg = db.settings()
     try:
@@ -47,6 +51,7 @@ def health() -> dict:
         return {"available": False, "enabled": cfg.ai_enabled, "model": cfg.model, "models": [], "message": "无法连接本机 Ollama；规则计算仍可使用"}
 
 
+# 核对候选标识与来源引用，阻止模型篡改事实或编造来源。
 def validate_output(text: ResearchText, facts: dict) -> ResearchText:
     expected = {c["instrument_id"] for c in facts["candidates"]}
     got = [c.instrument_id for c in text.candidates]
@@ -55,7 +60,7 @@ def validate_output(text: ResearchText, facts: dict) -> ResearchText:
     source_ids = {s["id"] for s in facts["sources"]}
     if not set(text.source_ids) <= source_ids or any(not set(c.source_ids) <= source_ids or not c.source_ids for c in text.candidates):
         raise ValueError("模型引用了不存在的来源")
-    # Model prose cannot introduce a new numeric fact. Executable values are never read from prose.
+    # 模型解释只承载定性内容；价格、数量和日期等数值始终由程序事实单独展示。
     strings = [text.summary, text.market_context, *text.risk_notes, *text.missing_data]
     for candidate in text.candidates:
         strings += [candidate.rationale, candidate.counterargument, candidate.invalidation]
@@ -67,6 +72,7 @@ def validate_output(text: ResearchText, facts: dict) -> ResearchText:
     return text
 
 
+# 提交结构化事实并校验模型结果；模型不可用时保留规则报告能力。
 def explain(facts: dict, mode: str) -> tuple[dict | None, str | None]:
     cfg = db.settings()
     if not cfg.ai_enabled:
@@ -79,7 +85,7 @@ def explain(facts: dict, mode: str) -> tuple[dict | None, str | None]:
         if result.returncode==0 and result.stdout.strip() and max(int(x.strip()) for x in result.stdout.splitlines())<2048:
             return None,"GPU 可用显存低于2GB，暂缓推理并使用规则型报告；请关闭占用较高的程序后重试"
     except (OSError,ValueError,subprocess.TimeoutExpired):
-        pass  # CPU-only installations and unavailable GPU telemetry remain supported.
+        pass  # 没有 GPU 或无法获取显存信息时，仍允许尝试 CPU 推理。
     if not MODEL_LOCK.acquire(blocking=False):
         return None, "已有本地模型任务运行，使用规则型报告"
     try:

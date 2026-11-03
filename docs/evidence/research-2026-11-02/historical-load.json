@@ -1,0 +1,194 @@
+{
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+  "python": "3.13.18",
+  "sqlite": "3.54.1",
+  "cpus": 20,
+  "memory": "MemTotal:       16250024 kB",
+  "peak_process_rss_kib": 156180,
+  "fixture": {
+    "users": 20,
+    "authenticated_sessions": 20,
+    "shared_securities": 300,
+    "watchlist_per_user": 300,
+    "alerts_per_user": 50,
+    "journal_versions_per_user": 1000,
+    "experiments_per_user": 200,
+    "sessions_per_user": 100,
+    "messages_per_session": 200,
+    "shared_daily_bars": 18000,
+    "data_quality": "synthetic historical bars; current calendar and risk verification intentionally unknown"
+  },
+  "fixture_seconds": 7.658338928000001,
+  "database_bytes": 351715328,
+  "sequential_http": {
+    "/api/me/readiness?size=20": {
+      "count": 5,
+      "p95": 0.17135520999999798,
+      "max": 0.17135520999999798
+    },
+    "/api/me/usage": {
+      "count": 5,
+      "p95": 0.012723888000000017,
+      "max": 0.012723888000000017
+    },
+    "/api/me/alerts?size=20": {
+      "count": 5,
+      "p95": 0.028565157999999258,
+      "max": 0.028565157999999258
+    },
+    "/api/me/journals?size=20": {
+      "count": 5,
+      "p95": 0.009685711999999569,
+      "max": 0.009685711999999569
+    },
+    "/api/me/experiment-topics?size=20": {
+      "count": 5,
+      "p95": 0.008387413999997761,
+      "max": 0.008387413999997761
+    },
+    "/api/me/experiments?size=20": {
+      "count": 5,
+      "p95": 0.03185265499999801,
+      "max": 0.03185265499999801
+    },
+    "/api/me/assistant/sessions?size=20": {
+      "count": 5,
+      "p95": 0.009746955999997198,
+      "max": 0.009746955999997198
+    },
+    "/api/me/assistant/sessions/{owned-session}?size=20": {
+      "count": 5,
+      "p95": 0.0479104200000009,
+      "max": 0.0479104200000009
+    },
+    "/api/me/research/options": {
+      "count": 5,
+      "p95": 0.015666750999997703,
+      "max": 0.015666750999997703
+    },
+    "/api/me/journals/{owned-journal}": {
+      "count": 5,
+      "p95": 0.22136082200000118,
+      "max": 0.22136082200000118
+    }
+  },
+  "concurrent_http_read": {
+    "requests": 120,
+    "p95": 1.8972388789999997,
+    "max": 2.500798658000001
+  },
+  "mixed": {
+    "jobs": 20,
+    "completed": [
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      }
+    ],
+    "model_delay_seconds": 0.05,
+    "max_model_concurrency": 1,
+    "accept_p95": 0.10711370799999997,
+    "stop_ack": 0.036554690999999195,
+    "all_users_dispatched": 20
+  },
+  "alerts_full_cycle": 23.230707089,
+  "failures": [],
+  "real_provider": false,
+  "real_smtp": false
+}

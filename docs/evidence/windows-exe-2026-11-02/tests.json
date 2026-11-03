@@ -1,0 +1,64 @@
+{
+  "version": "3.1.0-preview.1",
+  "date": "2026-11-02",
+  "sha256": "9450d019c2f11712f076084beb85b9fb479d0645ad2b0265aa94b0730f00b53f",
+  "bytes": 286298685,
+  "single_file_relocated": true,
+  "developer_python_environment_removed": true,
+  "batches": {
+    "desktop_and_public": {
+      "tests": 55,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 106.499
+    },
+    "shared_research": {
+      "tests": 46,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 62.242
+    },
+    "desktop_final": {
+      "tests": 10,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 18.383
+    }
+  },
+  "packaged_checks": {
+    "runtime": {
+      "passed": true,
+      "two_clients_same_owner": true,
+      "readiness": "empty",
+      "usage_available": true,
+      "frontend_assets": true,
+      "frozen_collector_dispatch": true,
+      "qt": "6.12.0",
+      "akshare": "1.20.21",
+      "sqlite_journal": "delete",
+      "backup_identity_present": true,
+      "real_provider": false,
+      "real_market_requests": false
+    },
+    "native_window": {
+      "passed": true,
+      "desktop_loaded": true,
+      "version": "3.1.0-preview.1"
+    }
+  },
+  "payload_entries": 3913,
+  "private_runtime_files": 0,
+  "unrelated_icu_dll": false,
+  "machine": "AMD64",
+  "subsystem": "Windows GUI",
+  "local_web_health": {
+    "edition": "desktop-local",
+    "initialized": true,
+    "version": "3.1.0-preview.1"
+  },
+  "native_manual_ui": "not executed: application automation permission timed out",
+  "real_model_smtp_or_market": false
+}

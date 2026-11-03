@@ -1,3 +1,4 @@
+# 获取并核验公网容器构建所需的基础资源，校验摘要后保存到指定目录。
 """Fetch a pinned official linux/amd64 base via the registry when WSL DNS is unavailable.
 Build/test helper only; no account credentials are read or printed.
 """
@@ -18,7 +19,9 @@ if "--caddy" in sys.argv:
     repository="caddy";TAG="caddy:2.11.7-alpine";output_name="caddy-base.tar"
     MANIFEST="sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a"
 out=ROOT/".tmp"/"cloud-build";out.mkdir(parents=True,exist_ok=True)
+# 仅向公开镜像仓库获取拉取令牌，随后逐项核验清单、配置和镜像层摘要。
 token=json.load(urllib.request.urlopen("https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/"+repository+":pull"))["token"]
+# 下载指定镜像资源，并按调用方提供的摘要验证原始内容。
 def get(path,digest=None):
     request=urllib.request.Request("https://registry-1.docker.io/v2/library/"+repository+"/"+path,headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.oci.image.manifest.v1+json"})
     data=urllib.request.urlopen(request,timeout=180).read()
@@ -30,6 +33,7 @@ config=get("blobs/"+manifest["config"]["digest"],manifest["config"]["digest"])
 config_name=manifest["config"]["digest"].split(":")[1]+".json"
 archive=out/output_name
 with tarfile.open(archive,"w") as tar:
+    # 将内存中的配置或镜像层以指定成员名加入离线镜像归档。
     def add(name,data):
         item=tarfile.TarInfo(name);item.size=len(data);tar.addfile(item,io.BytesIO(data))
     add(config_name,config);layers=[]

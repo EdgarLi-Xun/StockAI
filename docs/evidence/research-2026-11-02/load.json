@@ -1,0 +1,197 @@
+{
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+  "python": "3.13.18",
+  "sqlite": "3.54.1",
+  "cpus": 20,
+  "memory": "MemTotal:       16250024 kB",
+  "peak_process_rss_kib": 155688,
+  "fixture": {
+    "users": 20,
+    "authenticated_sessions": 20,
+    "shared_securities": 300,
+    "watchlist_per_user": 300,
+    "alerts_per_user": 50,
+    "journal_versions_per_user": 1000,
+    "experiments_per_user": 200,
+    "sessions_per_user": 100,
+    "messages_per_session": 200,
+    "shared_daily_bars": 18000,
+    "data_quality": "synthetic historical bars; current calendar and risk verification intentionally unknown",
+    "seeded_public_instruments_excluded_from_300": 7
+  },
+  "fixture_seconds": 6.461258047999991,
+  "database_bytes": 351502336,
+  "sequential_http": {
+    "/api/me/readiness?size=20": {
+      "count": 5,
+      "p95": 0.12831631999995352,
+      "max": 0.12831631999995352
+    },
+    "/api/me/usage": {
+      "count": 5,
+      "p95": 0.007918704000019261,
+      "max": 0.007918704000019261
+    },
+    "/api/me/alerts?size=20": {
+      "count": 5,
+      "p95": 0.02215068200001724,
+      "max": 0.02215068200001724
+    },
+    "/api/me/journals?size=20": {
+      "count": 5,
+      "p95": 0.011524214000019128,
+      "max": 0.011524214000019128
+    },
+    "/api/me/experiment-topics?size=20": {
+      "count": 5,
+      "p95": 0.016862246999949093,
+      "max": 0.016862246999949093
+    },
+    "/api/me/experiments?size=20": {
+      "count": 5,
+      "p95": 0.029374516000018502,
+      "max": 0.029374516000018502
+    },
+    "/api/me/assistant/sessions?size=20": {
+      "count": 5,
+      "p95": 0.015071890999990956,
+      "max": 0.015071890999990956
+    },
+    "/api/me/assistant/sessions/{owned-session}?size=20": {
+      "count": 5,
+      "p95": 0.03544500199996037,
+      "max": 0.03544500199996037
+    },
+    "/api/me/research/options": {
+      "count": 5,
+      "p95": 0.01224675999998226,
+      "max": 0.01224675999998226
+    },
+    "/api/me/journals/{owned-journal}": {
+      "count": 5,
+      "p95": 0.20352872600000183,
+      "max": 0.20352872600000183
+    }
+  },
+  "concurrent_http_read": {
+    "requests": 120,
+    "p95": 1.3511864200000332,
+    "max": 1.876241983
+  },
+  "mixed": {
+    "jobs": 20,
+    "completed": [
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      }
+    ],
+    "model_delay_seconds": 0.05,
+    "max_model_concurrency": 1,
+    "accept_p95": 0.04984286299998075,
+    "stop_ack": 0.02083696099998633,
+    "all_users_dispatched": 20
+  },
+  "alerts_full_cycle": 19.642349433999982,
+  "failures": [],
+  "real_provider": false,
+  "real_smtp": false,
+  "measurement": "Isolated ASGI HTTP with authenticated sessions; no reverse proxy, TLS, or internet latency.",
+  "model_fixture": "50ms synthetic provider; report queue uses a frozen minimal fact set, not a 300-security production report."
+}

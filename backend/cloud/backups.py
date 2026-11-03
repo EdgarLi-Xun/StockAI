@@ -1,3 +1,4 @@
+# 创建和恢复加密公网备份，恢复时重新应用独立删除记录并隔离旧凭据。
 from __future__ import annotations
 
 import hashlib
@@ -18,11 +19,13 @@ from .lifecycle import purge_user,directory_swap
 from .store import Store,json_text,stamp
 
 
+# 流式计算文件的 SHA-256，避免将整个备份一次性读入内存。
 def file_hash(path):
     with path.open("rb") as f:
         return hashlib.file_digest(f,"sha256").hexdigest()
 
 
+# 枚举合法业务表名并统计行数，用于备份完整性核对。
 def counts(connection):
     names=[r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
     if any(not name.replace("_","").isalnum() for name in names):
@@ -30,6 +33,7 @@ def counts(connection):
     return {name:connection.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in sorted(names)}
 
 
+# 限制归档成员为数据目录内的相对路径，阻止解包路径越界。
 def safe_file(root,name):
     part=PurePosixPath(name)
     if part.is_absolute() or ".." in part.parts or "\\" in name or ":" in name or not part.parts:
@@ -40,19 +44,24 @@ def safe_file(root,name):
     return path
 
 
+# 按备份登记时间清理超过保留期限的加密备份文件。
 def prune(store,journal):
     cutoff=datetime.now(timezone.utc)-timedelta(days=30)
     for row in journal.backups():
         path=store.cfg.data/"backups"/(row["id"]+".age")
         if datetime.fromisoformat(row["created_at"])<cutoff:
             path.unlink(missing_ok=True)
-    # A process interrupted during encryption never leaves a downloadable plaintext file.
+    # 加密中断留下的暂存内容不进入可下载目录，避免明文备份被导出。
 
 
+# 在短期发布锁下取得一致快照，校验并使用 age 加密后登记备份。
 def create(store,keys,journal):
     if not store.cfg.age_recipient.startswith("age1"):
         raise ValueError("尚未配置 age 备份接收公钥")
-    journal.verify();ident=uuid.uuid4().hex
+    journal.verify()
+    from .research_control import control
+    control(store,keys).verify()
+    ident=uuid.uuid4().hex
     staging=store.cfg.data/".staging";staging.mkdir(exist_ok=True,mode=0o700)
     output=store.cfg.data/"backups";output.mkdir(exist_ok=True,mode=0o700)
     with tempfile.TemporaryDirectory(prefix="backup-",dir=staging) as raw:
@@ -96,10 +105,12 @@ def create(store,keys,journal):
     return {"id":ident,**record}
 
 
+# 返回权威登记清单，并检查对应加密文件是否仍可用。
 def list_backups(store,journal):
     return [{**r,"available":(store.cfg.data/"backups"/(r["id"]+".age")).is_file()} for r in journal.backups()]
 
 
+# 仅解析已登记且文件存在的备份，避免下载或恢复任意路径。
 def registered(store,journal,ident):
     row=next((r for r in journal.backups() if r["id"]==ident),None)
     path=store.cfg.data/"backups"/(ident+".age")
@@ -108,6 +119,7 @@ def registered(store,journal,ident):
     return path,row
 
 
+# 仅供持有独占服务锁的离线维护调用，校验、净化并替换恢复目录。
 def restore(store,keys,journal,ident,identity):
     """Offline only: caller must hold the exclusive service lock throughout."""
     erased=journal.verify();encrypted,record=registered(store,journal,ident)
@@ -149,7 +161,11 @@ def restore(store,keys,journal,ident,identity):
                 raise ValueError("数据库完整性、外键或记录数量核验失败")
             if c.execute("SELECT value FROM cloud_meta WHERE key='site_id'").fetchone()[0]!=store.site_id:
                 raise ValueError("数据库站点标识不匹配")
-        # Never trust the old backup as the authority for erasures or live credentials.
+        # 先核对原始备份清单与表行数，再增量建立新表，避免校验口径被迁移改变。
+        trial.initialize()
+        from .research_control import control
+        control(store,keys).reconcile(trial)
+        # 恢复旧备份时，删除记录和当前凭据状态仍以独立权威记录为准。
         for row in erased:
             purge_user(trial,row["user_id"])
         with trial.tx(immediate=True) as c:
@@ -160,6 +176,16 @@ def restore(store,keys,journal,ident,identity):
             c.execute("UPDATE personal_jobs SET status='cancelled',error_code='RESTORE_REQUIRES_REVIEW',finished_at=? WHERE status IN('queued','running')",(stamp(),))
             c.execute("UPDATE model_calls SET phase='uncertain',error_code='UNCERTAIN_TIMEOUT' WHERE phase IN('prepared','sent')")
             c.execute("UPDATE site_jobs SET status='failed',error_code='RESTORE_REQUIRES_REVIEW' WHERE status IN('queued','running')")
+            c.execute("UPDATE assistant_requests SET status='interrupted',error_code='RESTORE_REQUIRES_REVIEW' WHERE status IN('queued','running','validating')")
+            c.execute("UPDATE research_experiments SET status='interrupted',error_code='RESTORE_REQUIRES_REVIEW' WHERE status IN('queued','running')")
+            c.execute("UPDATE alert_deliveries SET state='uncertain',error_code='RESTORE_REQUIRES_REVIEW' WHERE state IN('queued','retry','sending')")
+            c.execute("UPDATE alert_events SET state='restore_review' WHERE state IN('pending','pending_dnd')")
+            # A snapshot may predate an SMTP send or a DND event's delivery. Restored rules
+            # require explicit re-enabling; an old pending event must never send itself again.
+            for row in c.execute("SELECT * FROM research_objects WHERE kind='alert'").fetchall():
+                data=json.loads(row['payload_json']);data.update(enabled=False,pause_reason='RESTORE_REQUIRES_REVIEW');version=row['version']+1;ts=stamp()
+                c.execute("UPDATE research_objects SET status='disabled',version=?,updated_at=?,payload_json=? WHERE id=? AND user_id=?",(version,ts,json_text(data),row['id'],row['user_id']))
+                c.execute('INSERT INTO research_versions VALUES(?,?,?,?,?)',(row['id'],row['user_id'],version,ts,json_text(data)))
             for row in c.execute("SELECT * FROM user_settings").fetchall():
                 p=json.loads(row["payload_json"]);p["automatic_ai"]=False
                 c.execute("UPDATE user_settings SET payload_json=? WHERE user_id=?",(json_text(p),row["user_id"]))
@@ -173,7 +199,7 @@ def restore(store,keys,journal,ident,identity):
         for name in referenced:
             if not safe_file(prepared,Path(name).as_posix()).is_file():
                 raise ValueError("恢复后的报告文件关联不完整")
-        # Retain only encrypted backups. The separate authority directory is never replaced.
+        # 只保留加密备份，恢复时始终保留独立权威目录。
         if (store.cfg.data/"backups").exists():
             shutil.copytree(store.cfg.data/"backups",prepared/"backups")
         directory_swap(store,keys,prepared)

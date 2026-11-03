@@ -1,0 +1,121 @@
+{
+  "research-continuation-regression.xml": {
+    "tests": "48",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "84.370"
+  },
+  "research-continuation-safety.xml": {
+    "tests": "46",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "50.236"
+  },
+  "research-continuation.xml": {
+    "tests": "33",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "35.075"
+  },
+  "research-final-flows.xml": {
+    "tests": "3",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "6.947"
+  },
+  "research-final-patches.xml": {
+    "tests": "16",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "17.351"
+  },
+  "research-help-relevance.xml": {
+    "tests": "2",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "4.617"
+  },
+  "research-integrity.xml": {
+    "tests": "34",
+    "failures": "1",
+    "errors": "0",
+    "skipped": "0",
+    "time": "117.295"
+  },
+  "research-last-readiness.xml": {
+    "tests": "5",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "10.589"
+  },
+  "research-tests.xml": {
+    "tests": "68",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "143.927"
+  },
+  "research-upgrade-help.xml": {
+    "tests": "2",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "4.033"
+  },
+  "research-windows-final.xml": {
+    "tests": "186",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "1",
+    "time": "369.796"
+  },
+  "linux/research-authenticated-load-tests.xml": {
+    "tests": "5",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "56.958"
+  },
+  "linux/research-continuation.xml": {
+    "tests": "12",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "26.944"
+  },
+  "linux/research-linux-final.xml": {
+    "tests": "101",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "300.786"
+  },
+  "linux/research-linux.xml": {
+    "tests": "35",
+    "failures": "2",
+    "errors": "0",
+    "skipped": "0",
+    "time": "166.709"
+  },
+  "linux/research-load-tests.xml": {
+    "tests": "1",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "44.213"
+  },
+  "linux/research-upgrade-help.xml": {
+    "tests": "2",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "4.775"
+  }
+}

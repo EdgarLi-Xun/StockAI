@@ -1,3 +1,4 @@
+# 读取共享市场资料，并将个人自选操作限制在所属用户范围内。
 """Shared market cache with explicit, separate personal watchlist membership."""
 from __future__ import annotations
 
@@ -12,10 +13,12 @@ from backend.config import now,timestamp
 from backend.collectors import fresh_reasons
 from backend.instruments import InstrumentInput,Rules,official_url
 from .auth import AuthError
+from .collector import queue_names
 from .preferences import get_preferences
 from .store import json_text,stamp
 
 
+# 读取共享证券并解析产品规则、核验证据等 JSON 字段。
 def instrument(store,ident):
     row=store.one("SELECT * FROM instruments WHERE id=?",(ident,))
     if not row:
@@ -26,6 +29,7 @@ def instrument(store,ident):
     return row
 
 
+# 读取指定证券的有效行情，按时间升序返回并解析元数据。
 def bars_for(store,ident,timeframe="1d",limit=2000):
     if timeframe not in {"1d","15m","60m"}:
         raise ValueError("不支持的K线周期")
@@ -35,6 +39,7 @@ def bars_for(store,ident,timeframe="1d",limit=2000):
     return rows
 
 
+# 根据共享交易日历构建带核验状态的市场时间上下文。
 def calendar(store,at=None):
     at=at or now();day=at.date().isoformat()
     bounds=store.one("SELECT MIN(day) first,MAX(day) last FROM calendar")
@@ -44,6 +49,7 @@ def calendar(store,at=None):
     return {"date":day,"timezone":"Asia/Shanghai","is_trading_day":trading,"calendar_verified":known,"last_completed_session":latest["day"] if latest else None,"note":"日线为已完成交易日收盘数据" if known else "交易日历未覆盖当前日期，禁止按工作日推算交易日"}
 
 
+# 结合证券证据与个人偏好，计算候选准入的风险障碍。
 def risk_reasons(item,prefs,at=None):
     at=at or now();errors=[]
     if item["market"] not in {"SH","SZ"} or item["asset_class"] not in {"stock","etf"}:
@@ -65,6 +71,7 @@ def risk_reasons(item,prefs,at=None):
     return list(dict.fromkeys(errors))
 
 
+# 确保证券身份合法后加入当前用户自选，避免改动其他用户清单。
 def add_watch(store,uid,value:InstrumentInput):
     if value.market in {"SH","SZ","FUND"} and not re.fullmatch(r"\d{6}",value.symbol):
         raise ValueError("境内证券代码须为六位数字")
@@ -74,13 +81,15 @@ def add_watch(store,uid,value:InstrumentInput):
             raise AuthError("ACCOUNT_DISABLED","账号不可用",403)
         if c.execute("SELECT COUNT(*) FROM user_watchlist WHERE user_id=?",(uid,)).fetchone()[0]>=300 and not c.execute("SELECT 1 FROM user_watchlist WHERE user_id=? AND instrument_id=?",(uid,ident)).fetchone():
             raise ValueError("个人自选最多300只")
-        # User supplied names never replace the authoritative shared security name.
+        # 用户导入的名称只用于个人输入，不能覆盖共享证券的权威名称。
         rules=Rules(price_tick="0.001" if value.asset_class=="etf" else "0.01")
         c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(ident,value.symbol,value.market,"名称待核验",value.asset_class,rules.model_dump_json()))
         c.execute("INSERT INTO user_watchlist VALUES(?,?,?,0,?) ON CONFLICT(user_id,instrument_id) DO UPDATE SET group_name=excluded.group_name",(uid,ident,value.group_name,stamp()))
+        queue_names(store,c=c)
     return {**instrument(store,ident),"group_name":value.group_name,"pinned":False}
 
 
+# 整批校验并原子导入个人自选，保留已有置顶等个人状态。
 def import_watch(store,uid,rows):
     validated={}
     for row in rows:
@@ -101,9 +110,11 @@ def import_watch(store,uid,rows):
             rules=Rules(price_tick="0.001" if v.asset_class=="etf" else "0.01")
             c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(ident,v.symbol,v.market,"名称待核验",v.asset_class,rules.model_dump_json()))
             c.execute("INSERT INTO user_watchlist VALUES(?,?,?,?,?) ON CONFLICT(user_id,instrument_id) DO UPDATE SET group_name=excluded.group_name,pinned=excluded.pinned",(uid,ident,v.group_name,int(pinned),stamp()))
+        queue_names(store,c=c)
     return {"imported":len(validated),"duplicates":len(rows)-len(validated)}
 
 
+# 只更新本人自选的分组和置顶信息。
 def patch_watch(store,uid,ident,payload):
     if set(payload)-{"group_name","pinned"}:
         raise ValueError("这里只能修改个人分组和置顶")
@@ -120,6 +131,7 @@ def patch_watch(store,uid,ident,payload):
     return {"success":True}
 
 
+# 校验并更新共享证券的官方证据，供管理员接口调用。
 def verify(store,ident,payload):
     instrument(store,ident)
     if payload.get("status") not in {"active","suspended","delisted","unknown"} or payload.get("risk_flag") not in {"clear","st","warning","unknown"}:
@@ -139,6 +151,7 @@ def verify(store,ident,payload):
     return instrument(store,ident)
 
 
+# 组合共享行情、技术指标、规则和本人研究相关信息。
 def detail(store,uid,ident,timeframe="1d",prefs=None):
     prefs=prefs or get_preferences(store,uid);item=instrument(store,ident)
     bars=bars_for(store,ident,timeframe);last=bars[-1] if bars else None
@@ -151,6 +164,7 @@ def detail(store,uid,ident,timeframe="1d",prefs=None):
     return item
 
 
+# 将本人自选与共享报价、预算及风险状态组合为列表视图。
 def watch_rows(store,uid):
     prefs=get_preferences(store,uid);out=[]
     for r in store.query("SELECT * FROM user_watchlist WHERE user_id=? ORDER BY pinned DESC,group_name,instrument_id",(uid,)):
@@ -159,6 +173,7 @@ def watch_rows(store,uid):
     return out
 
 
+# 读取已保存的市场观察报价，并保留报价时间和来源信息。
 def quotes(store):
     out=[]
     for row in store.query("SELECT payload_json FROM market_quotes"):
@@ -171,6 +186,7 @@ def quotes(store):
     return out
 
 
+# 校验整批外部行情后写入共享行情表。
 def import_bars(store,ident,payload):
     instrument(store,ident);bars=payload.get("bars");tf=payload.get("timeframe","1d")
     if tf not in {"1d","15m","60m"} or not isinstance(bars,list) or not 1<=len(bars)<=10000:

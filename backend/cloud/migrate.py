@@ -1,3 +1,4 @@
+# 从本地数据库复制研究档案到明确用户，保留来源而不修改原数据。
 """Offline, copy-only migration. Publish the prepared directory only after full checks."""
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from .lifecycle import directory_swap
 SHARED=("instruments","bars","market_quotes","calendar","research_context","risk_events")
 
 
+# 将本地历史报告转换为公网归档结构，并标明旧版事实的边界。
 def legacy_facts(payload):
     """Recover only a byte-verifiable legacy fact snapshot; never invent missing history."""
     value=json.loads(json_text(payload));expected=value.get("snapshot_id")
@@ -33,6 +35,7 @@ def legacy_facts(payload):
     return None
 
 
+# 在目标用户范围内复制自选、报告、模拟账户和实验，并校验关联。
 def migrate(store,keys,journal,source,admin_id):
     if store.one("SELECT value FROM cloud_meta WHERE key='legacy_migration'"):
         return {"already_migrated":True}

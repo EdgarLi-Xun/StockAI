@@ -1,3 +1,4 @@
+# 管理服务独占锁、独立账号删除账本，以及可恢复的数据目录切换。
 """Durable erasure authority, deliberately stored outside the backup/restore tree."""
 from __future__ import annotations
 
@@ -15,10 +16,13 @@ from .crypto import atomic_private
 from .store import json_text,stamp
 
 
+# 通过操作系统文件锁保证服务与离线维护操作互斥。
 class ProcessLock:
+    # 保存锁文件路径并初始化文件句柄。
     def __init__(self,path):
         self.path=path;self.file=None
 
+    # 创建锁文件并以非阻塞方式获取跨进程独占锁。
     def __enter__(self):
         self.path.parent.mkdir(parents=True,exist_ok=True)
         self.file=self.path.open("a+b")
@@ -35,6 +39,7 @@ class ProcessLock:
             raise RuntimeError("另一个服务或离线维护进程仍在使用此数据目录") from None
         return self
 
+    # 释放操作系统锁并关闭句柄。
     def __exit__(self,*args):
         if self.file:
             self.file.seek(0)
@@ -47,13 +52,16 @@ class ProcessLock:
             self.file.close();self.file=None
 
 
+# 在研究备份外保存带签名的删除记录与备份登记，防止恢复已删账号。
 class ErasureJournal:
+    # 绑定存储和密钥，确定独立账本路径并建立实例锁。
     def __init__(self,store,keys):
         self.store,self.keys=store,keys
         self.path=store.cfg.erasures/"authority.sqlite3"
         self.head=store.cfg.erasures/"erasure-head.json"
         self.lock=threading.RLock()
 
+    # 以独立事务更新权威账本，异常时回滚并关闭连接。
     @contextmanager
     def tx(self):
         c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
@@ -65,6 +73,7 @@ class ErasureJournal:
         finally:
             c.close()
 
+    # 首次建立账本及签名锚点，避免将缺失的既有账本当作新站点。
     def create(self):
         if self.path.exists() or self.head.exists():
             raise RuntimeError("注销权威记录已存在，不能重建或覆盖")
@@ -74,11 +83,13 @@ class ErasureJournal:
             c.execute("CREATE TABLE registry(id TEXT PRIMARY KEY,payload_json TEXT NOT NULL,signature TEXT NOT NULL,key_version INTEGER NOT NULL)")
         self._head(0,"")
 
+    # 将站点、链尾序号和签名写入独立锚点文件，供后续验证是否回退。
     def _head(self,seq,chain):
         value={"site_id":self.store.site_id,"seq":seq,"chain":chain,"key_version":self.keys.active}
         value["signature"]=self.keys.sign(json_text(value))
         atomic_private(self.head,json_text(value).encode())
 
+    # 逐项校验签名、序号和哈希链，检测破坏或回退。
     def verify(self):
         if not self.path.is_file() or not self.head.is_file():
             raise RuntimeError("独立注销权威记录缺失；拒绝启动或恢复，不能从旧备份重建")
@@ -99,9 +110,10 @@ class ErasureJournal:
         if seq<head["seq"] or not anchor:
             raise RuntimeError("注销记录被回退或缺失，拒绝恢复")
         if seq>head["seq"]:
-            self._head(seq,previous)  # Recovery after fsync journal / before atomic head publication.
+            self._head(seq,previous)  # 处理账本已同步落盘、但独立锚点尚未发布时发生的中断。
         return rows
 
+    # 在权威删除账本追加账号删除记录，并更新签名锚点。
     def append(self,uid):
         with self.lock:
             rows=self.verify()
@@ -113,11 +125,13 @@ class ErasureJournal:
                 c.execute("INSERT INTO events VALUES(?,?,?,?,?,?)",(seq,uid,ts,previous,signature,self.keys.active))
             self._head(seq,signature)
 
+    # 登记备份标识、摘要和统计，作为后续下载恢复的可信清单。
     def register_backup(self,ident,payload):
         encoded=json_text(payload)
         with self.lock,self.tx() as c:
             c.execute("INSERT INTO registry VALUES(?,?,?,?)",(ident,encoded,self.keys.sign(encoded),self.keys.active))
 
+    # 返回经过权威记录管理的备份清单。
     def backups(self):
         with self.tx() as c:
             rows=[dict(r) for r in c.execute("SELECT * FROM registry")]
@@ -129,12 +143,13 @@ class ErasureJournal:
         return sorted(out,key=lambda r:r["created_at"],reverse=True)
 
 
+# 删除指定用户的研究数据和档案，并处理相关隐私记录。
 def purge_user(store,uid):
     """Caller holds publication + user locks; safe to repeat after a process crash."""
     with store.tx(immediate=True) as c:
         c.execute("DELETE FROM invitations WHERE created_by=?",(uid,))
         c.execute("UPDATE invitations SET used_by=NULL,revoked_at=COALESCE(revoked_at,?) WHERE used_by=?",(stamp(),uid))
-        # Break the profile version/credential cycle before the user cascade.
+        # 先解除模型版本与凭据间的引用，再级联删除用户数据。
         c.execute("UPDATE model_profile_versions SET credential_id=NULL WHERE profile_id IN(SELECT id FROM model_profiles WHERE user_id=?)",(uid,))
         c.execute("DELETE FROM users WHERE id=?",(uid,))
     for root in ("reports","exports"):
@@ -145,6 +160,7 @@ def purge_user(store,uid):
             shutil.rmtree(path)
 
 
+# 重新应用已签名账号删除记录，清除恢复或重启后出现的旧数据。
 def reconcile(store,journal):
     rows=journal.verify()
     with store.publish_lock:
@@ -154,19 +170,26 @@ def reconcile(store,journal):
     return len(rows)
 
 
+# 先持久化不可回退的删除意图，再清除用户数据和未完成任务。
 def erase(store,journal,actor,password,confirmation):
     if confirmation!="注销并删除我的全部个人数据":
         raise AuthError("CONFIRMATION_REQUIRED","请准确输入注销确认语句")
     row=store.one("SELECT password_hash FROM users WHERE id=?",(actor.id,))
     if not row or not password_matches(row["password_hash"],str(password)):
         raise AuthError("REAUTH_FAILED","密码验证未通过",401)
-    # The authoritative tombstone is committed before sessions/private rows/files disappear.
+    # 先提交权威删除标记，再移除会话、个人记录与文件，保证恢复时不会复活账号。
     with store.publish_lock,store.user_lock(actor.id):
+        remote_cleanup=None
+        if getattr(store,'sync_service',None):
+            remote_cleanup=store.sync_service.request_delete(actor.id,'删除我的远端同步资料')
         journal.append(actor.id)
         purge_user(store,actor.id)
-    return {"erased":True,"message":"个人数据及可用模型凭据已删除。历史加密备份最多保留30天；恢复时将先执行独立注销记录。"}
+        if getattr(store,'sync_service',None):store.sync_service.forget_private(actor.id)
+    pending=remote_cleanup and remote_cleanup.get('status')=='pending'
+    return {"erased":True,'remote_cleanup':remote_cleanup,"message":"个人数据及可用模型凭据已删除。历史加密备份最多保留30天；恢复时将先执行独立注销记录。"+('远端暂不可达，清理仍在等待，不能视为已删除。' if pending else '')}
 
 
+# 读取目录切换标记，恢复被中断的替换操作后再允许服务初始化。
 def recover_swap(cfg,keys):
     """Resolve an interrupted offline directory switch before opening/initializing the DB."""
     marker=cfg.erasures/"pending-swap.json"
@@ -180,16 +203,17 @@ def recover_swap(cfg,keys):
         raise RuntimeError("离线切换路径校验失败")
     if not target.exists():
         if old.exists():
-            old.rename(target)  # First rename committed; restore the previous live generation.
+            old.rename(target)  # 第一次目录重命名已完成而新目录尚未就绪，恢复上一代有效数据。
         else:
             raise RuntimeError("当前和回滚目录均缺失，需要人工恢复")
     elif old.exists():
         if prepared.exists():
             raise RuntimeError("离线切换目录状态不明确，拒绝清理")
-        shutil.rmtree(old)  # The verified new generation was already published.
+        shutil.rmtree(old)  # 已校验的新一代数据目录已经发布，按已完成切换收尾。
     marker.unlink()
 
 
+# 记录切换阶段并原子替换数据目录，使异常中断后可以回滚。
 def directory_swap(store,keys,prepared):
     target=store.cfg.data;old=target.parent/(".stockai-replaced-"+store.site_id+"-"+uuid.uuid4().hex)
     value={"target":str(target.resolve()),"old":str(old.resolve()),"prepared":str(prepared.resolve()),"site_id":store.site_id,"key_version":keys.active}
@@ -203,6 +227,7 @@ def directory_swap(store,keys,prepared):
     shutil.rmtree(old);marker.unlink()
 
 
+# 清理遗留的受限明文暂存目录，避免中断后长期保留备份明文。
 def clean_staging(store):
     targets=[store.cfg.data/".staging"]
     for prefix in (".stockai-restore-",".stockai-migrate-"):

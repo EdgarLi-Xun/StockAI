@@ -1,0 +1,37 @@
+name: stockai-hub
+services:
+  hub:
+    build:
+      context: ../..
+      dockerfile: deploy/hub/Dockerfile
+    image: stockai-hub:3.2.0-preview.1
+    restart: unless-stopped
+    init: true
+    env_file: ${STOCKAI_HUB_ENV_FILE:-.env}
+    environment:
+      STOCKAI_HUB_BEHIND_TLS_PROXY: "1"
+    volumes:
+      - hub_data:/var/lib/stockai-hub
+      - hub_control:/var/lib/stockai-hub-control
+    expose: ["8770"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:mode=1777,size=128M"]
+    networks: [private]
+  caddy:
+    image: caddy:2.11.7-alpine@sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a
+    restart: unless-stopped
+    env_file: ${STOCKAI_HUB_ENV_FILE:-.env}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [private]
+volumes:
+  hub_data:
+  hub_control:
+  caddy_data:
+  caddy_config:
+networks:
+  private:

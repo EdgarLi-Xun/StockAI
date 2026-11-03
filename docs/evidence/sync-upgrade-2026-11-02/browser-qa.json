@@ -1,0 +1,28 @@
+{
+  "version": "3.2.0-preview.1",
+  "url": "http://127.0.0.1:8872/#system",
+  "isolated_fixture": true,
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "checks": {
+    "sync_navigation": true,
+    "unconfigured_no_fake_success": true,
+    "source_failure_not_latest": true,
+    "untrusted_manifest_blocked": true,
+    "unsaved_input_leave_prompt": true,
+    "cancel_preserves_input": true,
+    "narrow_form_single_column": true,
+    "final_retention_text_visible": true,
+    "checkpoint_expiry_explained": true
+  },
+  "native_tray_interactions_tested": false,
+  "final_screenshot": "about-upgrade-final-full.png"
+}

@@ -1,3 +1,4 @@
+# 管理证券身份、产品交易规则和官方核验证据，缺失证据时阻止候选准入。
 from __future__ import annotations
 
 import json
@@ -11,6 +12,7 @@ from . import db
 from .config import now, timestamp
 
 
+# 定义最小申报量、数量步长、报价单位、涨跌幅及结算周期。
 class Rules(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lot_size: int = Field(100, ge=1, le=100000)
@@ -21,6 +23,7 @@ class Rules(BaseModel):
     verified: bool = False
     source_url: str = ""
 
+    # 校验最小报价单位为有限正数，避免非法价格精度。
     @field_validator("price_tick")
     @classmethod
     def tick_valid(cls, v):
@@ -31,6 +34,7 @@ class Rules(BaseModel):
         return str(d)
 
 
+# 约束添加证券时可提交的身份字段和自选分组。
 class InstrumentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     symbol: str = Field(min_length=1, max_length=24)
@@ -39,6 +43,7 @@ class InstrumentInput(BaseModel):
     asset_class: str = "stock"
     group_name: str = Field("我的自选", max_length=40)
 
+    # 规范化证券代码并限制字符范围。
     @field_validator("symbol")
     @classmethod
     def symbol_valid(cls, value):
@@ -46,6 +51,7 @@ class InstrumentInput(BaseModel):
             raise ValueError("证券代码格式错误")
         return value.upper()
 
+    # 仅接受已支持的市场标识。
     @field_validator("market")
     @classmethod
     def market_valid(cls, value):
@@ -53,6 +59,7 @@ class InstrumentInput(BaseModel):
             raise ValueError("不支持的市场")
         return value
 
+    # 仅接受已支持的证券资产类别。
     @field_validator("asset_class")
     @classmethod
     def asset_valid(cls, value):
@@ -61,12 +68,14 @@ class InstrumentInput(BaseModel):
         return value
 
 
+# 验证证据链接来自允许的官方域名，防止相似域名冒充。
 def official_url(url: str) -> bool:
     p = urlsplit(url)
     host = (p.hostname or "").lower()
     return p.scheme == "https" and not p.username and any(host == h or host.endswith("." + h) for h in ("sse.com.cn", "szse.cn", "cninfo.com.cn", "sge.com.cn", "shfe.com.cn"))
 
 
+# 按市场与代码生成稳定标识，新增或恢复证券的自选状态。
 def add(item: InstrumentInput):
     ident = f"{item.market}:{item.symbol}"
     if item.market in {"SH", "SZ", "FUND"} and not re.fullmatch(r"\d{6}", item.symbol):
@@ -78,6 +87,7 @@ def add(item: InstrumentInput):
     return get(ident)
 
 
+# 查询指定证券并解析规则和核验证据，不存在时明确报错。
 def get(ident: str) -> dict:
     row = db.one("SELECT * FROM instruments WHERE id=?", (ident,))
     if not row:
@@ -87,6 +97,7 @@ def get(ident: str) -> dict:
     return row
 
 
+# 汇总交易状态、风险标记、产品规则及证据时效的准入障碍。
 def risk_reasons(item: dict, at: datetime | None = None) -> list[str]:
     at = at or now()
     errors = []
@@ -110,6 +121,7 @@ def risk_reasons(item: dict, at: datetime | None = None) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
+# 校验官方来源和规则字段后更新证券的核验状态。
 def verify(ident: str, payload: dict):
     get(ident)
     if payload.get("status") not in {"active", "suspended", "delisted", "unknown"}:
@@ -134,6 +146,7 @@ def verify(ident: str, payload: dict):
     return get(ident)
 
 
+# 初始化内置观察证券清单，保持重复执行时不新增重复记录。
 def seed():
     if db.one("SELECT id FROM instruments LIMIT 1"):
         return

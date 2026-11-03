@@ -1,3 +1,4 @@
+# 构建隔离的测试数据库、官方核验证据和确定性行情，避免依赖真实账户或网络。
 import os
 from datetime import datetime,timedelta
 
@@ -9,6 +10,7 @@ from backend import db, config, maintenance, research, security
 from backend.config import TZ
 
 
+# 为每个测试切换到临时数据目录并重置数据库与任务状态。
 @pytest.fixture(autouse=True)
 def isolated_data(tmp_path,monkeypatch):
     for module in (db,config,maintenance,research,security):
@@ -18,6 +20,7 @@ def isolated_data(tmp_path,monkeypatch):
     security.LOGIN_ATTEMPTS.clear()
 
 
+# 创建带有效官方证据和产品规则的测试证券。
 @pytest.fixture
 def valid_item():
     from backend import instruments
@@ -29,8 +32,9 @@ def valid_item():
     })
 
 
+# 按固定算法构造带历史状态、公司行动和来源证据的日线样本。
 def sample_bars(count=100):
-    # Deterministic synthetic data is confined to the isolated test database.
+    # 确定性合成行情仅用于隔离测试数据库，不进入正式研究数据。
     start=datetime(2025,1,2,15,tzinfo=TZ)
     out=[]
     day=start
@@ -43,11 +47,13 @@ def sample_bars(count=100):
     return out
 
 
+# 提供可独立修改的标准行情样本。
 @pytest.fixture
 def bars():
     return sample_bars()
 
 
+# 启动本地测试应用并配置可信会话，供接口用例复用。
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient

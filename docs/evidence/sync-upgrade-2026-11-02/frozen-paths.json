@@ -1,0 +1,27 @@
+{
+  "isolated_fixture": true,
+  "contains_chinese_and_spaces": true,
+  "probes": {
+    "upgrade": {
+      "component": "desktop",
+      "data": "D:\\MyWork\\StockAI\\.tmp\\StockAI 实机32-f46b0d30\\upgrade\\data",
+      "erasures": "D:\\MyWork\\StockAI\\.tmp\\StockAI 实机32-f46b0d30\\upgrade\\control",
+      "expected_version": "3.2.0-preview.1",
+      "client_only": false
+    },
+    "rollback": {
+      "component": "desktop",
+      "data": "D:\\MyWork\\StockAI\\.tmp\\StockAI 实机32-f46b0d30\\rollback\\data",
+      "erasures": "D:\\MyWork\\StockAI\\.tmp\\StockAI 实机32-f46b0d30\\rollback\\control",
+      "expected_version": "3.2.0-preview.1",
+      "client_only": false
+    },
+    "remote-client": {
+      "component": "desktop",
+      "data": "D:\\MyWork\\StockAI\\.tmp\\StockAI 实机32-f46b0d30\\remote-client\\client-state\\config",
+      "erasures": "D:\\MyWork\\StockAI\\.tmp\\StockAI 实机32-f46b0d30\\remote-client\\client-state\\control",
+      "expected_version": "3.2.0-preview.1",
+      "client_only": true
+    }
+  }
+}

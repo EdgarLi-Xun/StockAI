@@ -1,3 +1,4 @@
+# 提供公网服务的离线初始化、管理员管理、迁移、密钥和备份维护命令。
 from __future__ import annotations
 
 import argparse
@@ -12,6 +13,7 @@ from .lifecycle import ErasureJournal,ProcessLock,reconcile,recover_swap,clean_s
 from . import backups
 
 
+# 解析维护子命令，持有必要服务锁并调用对应的离线操作。
 def main(argv=None):
     parser=argparse.ArgumentParser(description="StockAI 公网版离线初始化与维护（先停止服务）")
     sub=parser.add_subparsers(dest="command",required=True)
@@ -49,7 +51,7 @@ def main(argv=None):
         elif args.command=="restore":
             result=backups.restore(store,keys,journal,args.id,args.identity)
         elif args.command=="rotate-key":
-            # Keep old versions while retained backups/journal signatures still require them.
+            # 保留验证现存备份与账本签名所需的旧版密钥。
             version=keys.rotate()
             with store.tx(immediate=True) as c:
                 for row in c.execute("SELECT * FROM model_credentials WHERE envelope_json IS NOT NULL").fetchall():

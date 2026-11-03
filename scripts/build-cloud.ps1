@@ -1,5 +1,7 @@
+# 构建公网前端静态资源，输出目录由 Vite 的 public 模式决定。
 $ErrorActionPreference = 'Stop'
 $TaskRoot = Split-Path -Parent $PSScriptRoot
+# 暂时进入前端目录，确保成功或失败后都恢复原工作目录。
 Push-Location (Join-Path $TaskRoot 'frontend')
 try {
     npm ci

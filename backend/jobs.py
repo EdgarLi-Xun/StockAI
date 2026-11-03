@@ -1,3 +1,4 @@
+# 管理本地后台任务、幂等归档及上海时区的内建任务调度。
 from __future__ import annotations
 
 import json
@@ -17,10 +18,12 @@ STOP=threading.Event()
 SCHEDULE_LOCK=threading.Lock()
 
 
+# 记录任务时间、日志级别及消息，供任务中心查询。
 def log(job_id,message,level="info"):
     db.execute("INSERT INTO job_logs(job_id,ts,level,message) VALUES(?,?,?,?)",(job_id,timestamp(),level,str(message)[:2000]))
 
 
+# 按逻辑键复用已有任务或提交新任务，防止重复执行与归档。
 def enqueue(kind: str, logical_key: str | None=None, retry=False):
     if kind not in {"sync","standard","full","closing","match","metals","backup"}:
         raise ValueError("未知任务类型")
@@ -48,6 +51,7 @@ def enqueue(kind: str, logical_key: str | None=None, retry=False):
     return db.one("SELECT * FROM jobs WHERE id=?",(row["id"],))
 
 
+# 按已启用的 SMTP 配置发送通知，密码仅从进程环境读取。
 def send_email(message):
     import os
     cfg=db.settings()
@@ -70,6 +74,7 @@ def send_email(message):
         db.notify("邮件发送失败，请检查配置和网络；凭据未写入日志。","warning")
 
 
+# 执行指定任务并统一落库结果、错误、日志及用户通知。
 def run(ident):
     with maintenance.LOCK:
         row=db.one("SELECT * FROM jobs WHERE id=?",(ident,))
@@ -92,7 +97,7 @@ def run(ident):
                 if result["status"]=="unavailable":
                     raise ValueError("全部行情源不可用；缓存未被覆盖，未生成候选")
             elif row["kind"] in {"standard","full","closing"}:
-                # A scheduled report syncs once per logical run; archived earlier reports remain immutable.
+                # 每个逻辑报告任务只同步一次数据，已经归档的旧报告不随刷新改写。
                 sync_result=collectors.sync_all(fnlog)
                 if row["kind"]=="full":
                     from . import backtest, context, instruments
@@ -136,11 +141,13 @@ def run(ident):
             send_email(f"StockAI {row['kind']} 失败，请查看本机任务中心。")
 
 
+# 返回唯一内建调度源、时区和各任务的计划说明。
 def schedule_info():
     cfg=db.settings()
     return {"source":"builtin","timezone":"Asia/Shanghai","enabled":cfg.scheduler_enabled and __import__("os").environ.get("STOCKAI_DISABLE_SCHEDULER")!="1","plans":[{"kind":"standard","label":"标准版早报","time":cfg.morning_time,"rule":"每天，A股使用最近已完成交易日数据"},{"kind":"closing","label":"收盘跟踪","time":cfg.closing_time,"rule":"仅经日历核验的A股交易日"},{"kind":"full","label":"完整版周度复盘","time":cfg.weekly_time,"rule":"每周日"}],"catch_up":"主机恢复后补跑当天已到期任务；更早缺报显示为缺失，可手动按原日期补跑，不伪造历史价格。","windows_task_scheduler":"仅负责登录后启动服务，不注册第二套08/16/20点研究任务。"}
 
 
+# 按上海时间检查到期计划，并通过逻辑键确保同日任务幂等。
 def tick(at=None):
     at=at or now()
     cfg=db.settings()
@@ -160,11 +167,12 @@ def tick(at=None):
     db.execute("INSERT INTO settings VALUES('last_scheduler_tick',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(at.isoformat(),))
 
 
+# 记录错过的历史计划，避免补造对应日期的行情与研究报告。
 def record_missed(at=None):
     at=at or now()
     row=db.one("SELECT value FROM settings WHERE key='last_scheduler_tick'")
     if not row:
-        return  # Never invent a history that was not persisted.
+        return  # 只依据已保存的任务记录恢复状态，不补造从未持久化的执行历史。
     last=datetime.fromisoformat(row["value"])
     if last.date()>=at.date():
         return
@@ -182,10 +190,12 @@ def record_missed(at=None):
         db.notify(f"检测到{count}项历史计划缺报；已标记错过执行，可在任务中心补跑。","warning")
 
 
+# 恢复任务状态并启动内建调度循环。
 def start_scheduler():
     STOP.clear()
     record_missed()
     db.execute("UPDATE jobs SET status='interrupted',finished_at=?,error='服务退出导致任务中断，可按原幂等键补跑' WHERE status IN ('running','queued')",(timestamp(),))
+    # 按固定间隔检查到期任务，记录异常后继续等待下一轮。
     def loop():
         while not STOP.wait(30):
             try:

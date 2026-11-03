@@ -1,9 +1,11 @@
+# 项目元信息与 Python 版本要求。
 [project]
 name = "stockai"
 version = "2.0.0"
 description = "本地股票与贵金属研究及模拟交易终端"
 requires-python = ">=3.11"
 
+# 测试只发现 tests 目录，将项目根目录加入导入路径并使用精简输出。
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

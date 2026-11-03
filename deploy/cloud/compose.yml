@@ -1,13 +1,16 @@
+# 公网部署由反向代理和应用组成，研究数据、删除权威记录与凭据使用独立卷。
 name: stockai-cloud
 services:
+  # 应用仅在私有网络暴露端口，并移除额外权限。
   app:
     platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/cloud/Dockerfile
-    image: stockai-cloud:3.0.0
+    image: stockai-cloud:3.2.0-preview.1
     restart: unless-stopped
     init: true
+    # 退出时预留时间等待在途任务结束，再释放应用独占锁。
     stop_grace_period: 16m
     env_file: ${STOCKAI_ENV_FILE:-.env}
     environment:
@@ -23,6 +26,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     tmpfs: ["/tmp:mode=1777,size=128M"]
+# Caddy 对外提供 HTTPS，并将请求转发到私有网络中的应用。
   caddy:
     platform: linux/amd64
     image: caddy:2.11.7-alpine@sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a
@@ -35,11 +39,13 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     networks: [private]
+# 将研究数据、独立删除记录与密钥分开持久化，避免恢复旧备份覆盖权威状态。
 volumes:
   research:
   erasures:
   credentials:
   caddy_data:
   caddy_config:
+# 应用与反向代理通过专属网络通信。
 networks:
   private:

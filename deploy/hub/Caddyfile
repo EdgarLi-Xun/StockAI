@@ -1,0 +1,7 @@
+{$STOCKAI_HUB_DOMAIN} {
+    encode zstd gzip
+    request_body {
+        max_size 64MB
+    }
+    reverse_proxy hub:8770
+}

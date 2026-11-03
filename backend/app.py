@@ -1,3 +1,4 @@
+# 本地 FastAPI 入口，封装鉴权、研究数据、模拟交易与维护接口。
 from __future__ import annotations
 
 import csv
@@ -18,6 +19,7 @@ from .budget import budget_check
 from .config import DATA, ROOT, Settings, VERSION, now, timestamp
 
 
+# 启动数据库、访问令牌和调度器，并在应用退出时收尾。
 @asynccontextmanager
 async def lifespan(app):
     db.initialize()
@@ -31,21 +33,25 @@ async def lifespan(app):
 app=FastAPI(title="StockAI Local API",version=VERSION,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
 
 
+# 将业务参数错误转换为受长度限制的客户端错误响应。
 @app.exception_handler(ValueError)
 async def value_error(request,exc):
     return JSONResponse({"detail":str(exc)[:2000]},status_code=400)
 
 
+# 将重复记录与关联约束失败转换为可理解的冲突提示。
 @app.exception_handler(sqlite3.IntegrityError)
 async def integrity_error(request,exc):
     return JSONResponse({"detail":"记录重复或关联校验失败，请刷新后重试"},status_code=409)
 
 
+# 将缺少必要字段的错误转换为请求校验提示。
 @app.exception_handler(KeyError)
 async def missing_field(request,exc):
     return JSONResponse({"detail":"缺少必填字段："+str(exc)},status_code=422)
 
 
+# 统一检查主机、来源、访问令牌及写入权限，再交给业务接口。
 @app.middleware("http")
 async def guard(request: Request,call_next):
     if not security.valid_host(request) or not security.peer_allowed(security.effective_peer(request)) or (security.forwarded(request) and not db.settings().lan_enabled):
@@ -75,11 +81,13 @@ async def guard(request: Request,call_next):
     return response
 
 
+# 返回服务版本、上海时间与仅支持模拟交易的运行模式。
 @app.get("/api/health")
 def health():
     return {"status":"ok","version":VERSION,"time":timestamp(),"timezone":"Asia/Shanghai","mode":"simulation-only"}
 
 
+# 只允许可信本机请求引导管理员会话，其他来源必须登录。
 @app.get("/api/session")
 def session(request: Request):
     if not security.local_request(request):
@@ -87,16 +95,19 @@ def session(request: Request):
     return {"token":security.local_token(),"role":"admin","requires_login":False}
 
 
+# 校验登录角色与密码，并返回带权限的会话令牌。
 @app.post("/api/login")
 def login(payload:dict,request:Request):
     return security.login(str(payload.get("password","")),str(payload.get("role","admin")),request.client.host)
 
 
+# 返回本机 AI 服务的可用性检查结果。
 @app.get("/api/model/health")
 def model_health():
     return ai.health()
 
 
+# 合并自选、最新行情、风险障碍和预算估算，生成列表视图。
 def watch_rows():
     cfg=db.settings()
     context=collectors.calendar_context()
@@ -121,6 +132,7 @@ def watch_rows():
     return result
 
 
+# 汇总自选数量、报价覆盖、最近报告和通知等总览数据。
 @app.get("/api/dashboard")
 def dashboard():
     rows=watch_rows()
@@ -133,16 +145,19 @@ def dashboard():
     return {"version":VERSION,"time":timestamp(),"calendar":collectors.calendar_context(),"stats":{"watch_count":len(rows),"quote_count":sum(r["quote"] is not None for r in rows),"verified_count":sum(not instruments.risk_reasons(r) for r in rows),"candidate_count":len(candidates)},"watchlist":rows,"metals":metals(),"reports":reports,"candidates":candidates,"jobs":db.query("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 6"),"notifications":db.query("SELECT * FROM notifications ORDER BY id DESC LIMIT 10"),"settings_summary":{"budget":db.settings().budget,"fee_confirmed":db.settings().fees.confirmed,"lan_enabled":db.settings().lan_enabled}}
 
 
+# 返回包含行情与准入状态的自选证券列表。
 @app.get("/api/watchlist")
 def watchlist():
     return watch_rows()
 
 
+# 校验输入并将证券加入共享自选清单。
 @app.post("/api/watchlist")
 def add_watch(item:instruments.InstrumentInput):
     return instruments.add(item)
 
 
+# 仅允许更新证券分组与置顶标记，保持身份和规则字段受控。
 @app.patch("/api/instruments/{ident}")
 def patch_instrument(ident:str,payload:dict):
     instruments.get(ident)
@@ -157,12 +172,14 @@ def patch_instrument(ident:str,payload:dict):
     return instruments.get(ident)
 
 
+# 取消证券的自选状态，保留已有研究与交易关联。
 @app.delete("/api/watchlist/{ident}")
 def remove_watch(ident:str):
     db.execute("UPDATE instruments SET watched=0 WHERE id=?",(ident,))
     return {"removed":True}
 
 
+# 按指定格式导出自选证券的基础身份信息。
 @app.get("/api/watchlist/export")
 def export_watch(format:str="json"):
     rows=[{k:r[k] for k in ("symbol","market","name","asset_class","group_name")} for r in watch_rows()]
@@ -175,6 +192,7 @@ def export_watch(format:str="json"):
     return download(db.dumps(rows),"watchlist.json","application/json")
 
 
+# 整批校验导入内容后写入，避免非法记录导致部分导入。
 @app.post("/api/watchlist/import")
 def import_watch(payload:dict):
     raw=payload.get("content","")
@@ -196,6 +214,7 @@ def import_watch(payload:dict):
     return {"imported":len(unique),"duplicates":len(items)-len(unique)}
 
 
+# 校验图表周期并返回证券规则、行情、技术指标与相关资料。
 @app.get("/api/instruments/{ident}")
 def detail(ident:str,timeframe:str="1d"):
     if timeframe not in {"1d","1w","15m","60m"}:
@@ -208,11 +227,13 @@ def detail(ident:str,timeframe:str="1d"):
     return {"instrument":item,"bars":bars,"observation":json.loads(observed["payload_json"]) if observed else None,"indicators":analytics.indicators(bars),"risk_reasons":instruments.risk_reasons(item),"events":db.query("SELECT * FROM risk_events WHERE instrument_id=? ORDER BY verified_at DESC LIMIT 100",(ident,))}
 
 
+# 更新证券官方核验证据和产品规则。
 @app.post("/api/instruments/{ident}/verify")
 def verify(ident:str,payload:dict):
     return instruments.verify(ident,payload)
 
 
+# 校验周期后同步指定证券行情。
 @app.post("/api/instruments/{ident}/sync")
 def sync_single(ident:str,payload:dict):
     tf=payload.get("timeframe","1d")
@@ -221,11 +242,13 @@ def sync_single(ident:str,payload:dict):
     return collectors.sync_instrument(instruments.get(ident),tf)
 
 
+# 触发指定证券的公告采集并返回结果。
 @app.post("/api/instruments/{ident}/announcements")
 def fetch_announcements(ident:str):
     return collectors.announcements(ident)
 
 
+# 校验批量行情输入后调用原子保存逻辑。
 @app.post("/api/instruments/{ident}/bars/import")
 def import_bars(ident:str,payload:dict):
     instruments.get(ident)
@@ -239,6 +262,7 @@ def import_bars(ident:str,payload:dict):
     return {"imported":len(bars)}
 
 
+# 按证券规则、用户费用与预算计算合法数量及含费成本。
 @app.post("/api/budget")
 def estimate_budget(payload:dict):
     item=instruments.get(str(payload["instrument_id"]))
@@ -248,6 +272,7 @@ def estimate_budget(payload:dict):
     return result
 
 
+# 返回现货金银及期货观察行情，并标明数据状态与来源。
 @app.get("/api/metals")
 def metals():
     result=[]
@@ -263,12 +288,14 @@ def metals():
     return result
 
 
+# 按模式和搜索条件查询报告索引，限制返回条数。
 @app.get("/api/reports")
 def reports(mode:str="",q:str=""):
     rows=db.query("SELECT * FROM reports WHERE (?='' OR mode=?) AND (report_date LIKE ? OR payload_json LIKE ?) ORDER BY generated_at DESC LIMIT 200",(mode,mode,"%"+q+"%","%"+q+"%"))
     return [{"id":r["id"],"mode":r["mode"],"report_date":r["report_date"],"generated_at":r["generated_at"],"summary":json.loads(r["payload_json"])["summary"],"candidate_count":len(json.loads(r["payload_json"])["candidates"]),"ai_status":json.loads(r["payload_json"])["ai_status"]} for r in rows]
 
 
+# 读取完整报告事实及对应归档信息。
 @app.get("/api/reports/{ident}")
 def report_detail(ident:str):
     row=db.one("SELECT * FROM reports WHERE id=?",(ident,))
@@ -277,10 +304,12 @@ def report_detail(ident:str):
     return {"id":ident,**json.loads(row["payload_json"])}
 
 
+# 统一设置下载内容类型与附件文件名。
 def download(content,name,media="application/json"):
     return Response(content,media_type=media,headers={"Content-Disposition":f'attachment; filename="{name}"'})
 
 
+# 校验导出格式并返回报告的 Markdown、HTML 或 JSON。
 @app.get("/api/reports/{ident}/export")
 def export_report(ident:str,format:str="md"):
     row=db.one("SELECT * FROM reports WHERE id=?",(ident,))
@@ -292,16 +321,19 @@ def export_report(ident:str,format:str="md"):
     return FileResponse(path,media_type="text/markdown" if format=="md" else "text/html",filename=ident+"."+format)
 
 
+# 汇总任务计划、任务状态与运行日志。
 @app.get("/api/jobs")
 def job_list():
     return {"schedule":jobs.schedule_info(),"jobs":db.query("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 200"),"logs":db.query("SELECT * FROM job_logs ORDER BY id DESC LIMIT 400")}
 
 
+# 按请求类型提交后台任务并返回队列状态。
 @app.post("/api/jobs")
 def run_job(payload:dict):
     return jobs.enqueue(str(payload["kind"]))
 
 
+# 读取原任务并通过任务队列执行允许的重试。
 @app.post("/api/jobs/{ident}/retry")
 def retry_job(ident:str):
     row=db.one("SELECT * FROM jobs WHERE id=?",(ident,))
@@ -310,21 +342,25 @@ def retry_job(ident:str):
     return jobs.enqueue(row["kind"],row["logical_key"],retry=True)
 
 
+# 返回虚拟账户、持仓、委托及资金流水总览。
 @app.get("/api/simulation")
 def portfolio():
     return simulation.portfolio()
 
 
+# 根据用户明确输入的虚拟本金创建模拟账户。
 @app.post("/api/accounts")
 def account(payload:dict):
     return simulation.create_account(payload["name"],payload["initial_cash"])
 
 
+# 提交经过预算、持仓与产品规则校验的模拟委托。
 @app.post("/api/orders")
 def order(payload:simulation.OrderInput):
     return simulation.order(payload)
 
 
+# 仅撤销仍在等待成交的委托，其他状态返回明确错误。
 @app.post("/api/orders/{ident}/cancel")
 def cancel(ident:str):
     changed=db.execute("UPDATE orders SET status='cancelled',reason='用户撤销' WHERE id=? AND status='pending'",(ident,))
@@ -333,17 +369,20 @@ def cancel(ident:str):
     return {"cancelled":True}
 
 
+# 返回历史实验参数、摘要及证据完整性状态。
 @app.get("/api/backtests")
 def backtest_list():
     rows=db.query("SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT 100")
     return [{"id":r["id"],"created_at":r["created_at"],"params":json.loads(r["params_json"]),"summary":json.loads(r["result_json"])["summary"],"validated":json.loads(r["result_json"])["validated"],"strategy_version":r["strategy_version"],"data_hash":r["data_hash"]} for r in rows]
 
 
+# 执行历史回测并保存可复现快照。
 @app.post("/api/backtests")
 def create_backtest(payload:backtest.Parameters):
     return backtest.create(payload)
 
 
+# 读取完整实验结果及其行情和策略快照信息。
 @app.get("/api/backtests/{ident}")
 def get_backtest(ident:str):
     row=db.one("SELECT * FROM backtest_runs WHERE id=?",(ident,))
@@ -352,21 +391,25 @@ def get_backtest(ident:str):
     return {"id":ident,"created_at":row["created_at"],"params":json.loads(row["params_json"]),"data_hash":row["data_hash"],"strategy_version":row["strategy_version"],**json.loads(row["result_json"])}
 
 
+# 调用已保存快照进行确定性重演。
 @app.post("/api/backtests/{ident}/reproduce")
 def reproduce(ident:str):
     return backtest.reproduce(ident)
 
 
+# 将完整实验结果序列化为 JSON 附件。
 @app.get("/api/backtests/{ident}/export")
 def export_backtest(ident:str):
     return download(db.dumps(get_backtest(ident)),ident+".json")
 
 
+# 返回当前配置、鉴权准备状态、调度信息和实际监听地址。
 @app.get("/api/settings")
 def settings():
     return {"settings":db.settings().model_dump(),"lan_auth_configured":security.lan_ready(),"schedule":jobs.schedule_info(),"runtime_host":os.environ.get("STOCKAI_BIND_HOST","127.0.0.1")}
 
 
+# 校验完整配置及局域网启用前提后保存设置。
 @app.put("/api/settings")
 def save_settings(payload:dict,request:Request):
     cfg=Settings.model_validate(payload["settings"])
@@ -382,6 +425,7 @@ def save_settings(payload:dict,request:Request):
     return {"saved":True,"restart_required":cfg.lan_enabled!=old.lan_enabled}
 
 
+# 仅允许可信本机请求设置管理员或只读访问密码。
 @app.post("/api/security/password")
 def set_password(payload:dict,request:Request):
     if not security.local_request(request):
@@ -390,26 +434,31 @@ def set_password(payload:dict,request:Request):
     return {"saved":True}
 
 
+# 导出当前经过校验的配置，不包含进程环境中的邮件密码。
 @app.get("/api/config/export")
 def export_config():
     return download(db.settings().model_dump_json(),"stockai-config.json")
 
 
+# 返回已保存备份及其统计信息。
 @app.get("/api/backups")
 def backups():
     return maintenance.list_backups()
 
 
+# 创建并校验数据库和报告档案备份。
 @app.post("/api/backups")
 def backup():
     return maintenance.create_backup()
 
 
+# 解析受控备份路径并返回下载文件。
 @app.get("/api/backups/{ident}/download")
 def backup_download(ident:str):
     return FileResponse(maintenance.backup_path(ident),filename="stockai-backup-"+ident+".zip")
 
 
+# 仅接受可信本机请求，并要求匹配的确认文字后恢复备份。
 @app.post("/api/backups/{ident}/restore")
 def restore(ident:str,payload:dict,request:Request):
     if not security.local_request(request):
@@ -417,22 +466,25 @@ def restore(ident:str,payload:dict,request:Request):
     return maintenance.restore_backup(ident,payload.get("confirmation"))
 
 
+# 按时间倒序返回最近通知。
 @app.get("/api/notifications")
 def notifications():
     return db.query("SELECT * FROM notifications ORDER BY id DESC LIMIT 100")
 
 
+# 将现有本地通知标记为已读。
 @app.post("/api/notifications/read")
 def read_notifications():
     db.execute("UPDATE notifications SET read=1")
     return {"read":True}
 
 
-# Production and desktop both serve the exact same static build from the API origin.
+# 浏览器与桌面客户端从同一 API 来源加载相同的静态构建，保持界面与数据一致。
 static=ROOT/"frontend"/"dist"
 if static.exists():
     app.mount("/",StaticFiles(directory=static,html=True),name="web")
 else:
+    # 前端尚未构建时返回安装提示，便于定位缺失的静态资源。
     @app.get("/")
     def setup_page():
         return Response("StockAI 后端已启动。请在 frontend 目录运行 npm install 与 npm run build，然后重启服务。",media_type="text/plain; charset=utf-8")

@@ -1,4 +1,4 @@
-# StockAI 公网多用户版 3.0
+# StockAI 公网研究工作台 3.1 预览版
 
 独立入口为 `backend.public_app:app`，独立前端构建为 `frontend/dist-public`。现有 Windows / 8765 本地版继续使用原来的数据与入口。公网版不提供本机自动管理员身份，不会自动迁移本地文件。
 
@@ -6,7 +6,9 @@
 
 ## 构建与初始化
 
-也可从 [GitHub Release](https://github.com/EdgarLi-Xun/StockAI/releases/latest) 下载 `StockAI-3.0.0-Public.zip` 并核对同名 `.zip.sha256`。该包包含构建后的 `frontend/dist-public`，可跳过下方前端 npm 步骤，进入 `deploy/cloud` 后配置环境并构建应用镜像。
+本次工作区的交付包为 `dist/StockAI-3.1.0-preview.1-Public.zip`，核对同名 `.zip.sha256` 后使用。它包含构建后的 `frontend/dist-public`，可跳过下方前端 npm 步骤，进入 `deploy/cloud` 后配置环境并构建应用镜像。本预览包尚未发布到 GitHub Release；旧的 3.0 包不包含本轮研究增强与助手。
+
+新增功能与受控验证见 [操作说明](../../docs/使用说明-研究工作台与AI助手.md) 和 [研究验收记录](../../docs/验收记录-研究工作台与AI助手.md)。真实模型、SMTP、生产域名与目标主机验收仍需完成。首次启动增量升级到研究 schema 2；升级前保留业务、最新控制目录和主密钥的完整检查点。旧研究归档及账本保持原样，升级复制失败会回滚复制事务。
 
 在有 Docker Compose、Node.js 24 和网络的 Linux 主机上，从仓库根目录执行：
 

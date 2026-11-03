@@ -1,3 +1,4 @@
+# 使用 Qt WebEngine 打开共享研究界面，管理单实例、导航、下载和窗口生命周期。
 from __future__ import annotations
 
 import hashlib
@@ -6,6 +7,7 @@ import sys
 from backend.config import DATA, ROOT
 
 
+# 确保共享后端就绪后启动桌面窗口，并处理单实例与冒烟检查。
 def launch(smoke_test=False):
     try:
         from PySide6.QtCore import QTimer, QUrl
@@ -37,7 +39,9 @@ def launch(smoke_test=False):
     except Exception as exc:
         QMessageBox.critical(None,"StockAI 启动失败",str(exc))
         raise SystemExit(1)
+    # 限制内嵌页面导航范围，把外部链接交给系统浏览器。
     class Page(QWebEnginePage):
+        # 仅在嵌入窗口中接受允许的本地导航，其他链接按外部地址处理。
         def acceptNavigationRequest(self,url,kind,main_frame):
             if url.host() in {"127.0.0.1","localhost"} and url.port()==8765:
                 return True
@@ -56,6 +60,7 @@ def launch(smoke_test=False):
     view.setPage(page)
     window.setCentralWidget(view)
     window.statusBar().showMessage("本地服务 · 127.0.0.1:8765 · 仅研究与模拟 · 关闭窗口后共享服务继续运行")
+    # 通过系统保存对话框确定下载位置后接受或取消下载。
     def download(item):
         from PySide6.QtWidgets import QFileDialog
         name,_=QFileDialog.getSaveFileName(window,"保存导出文件",item.downloadFileName())
@@ -68,6 +73,7 @@ def launch(smoke_test=False):
         else:
             item.cancel()
     profile.downloadRequested.connect(download)
+    # 收到另一个桌面实例的激活请求时恢复并前置当前窗口。
     def activate():
         pending=server.nextPendingConnection()
         if pending:
@@ -77,6 +83,7 @@ def launch(smoke_test=False):
         window.activateWindow()
     server.newConnection.connect(activate)
     outcome={"loaded":False}
+    # 记录主页面加载结果，供冒烟检查判断界面是否成功打开。
     def loaded(ok):
         outcome["loaded"]=ok
         if not ok:

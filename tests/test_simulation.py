@@ -1,9 +1,11 @@
+# 验证虚拟资金、持仓、委托、费用和流水在时序及预算约束下保持一致。
 import pytest
 
 from backend import collectors, db, simulation
 from backend.config import Fees
 
 
+# 准备明确费用、已核验证券、行情及虚拟账户的撮合环境。
 @pytest.fixture
 def environment(valid_item,bars,monkeypatch):
     cfg=db.settings(); cfg.fees=Fees(stock_transfer=0,slippage_bps=0); db.save_settings(cfg)
@@ -13,10 +15,12 @@ def environment(valid_item,bars,monkeypatch):
     return valid_item,bars,account
 
 
+# 构造固定数量和方向相关限价的模拟委托输入。
 def make_order(item,account,side='buy',key='unique-test-order-1'):
     return simulation.OrderInput(client_key=key,account_id=account['id'],instrument_id=item['id'],side=side,quantity=100,limit_price=6 if side=='buy' else 4)
 
 
+# 验证成交前后的现金、数量、费用和流水逐项一致。
 def test_ac_f08_cash_position_fee_ledger_consistency(environment):
     item,bars,account=environment
     order=simulation.order(make_order(item,account))
@@ -39,6 +43,7 @@ def test_ac_f08_cash_position_fee_ledger_consistency(environment):
     assert cash==pytest.approx(expected)
 
 
+# 验证盘中创建的委托不能使用已经过去的当日开盘成交。
 def test_midday_order_cannot_use_same_day_open(environment):
     item,bars,account=environment
     order=simulation.order(make_order(item,account))
@@ -48,6 +53,7 @@ def test_midday_order_cannot_use_same_day_open(environment):
     assert db.one('SELECT source_ts FROM orders WHERE id=?',(order['id'],))['source_ts']==bars[2]['ts']
 
 
+# 验证同一幂等键重复提交不会重复预占现金。
 def test_order_idempotent_same_cash_reservation(environment):
     item,bars,account=environment
     payload=make_order(item,account)
@@ -57,6 +63,7 @@ def test_order_idempotent_same_cash_reservation(environment):
     assert db.one('SELECT COUNT(*) n FROM orders')['n']==1
 
 
+# 验证多笔待成交委托不能绕过同一证券的预算限制。
 def test_multiple_orders_cannot_bypass_per_symbol_budget(environment):
     item,bars,account=environment
     simulation.order(make_order(item,account))
@@ -64,6 +71,7 @@ def test_multiple_orders_cannot_bypass_per_symbol_budget(environment):
         simulation.order(make_order(item,account,key='second-distinct-order'))
 
 
+# 验证 ETF 限价按产品规定的千分位报价单位校验。
 def test_etf_limit_uses_mill_tick(environment):
     item,bars,account=environment
     rules={**item['rules'],'price_tick':'0.001'}
@@ -79,12 +87,14 @@ def test_etf_limit_uses_mill_tick(environment):
     assert db.one('SELECT status FROM orders WHERE id=?',(order['id'],))['status']=='pending'
 
 
+# 验证证券交易状态未知时拒绝创建买入委托。
 def test_buy_with_unknown_status_rejected(bars,monkeypatch):
     account=simulation.create_account('虚拟',10000)
     with pytest.raises(ValueError,match='交易状态'):
         simulation.order(simulation.OrderInput(client_key='test-unknown',account_id=account['id'],instrument_id='SH:603126',side='buy',quantity=100,limit_price=5))
 
 
+# 验证过期行情不能用于创建新买入委托。
 def test_stale_data_cannot_create_buy(valid_item,bars):
     collectors.save_bars(valid_item['id'],bars)
     account=simulation.create_account('虚拟',10000)
@@ -92,6 +102,7 @@ def test_stale_data_cannot_create_buy(valid_item,bars):
         simulation.order(make_order(valid_item,account))
 
 
+# 验证创建账户必须提供明确且有限的正数虚拟本金。
 def test_explicit_initial_capital_required():
     for cash in (0,-100,'NaN'):
         with pytest.raises(ValueError):

@@ -1,3 +1,4 @@
+# 在明确用户归属下管理虚拟资金、委托、撮合和持仓快照。
 """Owned virtual ledgers. All account/order IDs are resolved together with the user."""
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from .store import json_text
 from .workspace import owned
 
 
+# 为本人创建具有明确初始虚拟本金的模拟账户及首笔流水。
 def create_account(store,uid,name,initial_cash):
     name=str(name).strip();cash=money(initial_cash)
     if not name or len(name)>80 or not 0<cash<=100000000:
@@ -31,8 +33,10 @@ def create_account(store,uid,name,initial_cash):
     return owned(store,"sim_accounts",uid,ident)
 
 
+# 在用户锁内校验所有权、预算与可用资源，并按客户端键幂等提交委托。
 def order(store,uid,p:OrderInput):
     owned(store,"sim_accounts",uid,p.account_id)
+    if getattr(store,'sync_service',None):store.sync_service.account_guard(uid,p.account_id)
     existing=store.one("SELECT * FROM sim_orders WHERE user_id=? AND client_key=?",(uid,p.client_key))
     if existing:
         _same_order(existing,p)
@@ -78,20 +82,25 @@ def order(store,uid,p:OrderInput):
     return owned(store,"sim_orders",uid,ident)
 
 
+# 比较已存在委托与本次输入，防止同一幂等键被不同内容复用。
 def _same_order(existing,p):
     if any(str(existing[k])!=str(getattr(p,k)) for k in ("account_id","instrument_id","side","quantity")) or dec(existing["limit_price"])!=dec(p.limit_price) or (existing["stop_loss"] is not None)!=(p.stop_loss is not None) or (p.stop_loss is not None and dec(existing["stop_loss"])!=dec(p.stop_loss)):
         raise ValueError("幂等键已被不同委托使用")
 
 
+# 仅撤销本人仍待成交的委托。
 def cancel(store,uid,ident):
-    owned(store,"sim_orders",uid,ident)
+    row=owned(store,"sim_orders",uid,ident)
+    if getattr(store,'sync_service',None):store.sync_service.account_guard(uid,row['account_id'])
     store.execute("UPDATE sim_orders SET status='cancelled' WHERE id=? AND user_id=? AND status='pending'",(ident,uid))
     return {"success":True}
 
 
+# 按后续有效行情撮合本人委托，并事务性更新账户、持仓与唯一流水。
 def match(store,uid):
     prefs=get_preferences(store,uid);results=[];ctx=market.calendar(store)
-    for queued in store.query("SELECT * FROM sim_orders WHERE user_id=? AND status='pending' ORDER BY created_at,id",(uid,)):
+    for queued in store.query("SELECT * FROM sim_orders WHERE user_id=? AND status='pending' AND id NOT IN(SELECT order_id FROM sync_inert_orders WHERE user_id=?) ORDER BY created_at,id",(uid,uid)):
+        if getattr(store,'sync_service',None):store.sync_service.account_guard(uid,queued['account_id'])
         item=market.instrument(store,queued["instrument_id"]);bars=market.bars_for(store,item["id"])
         for i,b in enumerate(bars):
             if datetime.fromisoformat(b["ts"]).replace(hour=9,minute=30,second=0)<=datetime.fromisoformat(queued["created_at"]) or datetime.fromisoformat(b["ts"])>now():
@@ -148,6 +157,7 @@ def match(store,uid):
     return results
 
 
+# 根据已有止损条件生成后续卖出委托，遵守可卖数量与结算规则。
 def _stops(store,uid):
     for lot in store.query("SELECT l.*,o.stop_loss FROM sim_lots l JOIN sim_orders o ON o.id=l.id AND o.user_id=l.user_id WHERE l.user_id=? AND l.quantity>0 AND o.stop_loss IS NOT NULL",(uid,)):
         bars=market.bars_for(store,lot["instrument_id"],limit=1)
@@ -162,6 +172,7 @@ def _stops(store,uid):
             store.notify(uid,"模拟止损委托未生成，请检查可用持仓和规则。","warning")
 
 
+# 返回本人虚拟账户、估值曲线、委托及现金流水。
 def portfolio(store,uid):
     out=[];ctx=market.calendar(store)
     for a in store.query("SELECT * FROM sim_accounts WHERE user_id=? ORDER BY created_at",(uid,)):

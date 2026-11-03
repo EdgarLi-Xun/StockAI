@@ -1,3 +1,4 @@
+# 在独立采集进程中调用行情源，隔离超时、依赖及外部接口故障。
 """Run a third-party collector in a killable process; never import AKShare in API workers."""
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import json
 import sys
 
 
+# 按请求选择数据源与采集动作，并将结果转换为可序列化记录。
 def collect(action: str, args: dict):
     import akshare as ak
 
@@ -17,7 +19,8 @@ def collect(action: str, args: dict):
     if action == "master_sz":
         return ak.stock_info_sz_name_code(symbol="A股列表")
     if action == "etf_names":
-        return ak.fund_etf_spot_em()
+        # 名称取自基金基础清单，避免实时行情限流阻断身份资料补全。
+        return ak.fund_name_em().rename(columns={"基金代码":"代码","基金简称":"名称"})[["代码","名称"]]
     if action == "daily":
         kind, sym, market = args["asset_class"], args["symbol"], args["market"]
         params = dict(symbol=sym, period="daily", start_date=args["start"], end_date=args["end"], adjust="")
@@ -46,7 +49,7 @@ def collect(action: str, args: dict):
     if action == "international_metals":
         return ak.futures_foreign_commodity_realtime(symbol=["XAU", "XAG"])
     if action == "domestic_metals":
-        # Retain the quote date discarded by AKShare's current public table.
+        # 补回上游公开表转换时丢弃的报价日期，保留数据时点。
         import re
         import requests
         import pandas as pd
@@ -79,7 +82,7 @@ if __name__ == "__main__":
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             result = collect(sys.argv[1], json.loads(sys.argv[2]))
-        # Pandas' JSON serializer normalizes NaN and datetime objects.
+        # 使用 Pandas JSON 序列化统一处理 NaN 和日期对象。
         print(result.to_json(orient="records", force_ascii=False, date_format="iso"))
     except Exception as exc:
         print(json.dumps({"error": f"{type(exc).__name__}: {str(exc)[:400]}"}, ensure_ascii=False))

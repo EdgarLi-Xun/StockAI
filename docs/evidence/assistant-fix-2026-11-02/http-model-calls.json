@@ -1,0 +1,20 @@
+[
+  {
+    "question": "你好",
+    "message_count": 2,
+    "path": "/api/chat",
+    "history_present": false
+  },
+  {
+    "question": "模型配置怎么使用？",
+    "message_count": 4,
+    "path": "/api/chat",
+    "history_present": true
+  },
+  {
+    "question": "继续",
+    "message_count": 6,
+    "path": "/api/chat",
+    "history_present": true
+  }
+]

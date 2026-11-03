@@ -1,3 +1,4 @@
+# 打包本地发行源码和已构建前端，排除依赖、运行状态、凭据与用户数据。
 """Package source and the verified static build, excluding local runtime state."""
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ EXTENSIONS={'.py','.ps1','.cmd','.md','.json','.txt','.toml','.html','.css','.ts
 INCLUDED_NAMES={'.gitignore','.dockerignore','.env.example','Dockerfile','Caddyfile'}
 
 
+# 校验前端产物，构建并检查 ZIP 内容后生成发行包和 SHA-256 校验文件。
 def main():
     if not (ROOT/'frontend/dist/index.html').is_file():
         raise SystemExit('缺少 frontend/dist 静态资源，请先构建')

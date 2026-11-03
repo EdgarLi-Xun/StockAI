@@ -1,0 +1,96 @@
+{
+  "edition": "public",
+  "version": "3.1.0-preview.1",
+  "date": "2026-11-02",
+  "timezone": "Asia/Shanghai",
+  "schema": 2,
+  "batches": {
+    "windows_full": {
+      "tests": 225,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "passed": 224,
+      "seconds": 382.649,
+      "modules": {
+        "test_api_security_backup": 15,
+        "test_backtest": 8,
+        "test_budget_risk": 33,
+        "test_cloud": 46,
+        "test_reports_data": 20,
+        "test_research_continuation": 35,
+        "test_simulation": 8,
+        "test_workbench": 22,
+        "test_workbench_edges": 21,
+        "test_workbench_final": 4,
+        "test_workbench_integrity": 12,
+        "test_workbench_load": 1
+      },
+      "raw_junit_sha256": "8d1cad8f9b3c2d3dddb6c7d380a7765a0924aec5b20dafafa858b6d29446af2a"
+    },
+    "linux_public_and_research": {
+      "tests": 140,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 140,
+      "seconds": 360.416,
+      "modules": {
+        "test_cloud": 46,
+        "test_research_continuation": 35,
+        "test_workbench": 22,
+        "test_workbench_edges": 21,
+        "test_workbench_final": 4,
+        "test_workbench_integrity": 12
+      },
+      "raw_junit_sha256": "75eca7ce8861be239cf29ced26bf233038f877095324bcc2c63efdb1af731c81"
+    },
+    "linux_twenty_user_load": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 1,
+      "seconds": 39.507,
+      "modules": {
+        "test_workbench_load": 1
+      },
+      "raw_junit_sha256": "81ae8d4bbc96d6005e0b8f351049235b7e2019716fd7b456f649647e8465fb97"
+    },
+    "windows_final_scope_text": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 5,
+      "seconds": 8.21,
+      "modules": {
+        "test_workbench": 5
+      },
+      "raw_junit_sha256": "4426d13b7ab78aa6d977f4d2c5b9caaf326101d9a575da09f7802fe193934312"
+    }
+  },
+  "isolated_preview_upgrade": {
+    "from": 1,
+    "to": 2,
+    "legacy_rows_retained": {
+      "users": true,
+      "reports": true,
+      "personal_reports": true,
+      "research_objects": true,
+      "research_versions": true,
+      "journal_observations": true,
+      "portfolio_valuations": true
+    },
+    "old_observations_copied_verbatim": true,
+    "foreign_key_issues": 0,
+    "new_user_edits_after_upgrade_are_allowed": true
+  },
+  "builds": {
+    "public": "passed with TypeScript check",
+    "local": "passed with TypeScript check"
+  },
+  "real_provider": false,
+  "real_smtp": false,
+  "production_host_tested": false
+}

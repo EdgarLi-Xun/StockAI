@@ -1,3 +1,4 @@
+# 维护虚拟账户、委托、持仓和资金流水，仅按后续有效行情模拟成交。
 from __future__ import annotations
 
 import json
@@ -13,6 +14,7 @@ from .budget import budget_check, dec, money, transaction_fees
 from .config import Fees, now, timestamp
 
 
+# 约束委托幂等键、账户、证券、方向、数量和限价。
 class OrderInput(BaseModel):
     client_key: str = Field(min_length=8,max_length=100)
     account_id: str
@@ -23,6 +25,7 @@ class OrderInput(BaseModel):
     stop_loss: float | None = Field(None,gt=0)
 
 
+# 要求用户明确提供正数虚拟本金，并记录账户初始资金流水。
 def create_account(name,initial_cash):
     if not str(name).strip() or len(name)>80:
         raise ValueError("请输入账户名称（不超过80字）")
@@ -36,6 +39,7 @@ def create_account(name,initial_cash):
     return db.one("SELECT * FROM accounts WHERE id=?",(ident,))
 
 
+# 校验证券风险、数量报价规则、可用现金和持仓后保存待成交委托。
 def order(payload: OrderInput):
     existing=db.one("SELECT * FROM orders WHERE client_key=?",(payload.client_key,))
     if existing:
@@ -64,6 +68,7 @@ def order(payload: OrderInput):
         if not account:
             raise ValueError("虚拟账户不存在")
         if payload.side=="buy":
+            # 可用现金扣除所有待买委托预占；同证券预算还需计入已有持仓与待买成本。
             reserved=sum((dec(r["cost"]) for r in c.execute("SELECT cost FROM orders WHERE account_id=? AND side='buy' AND status='pending'",(payload.account_id,))),Decimal(0))
             if dec(account["cash"])-reserved<dec(estimate["total"]):
                 raise ValueError("扣除其他待成交委托后虚拟现金不足")
@@ -81,12 +86,13 @@ def order(payload: OrderInput):
     return db.one("SELECT * FROM orders WHERE id=?",(ident,))
 
 
+# 使用委托创建后的完整 K 线撮合，原子更新现金、持仓与费用流水。
 def match_orders(log=lambda m:None):
     results=[]
     for queued in db.query("SELECT * FROM orders WHERE status='pending' ORDER BY created_at,id"):
         item=instruments.get(queued["instrument_id"])
         bars=collectors.bars_for(item["id"])
-        # Only bars entirely formed after order creation can fill the order.
+        # 只使用开盘晚于委托创建时刻、且已完整收盘的后续 K 线进行撮合。
         choices=[(i,b) for i,b in enumerate(bars) if datetime.fromisoformat(b["ts"]).replace(hour=9,minute=30,second=0)>datetime.fromisoformat(queued["created_at"]) and datetime.fromisoformat(b["ts"])<=now()]
         for i,bar in choices:
             if bar["quality"]!="valid" or bar["adjustment"]!="none" or bar["volume"]<=0:
@@ -107,7 +113,7 @@ def match_orders(log=lambda m:None):
             if (queued["side"]=="buy" and price>limit) or (queued["side"]=="sell" and price<limit) or price<dec(bar["low"]) or price>dec(bar["high"]):
                 continue
             if i==0:
-                continue  # Need the prior close to establish limit prices.
+                continue  # 需要前一收盘价才能确定当天涨跌停价格，缺失时跳过撮合。
             previous=dec(bar.get("metadata",{}).get("reference_price",bars[i-1]["close"]))
             tick=dec(rules["price_tick"])
             upper=(previous*(1+dec(rules["limit_pct"]))/tick).quantize(Decimal(1),rounding="ROUND_HALF_UP")*tick
@@ -116,6 +122,7 @@ def match_orders(log=lambda m:None):
                 continue
             with db.connection() as c:
                 c.execute("BEGIN IMMEDIATE")
+                # 进入写事务后再次核对待成交状态，避免取消或重复撮合产生额外流水。
                 current=c.execute("SELECT status FROM orders WHERE id=?",(queued["id"],)).fetchone()
                 if current["status"]!="pending":
                     break
@@ -132,6 +139,7 @@ def match_orders(log=lambda m:None):
                     delta=-total
                     c.execute("INSERT INTO lots VALUES(?,?,?,?,?,?,?)",(queued["id"],queued["account_id"],item["id"],q,str(total),bar["ts"][:10],rules["settlement_days"]))
                 else:
+                    # 按买入批次先进先出扣减，只使用已经满足结算周期的可卖数量。
                     lots=[dict(r) for r in c.execute("SELECT * FROM lots WHERE account_id=? AND instrument_id=? AND quantity>0 ORDER BY acquired_day,id",(queued["account_id"],item["id"])) if r["settlement_days"]==0 or r["acquired_day"]<bar["ts"][:10]]
                     if sum(r["quantity"] for r in lots)<q:
                         continue
@@ -156,6 +164,7 @@ def match_orders(log=lambda m:None):
     return results
 
 
+# 按已保存止损条件生成后续卖出委托，保留幂等与结算约束。
 def create_stop_orders():
     for lot in db.query("SELECT l.*,o.stop_loss FROM lots l JOIN orders o ON o.id=l.id WHERE l.quantity>0 AND o.stop_loss IS NOT NULL"):
         bars=collectors.bars_for(lot["instrument_id"],limit=1)
@@ -172,6 +181,7 @@ def create_stop_orders():
             db.notify("模拟止损委托未生成："+str(exc),"warning")
 
 
+# 以缓存行情估值账户权益，并保存行情时点与过期状态。
 def snapshot_equity():
     for account in db.query("SELECT * FROM accounts"):
         value=dec(account["cash"])
@@ -181,6 +191,7 @@ def snapshot_equity():
         db.execute("INSERT OR REPLACE INTO equity_snapshots VALUES(?,?,?)",(account["id"],timestamp(),str(money(value))))
 
 
+# 汇总账户估值、可卖数量、委托和流水，供模拟交易页面读取。
 def portfolio():
     out=[]
     for a in db.query("SELECT * FROM accounts ORDER BY created_at"):

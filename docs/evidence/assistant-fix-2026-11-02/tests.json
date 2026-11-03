@@ -1,0 +1,141 @@
+{
+  "version": "3.2.0-preview.2",
+  "before": {
+    "tests": "15",
+    "failures": "12",
+    "errors": "0",
+    "skipped": "0",
+    "time": "47.251",
+    "timestamp": "2026-11-02T20:36:44.875633+08:00"
+  },
+  "initial_after": {
+    "tests": "15",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "55.388",
+    "timestamp": "2026-11-02T20:38:07.848462+08:00"
+  },
+  "workspace_full_regression": {
+    "tests": "326",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "1",
+    "time": "1077.294",
+    "timestamp": "2026-11-02T20:42:27.775980+08:00"
+  },
+  "exact_release_snapshot_regression": {
+    "tests": "20",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "88.656",
+    "timestamp": "2026-11-02T21:07:22.452265+08:00"
+  },
+  "new_regressions": [
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[\\u4f60\\u597d]",
+      "seconds": "3.277",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[\\u4f60\\u597d\\u5440\\U0001f44b]",
+      "seconds": "3.223",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[\\u60a8\\u597d\\uff01]",
+      "seconds": "3.186",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[hello]",
+      "seconds": "3.453",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[Hi!]",
+      "seconds": "3.319",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[\\u4f60\\u80fd\\u505a\\u4ec0\\u4e48\\uff1f]",
+      "seconds": "3.388",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[\\u600e\\u4e48\\u5f00\\u59cb\\uff1f]",
+      "seconds": "3.402",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_and_getting_started_do_not_require_research_data[\\u4f60\\u597d\\uff0c\\u8bf7\\u4ecb\\u7ecd\\u4e00\\u4e0b\\u81ea\\u5df1]",
+      "seconds": "3.496",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_uses_selected_model_and_returns_a_validated_reply",
+      "seconds": "3.700",
+      "passed": true
+    },
+    {
+      "name": "test_short_research_question_with_explicit_context_reaches_model[\\u5206\\u6790\\u4e00\\u4e0b]",
+      "seconds": "3.975",
+      "passed": true
+    },
+    {
+      "name": "test_short_research_question_with_explicit_context_reaches_model[\\u5e2e\\u6211\\u5206\\u6790\\u4e00\\u4e0b]",
+      "seconds": "4.105",
+      "passed": true
+    },
+    {
+      "name": "test_short_research_question_with_explicit_context_reaches_model[\\u5e2e\\u6211\\u5206\\u6790\\u8fd9\\u53ea\\u80a1\\u7968]",
+      "seconds": "3.769",
+      "passed": true
+    },
+    {
+      "name": "test_short_research_question_with_explicit_context_reaches_model[\\u603b\\u7ed3\\u6240\\u9009\\u8d44\\u6599]",
+      "seconds": "3.631",
+      "passed": true
+    },
+    {
+      "name": "test_short_research_question_with_explicit_context_reaches_model[\\u7ee7\\u7eed]",
+      "seconds": "3.917",
+      "passed": true
+    },
+    {
+      "name": "test_short_research_question_with_explicit_context_reaches_model[\\u518d\\u89e3\\u91ca\\u4e00\\u4e0b]",
+      "seconds": "3.927",
+      "passed": true
+    },
+    {
+      "name": "test_followup_keeps_permitted_help_topic_and_model_history",
+      "seconds": "4.010",
+      "passed": true
+    },
+    {
+      "name": "test_followup_without_model_stays_on_static_help_topic",
+      "seconds": "3.665",
+      "passed": true
+    },
+    {
+      "name": "test_missing_object_and_unrelated_requests_still_stop_before_model",
+      "seconds": "3.650",
+      "passed": true
+    },
+    {
+      "name": "test_greeting_does_not_bypass_context_ownership",
+      "seconds": "3.480",
+      "passed": true
+    },
+    {
+      "name": "test_cleared_research_context_is_not_silently_restored_from_history",
+      "seconds": "3.942",
+      "passed": true
+    }
+  ],
+  "ui_http_fixture_verified": true,
+  "real_personal_provider_called": false,
+  "full_regression_cases_overlap_prior_runs": true,
+  "concurrent_workspace_changes_preserved": true
+}

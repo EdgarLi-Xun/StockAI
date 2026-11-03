@@ -1,0 +1,27 @@
+{
+  "version": "3.2.0-preview.2",
+  "delivery_date": "2026-11-03",
+  "delivery_directory": "D:\\MyWork\\StockAI\\dist\\assistant-fix-3.2.0-preview.2",
+  "artifacts": {
+    "StockAI-3.2.0-preview.2-Windows.exe": {
+      "sha256": "7639decd3ff9afaee1f646ca2f05f1f187b76f812cb0f71c075af88ca489790c",
+      "bytes": 286550756
+    },
+    "StockAI-3.2.0-preview.2-Public.zip": {
+      "sha256": "4e4935988a1dd2d2c7aa943862b33f21d1c3c25b2f9f0933cc4398f85b641390",
+      "bytes": 1647109,
+      "manifest_files_verified": 244
+    },
+    "StockAI-3.2.0-preview.2-Hub.zip": {
+      "sha256": "b3655368ee1d4dee88772ab2c92b0f3895ea8c9baa3073b362caa17cce7286fc",
+      "bytes": 603116,
+      "manifest_files_verified": 123
+    }
+  },
+  "verified_source_sha256": "2a38f5ad5fef9e3e17ed0067691b05a40490cb734b091f0af5bdc167c5890058",
+  "source_and_static_assets_match_tested_exe": true,
+  "concurrent_workspace_changes_preserved": true,
+  "previous_exe_preserved": true,
+  "real_user_workspace_accessed": false,
+  "real_provider_called": false
+}

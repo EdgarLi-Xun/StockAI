@@ -1,3 +1,4 @@
+# 下载并校验指定 SQLite 源码，构建供公网镜像使用的共享库。
 """Build the upstream WAL-reset-fixed SQLite with its published SHA3-256 digest."""
 import hashlib
 from pathlib import Path
@@ -10,8 +11,10 @@ SHA3="b6ced585c750916b1052667239a12c25a7ff34e7f06e1e6e01ecb0427657d9c4"
 root=Path.cwd();archive=root/"sqlite.tar.gz"
 if not archive.is_file():
     archive.write_bytes(urllib.request.urlopen(URL,timeout=90).read())
+# 先核对源码压缩包 SHA3-256，再仅提取构建所需的单个源文件。
 assert hashlib.sha3_256(archive.read_bytes()).hexdigest()==SHA3,"SQLite 下载校验失败"
 with tarfile.open(archive) as t:
     member=t.getmember("sqlite-autoconf-3540100/sqlite3.c")
     (root/"sqlite3.c").write_bytes(t.extractfile(member).read())
+# 构建线程安全的共享库，并启用应用需要的全文检索、JSON 和空间索引支持。
 subprocess.run(["gcc","-O2","-fPIC","-shared","-DSQLITE_THREADSAFE=1","-DSQLITE_ENABLE_FTS5","-DSQLITE_ENABLE_JSON1","-DSQLITE_ENABLE_RTREE","-DSQLITE_ENABLE_COLUMN_METADATA","-Wl,-soname,libsqlite3.so.0","sqlite3.c","-o","libsqlite3.so.0","-lm","-ldl","-lpthread"],check=True)

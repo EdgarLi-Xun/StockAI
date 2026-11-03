@@ -1,3 +1,4 @@
+# 封装凭据加密、签名、密钥轮换及受限权限的原子文件写入。
 from __future__ import annotations
 
 import base64
@@ -12,10 +13,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from .store import json_text
 
 
+# 计算令牌的不可逆 SHA-256 摘要，用于查询而不保存原始令牌。
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+# 以受限权限写入临时文件再原子替换，避免私密内容部分写入。
 def atomic_private(path:Path,value:bytes):
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     temp=path.with_name(path.name+".tmp")
@@ -25,7 +28,9 @@ def atomic_private(path:Path,value:bytes):
     temp.replace(path)
 
 
+# 管理带版本的主密钥，并将密文绑定到站点、用户和资源用途。
 class Keyring:
+    # 读取已有密钥文件并解析活动版本；缺失时要求先通过维护命令初始化。
     def __init__(self,path:Path):
         self.path=path
         if not path.is_file():
@@ -36,6 +41,7 @@ class Keyring:
         if self.active not in self.keys or any(len(v)!=32 for v in self.keys.values()):
             raise RuntimeError("主密钥文件无效")
 
+    # 生成初始随机主密钥并以私密文件保存。
     @classmethod
     def create(cls,path):
         if path.exists():
@@ -43,6 +49,7 @@ class Keyring:
         atomic_private(path,json_text({"active":1,"keys":{"1":base64.b64encode(os.urandom(32)).decode()}}).encode())
         return cls(path)
 
+    # 加密凭据并绑定附加认证数据，防止密文跨用户或资源挪用。
     def seal(self,value:str,*,site:str,user:str,resource:str,purpose:str):
         version=self.active
         aad=json_text([site,user,resource,purpose,version]).encode()
@@ -50,16 +57,19 @@ class Keyring:
         cipher=AESGCM(self.keys[version]).encrypt(nonce,value.encode(),aad)
         return json_text({"version":version,"nonce":base64.b64encode(nonce).decode(),"cipher":base64.b64encode(cipher).decode()})
 
+    # 按密钥版本和绑定上下文验证并解密凭据。
     def open(self,envelope:str,*,site:str,user:str,resource:str,purpose:str):
         data=json.loads(envelope)
         version=int(data["version"])
         aad=json_text([site,user,resource,purpose,version]).encode()
         return AESGCM(self.keys[version]).decrypt(base64.b64decode(data["nonce"]),base64.b64decode(data["cipher"]),aad).decode()
 
+    # 使用指定版本密钥为权威记录生成消息认证签名。
     def sign(self,value,version=None):
         version=version or self.active
         return hmac.new(self.keys[version],b"stockai-control\0"+value.encode(),hashlib.sha256).hexdigest()
 
+    # 生成新的活动密钥版本，保留验证既有密文所需的历史密钥。
     def rotate(self):
         version=max(self.keys)+1
         self.keys[version]=os.urandom(32)

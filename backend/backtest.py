@@ -1,3 +1,4 @@
+# 使用历史快照执行确定性回测，统一处理费用、交易约束和证据门槛。
 from __future__ import annotations
 
 import hashlib
@@ -13,6 +14,7 @@ from .budget import budget_check, dec, money, transaction_fees
 from .config import Fees, STRATEGY_VERSION, timestamp
 
 
+# 限定策略参数、初始虚拟资金、样本划分和严格证据模式。
 class Parameters(BaseModel):
     model_config = ConfigDict(extra="forbid")
     instrument_id: str
@@ -25,6 +27,7 @@ class Parameters(BaseModel):
     end_date: str | None = None
     strict: bool = True
 
+    # 校验均线长短关系、日期格式及回测区间的先后顺序。
     @model_validator(mode="after")
     def ordered(self):
         if self.fast >= self.slow:
@@ -37,11 +40,13 @@ class Parameters(BaseModel):
         return self
 
 
+# 加入方向相关的滑点，并按最小报价单位向不利方向取整。
 def executable_price(raw, side, tick, slippage_bps):
     value = dec(raw)*(1+dec(slippage_bps)/10000 if side=="buy" else 1-dec(slippage_bps)/10000)
     return (value/dec(tick)).quantize(Decimal(1),rounding=ROUND_CEILING if side=="buy" else ROUND_FLOOR)*dec(tick)
 
 
+# 按时间顺序生成收盘信号，在后续开盘按产品规则模拟成交。
 def run_engine(bars: list[dict], params: Parameters, item: dict, fees: Fees, budget=1000, fee_multiplier=1, start_index=0):
     rules=item["rules"]
     cash=money(params.initial_cash)
@@ -66,6 +71,7 @@ def run_engine(bars: list[dict], params: Parameters, item: dict, fees: Fees, bud
         dividend=dec(meta.get("cash_dividend",0))
         if split<=0 or dividend<0:
             raise ValueError("公司行动数据不合法")
+        # 公司行动先调整持仓和现金，并只重算指标历史口径，实际成交仍用不复权价格。
         if split!=1 or dividend:
             if shares:
                 if dec(shares)*split % 1:
@@ -81,13 +87,15 @@ def run_engine(bars: list[dict], params: Parameters, item: dict, fees: Fees, bud
             history.append(float(b["close"]))
             continue
         previous = dec(meta.get("reference_price",history[-1] if history else b["open"]))
-        # Tick-rounded daily limits, with explicit point-in-time overrides for special sessions.
+        # 涨跌停价按报价单位取整；特殊交易日优先采用当天已核验的限价。
         tick=dec(rules["price_tick"])
         upper=dec(meta.get("upper_limit",(previous*(1+dec(rules["limit_pct"]))/tick).quantize(Decimal(1),rounding="ROUND_HALF_UP")*tick))
         lower=dec(meta.get("lower_limit",(previous*(1-dec(rules["limit_pct"]))/tick).quantize(Decimal(1),rounding="ROUND_HALF_UP")*tick))
         tradable=b["volume"]>0 and b.get("quality","valid")=="valid" and meta.get("trading_status","active")=="active" and meta.get("risk_flag","clear")=="clear"
+        # 本根开盘只执行之前生成的信号，随后才利用本根收盘生成新信号。
         if pending and tradable:
             side=pending
+            # 结算周期为零时可当日卖出，否则至少跨过买入交易日。
             settled=rules["settlement_days"]==0 or day>entry_day
             blocked=(side=="buy" and dec(b["open"])>=upper) or (side=="sell" and dec(b["open"])<=lower)
             if side=="sell" and not settled:
@@ -129,7 +137,7 @@ def run_engine(bars: list[dict], params: Parameters, item: dict, fees: Fees, bud
                     pending=None
             else:
                 rejected.append({"ts":b["ts"],"side":side,"reason":"涨跌停或T+1阻止成交"})
-                # Pending liquidation persists; a blocked entry signal expires after one bar.
+                # 受阻的卖出继续等待；买入信号只尝试下一根 K 线，受阻后失效。
                 if side=="buy":
                     pending=None
         history.append(float(b["close"]))
@@ -138,6 +146,7 @@ def run_engine(bars: list[dict], params: Parameters, item: dict, fees: Fees, bud
         dd=float((peak-value)/peak) if peak else 0
         max_dd=max(max_dd,dd)
         equity.append({"ts":b["ts"],"equity":float(value),"cash":float(cash),"quantity":shares,"drawdown":round(dd*100,4)})
+        # 完成本根权益记账后再计算收盘信号，防止同根收盘信号提前在开盘成交。
         if len(history)>=params.slow:
             fast=sum(history[-params.fast:])/params.fast
             slow=sum(history[-params.slow:])/params.slow
@@ -152,6 +161,7 @@ def run_engine(bars: list[dict], params: Parameters, item: dict, fees: Fees, bud
     return {"metrics":{"initial_cash":params.initial_cash,"final_equity":last,"return_pct":round((last/params.initial_cash-1)*100,4),"max_drawdown_pct":round(max_dd*100,4),"round_trips":len(completed),"fill_count":len(trades),"win_rate_pct":round(wins/len(completed)*100,2) if completed else None,"profit_factor":round(profit/loss,4) if loss else None,"fees":float(total_fees),"open_quantity":shares,"unrealized_pnl":float(money(dec(bars[-1]["close"])*shares-basis)) if bars else 0},"trades":trades,"equity":equity,"rejected":rejected,"execution":"收盘生成信号，下一根开盘撮合；止损按收盘触发并在下一根开盘执行，非盘中止损保证"}
 
 
+# 校验证据与行情序列，分别运行全样本、样本内外及费用敏感性实验。
 def evaluate(bars,params,item,fees,budget):
     if len(bars)<params.slow+20:
         raise ValueError(f"数据不足：至少需要{params.slow+20}根日线")
@@ -171,6 +181,7 @@ def evaluate(bars,params,item,fees,budget):
         gaps.append("缺少逐日公司行动核验，分红送转可能使结果失真")
     if params.strict and gaps:
         raise ValueError("可靠性门槛未通过："+"；".join(gaps)+"。可导入已核验的历史数据，或显式选择未验证实验模式。")
+    # 样本内外独立评估并保留时间顺序，避免随机划分带来未来信息。
     split=int(len(bars)*params.train_ratio)
     if len(bars)-split<10:
         raise ValueError("样本外数据不足10根")
@@ -184,6 +195,7 @@ def evaluate(bars,params,item,fees,budget):
     return {"summary":full["metrics"],"full":full,"in_sample":{"range":[bars[0]["ts"],bars[split-1]["ts"]],**train},"out_of_sample":{"range":[bars[split]["ts"],bars[-1]["ts"]],**test},"cost_sensitivity":sensitivity,"warnings":warnings,"validated":not gaps,"data_range":[bars[0]["ts"],bars[-1]["ts"]],"bars_count":len(bars)}
 
 
+# 读取证券与历史数据，保存可复现的行情、规则、费用和策略快照。
 def create(params: Parameters):
     item=instruments.get(params.instrument_id)
     if item["market"] not in {"SH","SZ"} or item["asset_class"] not in {"stock","etf"}:
@@ -202,6 +214,7 @@ def create(params: Parameters):
     return {"id":ident,"data_hash":data_hash,"strategy_version":STRATEGY_VERSION,**result}
 
 
+# 使用已归档快照重演历史实验，并比较交易记录与结果是否一致。
 def reproduce(ident):
     row=db.one("SELECT * FROM backtest_runs WHERE id=?",(ident,))
     if not row:

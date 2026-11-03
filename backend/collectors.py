@@ -1,3 +1,4 @@
+# 规范化外部行情、交易日历与公告数据，保存来源和时效性证据。
 from __future__ import annotations
 
 import json
@@ -10,10 +11,12 @@ from urllib.parse import urlsplit
 
 from . import db, instruments
 from .config import ROOT, TZ, now, timestamp
+from .processes import module_command,hidden_process
 
 
+# 通过有超时限制的子进程执行外部采集，失败时不伪造数据。
 def call(action: str, args=None, timeout=25) -> list[dict]:
-    result = subprocess.run([sys.executable, "-X", "utf8", "-m", "backend.collector_worker", action, db.dumps(args or {})], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+    result = subprocess.run(module_command("backend.collector_worker",action,db.dumps(args or {})),cwd=ROOT,capture_output=True,text=True,encoding="utf-8",timeout=timeout,**hidden_process())
     try:
         value = json.loads(result.stdout)
     except (ValueError, TypeError):
@@ -25,6 +28,7 @@ def call(action: str, args=None, timeout=25) -> list[dict]:
     return value
 
 
+# 按市场收盘时间及当地时区解析时间，再统一转换为上海时区。
 def parse_ts(value, daily=False, market="CN") -> str:
     dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if daily:
@@ -38,14 +42,16 @@ def parse_ts(value, daily=False, market="CN") -> str:
     return dt.astimezone(TZ).isoformat(timespec="seconds")
 
 
+# 校验并规范化 OHLC、成交量和来源信息，剔除尚未完成的日线。
 def normalize_bars(rows, source: str, url: str, timeframe="1d", volume_unit="lot", market="CN") -> list[dict]:
     result = []
     for row in rows:
+        # 从可选的行情字段名读取数值，并统一处理缺失或非法输入。
         def val(en, cn):
             return row[en] if en in row else row.get(cn)
         ts = parse_ts(val("date", "日期") or row.get("时间") or row.get("day"), daily=timeframe == "1d",market=market)
         if datetime.fromisoformat(ts) > now():
-            continue  # Never persist an unfinished bar as a completed daily close.
+            continue  # 尚未完成的日线不能作为已收盘行情持久化。
         bar = {k: float(val(k, cn)) for k, cn in (("open", "开盘"), ("high", "最高"), ("low", "最低"), ("close", "收盘"), ("volume", "成交量"))}
         if not all(math.isfinite(v) for v in bar.values()) or min(bar[k] for k in ("open", "high", "low", "close")) <= 0 or bar["volume"] < 0 or bar["low"] > min(bar["open"], bar["close"]) or bar["high"] < max(bar["open"], bar["close"]) or bar["low"] > bar["high"]:
             raise ValueError(f"行情数据校验失败 {ts}：零值、缺失或 OHLC 冲突")
@@ -61,6 +67,7 @@ def normalize_bars(rows, source: str, url: str, timeframe="1d", volume_unit="lot
     return sorted(result, key=lambda b: b["ts"])
 
 
+# 先校验整批行情，再在同一事务中保存，防止失败后留下部分数据。
 def save_bars(ident: str, bars: list[dict], timeframe="1d"):
     from urllib.parse import urlsplit
     with db.connection() as c:
@@ -79,6 +86,7 @@ def save_bars(ident: str, bars: list[dict], timeframe="1d"):
                 (ident,timeframe,b["ts"],b["open"],b["high"],b["low"],b["close"],b["volume"],b.get("amount"),b["adjustment"],b["source"],b["source_url"],b.get("fetched_at",timestamp()),b.get("quality","valid"),db.dumps(b.get("metadata",{}))))
 
 
+# 按证券、周期和条数读取行情，并恢复为时间升序及结构化元数据。
 def bars_for(ident: str, timeframe="1d", limit=2000) -> list[dict]:
     rows = db.query("SELECT * FROM (SELECT * FROM bars WHERE instrument_id=? AND timeframe=? ORDER BY ts DESC LIMIT ?) ORDER BY ts", (ident, timeframe, limit))
     for b in rows:
@@ -86,6 +94,7 @@ def bars_for(ident: str, timeframe="1d", limit=2000) -> list[dict]:
     return rows
 
 
+# 从已采集的交易日历判断交易日与最近完成场次，缺失时返回未知。
 def calendar_context(at=None) -> dict:
     at = at or now()
     day = at.date().isoformat()
@@ -96,6 +105,7 @@ def calendar_context(at=None) -> dict:
     return {"date": day, "timezone": "Asia/Shanghai", "is_trading_day": trading, "calendar_verified": known, "last_completed_session": latest["day"] if latest else None, "note": "日线为已完成交易日收盘数据" if known else "交易日历未覆盖当前日期，禁止按工作日推算交易日"}
 
 
+# 对照已核验日历检查报价时效，返回过期或无法确认的原因。
 def fresh_reasons(bar: dict | None, context: dict | None = None) -> list[str]:
     if not bar:
         return ["没有已确认行情"]
@@ -114,6 +124,7 @@ def fresh_reasons(bar: dict | None, context: dict | None = None) -> list[str]:
     return errors
 
 
+# 按资产和市场选择行情源，主源失败时尝试允许的备用源。
 def sync_instrument(item: dict, timeframe="1d") -> dict:
     if item["asset_class"]=="fund":
         try:
@@ -164,9 +175,10 @@ def sync_instrument(item: dict, timeframe="1d") -> dict:
         return {"id": item["id"], "status": "unavailable", "message": str(exc)[:400]}
 
 
-def sync_all(log=lambda m: None) -> dict:
-    result = {"sources": [], "instruments": [], "errors": []}
-    for action in ("calendar", "master_sh", "master_sz", "etf_names"):
+# 同步证券名称和交易日历，独立于K线采集及交易资格核验。
+def _sync_reference_data(actions,log):
+    result = {"sources": [], "errors": []}
+    for action in actions:
         try:
             raw = call(action, timeout=25)
             if action == "calendar":
@@ -194,12 +206,41 @@ def sync_all(log=lambda m: None) -> dict:
                         c.execute("UPDATE instruments SET name=?,source_url=? WHERE market=? AND symbol=? AND asset_class='stock'", (name,url,market,sym))
                         if "ST" in name.upper() or "退" in name:
                             c.execute("UPDATE instruments SET risk_flag=? WHERE market=? AND symbol=?", ("st" if "ST" in name.upper() else "warning",market,sym))
-                # Listing membership alone cannot prove announcement or suspension safety.
+                # 仅出现在上市证券清单中，不能证明公告风险或停牌状态已经核验。
             result["sources"].append({"name": action, "status": "success", "count": len(raw)})
             log(f"{action} 已同步 {len(raw)} 条记录")
         except Exception as exc:
             result["errors"].append({"source": action, "error": str(exc)[:300]})
             log(f"{action} 不可用：{str(exc)[:250]}；保留缓存并标记缺失")
+    result["status"]="success" if not result["errors"] else "partial" if result["sources"] else "unavailable"
+    return result
+
+
+# 只请求尚有占位名称的市场，避免新增自选触发整站历史行情采集。
+def sync_names(log=lambda m: None) -> dict:
+    pending={(r["market"],r["asset_class"]) for r in db.query("""SELECT DISTINCT market,asset_class FROM instruments
+        WHERE market IN('SH','SZ') AND asset_class IN('stock','etf')
+        AND (name LIKE '%待核验%' OR trim(name)='')""")}
+    actions=[]
+    if ("SH","stock") in pending:
+        actions.append("master_sh")
+    if ("SZ","stock") in pending:
+        actions.append("master_sz")
+    if any(asset=="etf" for _,asset in pending):
+        actions.append("etf_names")
+    result=_sync_reference_data(actions,log)
+    result["unresolved"]=[r["id"] for r in db.query("""SELECT id FROM instruments
+        WHERE market IN('SH','SZ') AND asset_class IN('stock','etf')
+        AND (name LIKE '%待核验%' OR trim(name)='') ORDER BY id""")]
+    if result["unresolved"]:
+        result["status"]="partial" if result["sources"] else "unavailable"
+    return result
+
+
+# 逐项同步自选证券并汇总成功、失败与缺失信息。
+def sync_all(log=lambda m: None) -> dict:
+    result=_sync_reference_data(("calendar","master_sh","master_sz","etf_names"),log)
+    result["instruments"]=[]
     items = [instruments.get(r["id"]) for r in db.query("SELECT id FROM instruments WHERE watched=1")]
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(sync_instrument, item) for item in items]
@@ -213,6 +254,7 @@ def sync_all(log=lambda m: None) -> dict:
     return result
 
 
+# 同步贵金属观察行情，保留现货和期货各自的数据口径。
 def sync_metals(log=lambda m: None):
     results=[]
     for action in ("international_metals", "domestic_metals"):
@@ -240,6 +282,7 @@ def sync_metals(log=lambda m: None):
     return results
 
 
+# 采集指定证券的公告，并记录来源及抓取时间。
 def announcements(ident: str):
     item = instruments.get(ident)
     if item["asset_class"] != "stock" or item["market"] not in {"SH", "SZ"}:

@@ -1,3 +1,4 @@
+# 采集交易日历和辅助市场资料，为研究报告提供可追溯的背景事实。
 """Traceable deep-research inputs. Missing context is never filled from model memory."""
 from concurrent.futures import ThreadPoolExecutor
 
@@ -5,9 +6,11 @@ from . import collectors, db
 from .config import now, timestamp
 
 
+# 更新交易日历及市场背景，并分别记录采集结果与失败原因。
 def sync(log=lambda m:None):
     tasks=[("macro_cpi",None),("macro_pmi",None)]
     tasks += [("fundamentals",r["id"]) for r in db.query("SELECT id FROM instruments WHERE watched=1 AND asset_class='stock' AND market IN ('SH','SZ')")]
+    # 调用指定背景资料采集器并记录结果，单项失败不阻断其他资料。
     def collect(task):
         action,ident=task
         try:

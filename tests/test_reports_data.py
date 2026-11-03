@@ -1,3 +1,4 @@
+# 验证行情时效、跨市场时间、原子导入、规则降级和报告事实完整性。
 import json
 from datetime import datetime,timedelta
 
@@ -8,25 +9,30 @@ from backend.config import now
 from conftest import sample_bars
 
 
+# 验证过期行情会阻止候选通过时效检查。
 def test_ac_f05_old_quote_blocks(bars):
     ctx={'calendar_verified':True,'last_completed_session':'2026-10-30'}
     assert collectors.fresh_reasons(bars[-1],ctx)
 
 
+# 验证没有可信交易日历时不会猜测交易日或节假日。
 def test_calendar_does_not_guess_holidays():
     ctx=collectors.calendar_context()
     assert ctx['is_trading_day'] is None and not ctx['calendar_verified']
 
 
+# 验证美股日线收盘时间正确处理夏令时。
 @pytest.mark.parametrize('date,expected',[('2026-10-30','2026-10-31T04:00:00+08:00'),('2026-01-02','2026-01-03T05:00:00+08:00')])
 def test_us_daily_timestamp_respects_dst(date,expected):
     assert collectors.parse_ts(date,daily=True,market='US')==expected
 
 
+# 验证港股日线采用港股收盘时点。
 def test_hk_close_does_not_use_mainland_close():
     assert collectors.parse_ts('2026-10-30',daily=True,market='HK')=='2026-10-30T16:00:00+08:00'
 
 
+# 验证基金净值只作为观察资料，不混入金银行情或买入候选。
 def test_fund_nav_is_observation_and_not_metal_or_candidate(monkeypatch,client):
     from backend import instruments
     monkeypatch.setattr(collectors,'call',lambda *a,**k:[{'净值日期':'2025-01-02','单位净值':1.2345}])
@@ -39,6 +45,7 @@ def test_fund_nav_is_observation_and_not_metal_or_candidate(monkeypatch,client):
     assert facts['metals']==[] and facts['candidates']==[]
 
 
+# 验证不合法的 OHLC 或其他行情字段会被拒绝。
 @pytest.mark.parametrize('change',[{'close':0},{'open':-1},{'adjustment':None},{'source_url':''},{'high':0},{'volume':-1}])
 def test_ac_f05_reject_invalid_bars(bars,change):
     bar={**bars[0],**change}
@@ -47,18 +54,21 @@ def test_ac_f05_reject_invalid_bars(bars,change):
     assert not collectors.bars_for('SH:603126')
 
 
+# 验证一批行情校验失败时不会部分写入。
 def test_import_is_atomic(bars):
     with pytest.raises(ValueError):
         collectors.save_bars('SH:603126',[bars[0],{**bars[1],'close':-1}])
     assert not collectors.bars_for('SH:603126')
 
 
+# 验证尚未完成的交易日 K 线不会作为完整日线保存。
 def test_incomplete_today_bar_not_saved():
     tomorrow=(now()+timedelta(days=1)).date().isoformat()
     rows=[{'日期':tomorrow,'开盘':5,'收盘':5,'最高':5,'最低':5,'成交量':100}]
     assert not collectors.normalize_bars(rows,'test','https://example.com')
 
 
+# 验证模型离线时仍可生成带明确降级状态的规则报告。
 def test_ac_f06_model_disconnected_rule_report(monkeypatch):
     monkeypatch.setattr(ai,'health',lambda:{'available':False,'message':'offline'})
     for mode in ('standard','full'):
@@ -71,6 +81,7 @@ def test_ac_f06_model_disconnected_rule_report(monkeypatch):
         assert len(report['snapshot_id'])==64
 
 
+# 验证相同报告逻辑键不会产生重复归档。
 def test_ac07_reports_idempotent(monkeypatch):
     monkeypatch.setattr(ai,'health',lambda:{'available':False,'message':'offline'})
     first=research.generate('standard:stable')
@@ -79,6 +90,7 @@ def test_ac07_reports_idempotent(monkeypatch):
     assert db.one('SELECT COUNT(*) n FROM reports')['n']==1
 
 
+# 验证规则筛选最多保留三只合格模拟候选。
 def test_ac05_max_three_candidates(valid_item,bars,monkeypatch):
     from backend import instruments
     cfg=db.settings(); cfg.min_daily_amount=0; db.save_settings(cfg)
@@ -93,6 +105,7 @@ def test_ac05_max_three_candidates(valid_item,bars,monkeypatch):
     assert all(c['budget']['total']<=1000 for c in facts['candidates'])
 
 
+# 验证模型解释不能覆盖原始价格等确定事实。
 def test_ai_cannot_change_fact_values():
     facts={'candidates':[],'sources':[],'price':5.25}
     good=ai.ResearchText(summary='资料不足',market_context='未验证',candidates=[],risk_notes=[],missing_data=[],source_ids=[])
@@ -103,12 +116,14 @@ def test_ai_cannot_change_fact_values():
         ai.validate_output(good.model_copy(update={'summary':'保证盈利'}),facts)
 
 
+# 验证模型引用未提供来源时校验失败。
 def test_ai_unknown_source_rejected():
     text=ai.ResearchText(summary='无候选',market_context='',candidates=[],risk_notes=[],missing_data=[],source_ids=['invented'])
     with pytest.raises(ValueError):
         ai.validate_output(text,{'candidates':[],'sources':[]})
 
 
+# 验证报告 HTML 导出会转义证券名称等不可信文本。
 def test_html_export_escapes_untrusted_text(monkeypatch):
     from backend.config import DATA
     db.execute("UPDATE instruments SET name='<script>alert(1)</script>' WHERE id='SH:603126'")

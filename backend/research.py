@@ -1,3 +1,4 @@
+# 先通过规则构建研究事实，再合并经校验的 AI 解释并生成可追溯报告。
 from __future__ import annotations
 
 import hashlib
@@ -11,6 +12,7 @@ from .budget import budget_check
 from .config import DATA, VERSION, STRATEGY_VERSION, now, timestamp
 
 
+# 汇总行情、风险、预算和技术指标，筛选最多三只合格模拟候选。
 def build_facts(mode="standard") -> dict:
     cfg = db.settings()
     context = collectors.calendar_context()
@@ -37,6 +39,7 @@ def build_facts(mode="standard") -> dict:
         points = analytics.score(bars, stats["latest"]) if bars else 0
         if points < 60:
             reasons.append("趋势与成交量评分未达到60分（非上涨概率）")
+        # 任一证据、行情、流动性或预算障碍都进入排除清单，不靠模型绕过规则。
         if reasons:
             excluded.append({"instrument_id":item["id"],"name":item["name"],"reasons":list(dict.fromkeys(reasons)),"price":last["close"] if last else None})
             continue
@@ -45,6 +48,7 @@ def build_facts(mode="standard") -> dict:
             candidate["multi_timeframe"] = {tf:analytics.indicators(collectors.bars_for(item["id"],tf))["latest"] for tf in ("15m","60m")}
             candidate["weekly"] = analytics.indicators(resample_weekly(bars))["latest"]
         candidates.append(candidate)
+    # 分数相同时按证券标识稳定排序，使相同事实输入得到一致候选顺序。
     candidates.sort(key=lambda c:(-c["score"],c["instrument_id"]))
     for c in candidates[3:]:
         excluded.append({"instrument_id":c["instrument_id"],"name":c["name"],"reasons":["本次排名未进入最多3只的研究名额"]})
@@ -92,6 +96,7 @@ def build_facts(mode="standard") -> dict:
     return facts
 
 
+# 按交易周聚合日线的开高低收与成交量，供研究图表使用。
 def resample_weekly(bars):
     from datetime import datetime
     groups={}
@@ -105,6 +110,7 @@ def resample_weekly(bars):
     return list(groups.values())
 
 
+# 在归档前复核候选数量、来源、报价时间及单只含费预算。
 def validate_facts(facts):
     if len(facts["candidates"])>3:
         raise ValueError("候选数量超过上限")
@@ -119,6 +125,7 @@ def validate_facts(facts):
             raise ValueError("候选缺少行情证据")
 
 
+# 将结构化事实和解释渲染为包含来源及数据缺口的中文报告。
 def markdown_report(facts):
     name={"standard":"标准版早报","full":"完整版深度复盘","closing":"收盘跟踪"}[facts["mode"]]
     lines=[f"# StockAI {name}",f"研究日期：{facts['report_date']} · 生成时间：{facts['generated_at']} · Asia/Shanghai",f"模型：{facts['model']} · 策略：{facts['strategy_version']} · 数据快照：{facts['snapshot_id']}","",f"## {facts['summary']}",facts["market_context"],"", "## 模拟研究候选"]
@@ -136,6 +143,7 @@ def markdown_report(facts):
     return "\n\n".join(lines)
 
 
+# 先写同目录临时文件再替换，避免报告只写入一部分。
 def atomic_write(path, content):
     temp=path.with_suffix(path.suffix+".tmp")
     with temp.open("w",encoding="utf-8") as f:
@@ -145,6 +153,7 @@ def atomic_write(path, content):
     temp.replace(path)
 
 
+# 按逻辑键幂等生成报告，保存事实、候选与 Markdown、HTML 档案。
 def generate(logical_key, mode="standard", job_id=None, log=lambda m:None):
     previous=db.one("SELECT id,payload_json FROM reports WHERE logical_key=?",(logical_key,))
     if previous:

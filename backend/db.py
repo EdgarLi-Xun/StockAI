@@ -1,3 +1,4 @@
+# 管理本地 SQLite 表结构、事务、配置和通知，集中封装数据读写。
 from __future__ import annotations
 
 import json
@@ -6,6 +7,8 @@ from contextlib import contextmanager
 
 from .config import DATA, Settings, timestamp
 
+# 市场表保存证券、行情与来源证据；研究表保存报告、候选和任务日志。
+# 模拟表通过委托、持仓批次和现金流水关联，回测表固定策略与数据快照。
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -75,15 +78,18 @@ CREATE INDEX IF NOT EXISTS ix_bars_time ON bars(instrument_id,timeframe,ts DESC)
 """
 
 
+# 以保留中文的 JSON 格式序列化归档数据。
 def dumps(value) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"), default=str)
 
 
+# 创建启用约束的数据库连接，成功提交、异常回滚并保证关闭。
 @contextmanager
 def connection():
     DATA.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DATA / "stockai.sqlite3", timeout=30)
     db.row_factory = sqlite3.Row
+    db.create_function('stockai_write_capability',0,lambda:3)
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=30000")
     try:
@@ -96,34 +102,41 @@ def connection():
         db.close()
 
 
+# 执行参数化查询，将结果行转换为字典列表。
 def query(sql: str, args=()) -> list[dict]:
     with connection() as c:
         return [dict(row) for row in c.execute(sql, args)]
 
 
+# 读取第一条查询结果，无记录时返回空值。
 def one(sql: str, args=()) -> dict | None:
     rows = query(sql, args)
     return rows[0] if rows else None
 
 
+# 执行参数化写操作并返回受影响行数。
 def execute(sql: str, args=()):
     with connection() as c:
         return c.execute(sql, args).rowcount
 
 
+# 读取已保存配置并通过 Settings 恢复默认值与校验规则。
 def settings() -> Settings:
     row = one("SELECT value FROM settings WHERE key='app'")
     return Settings.model_validate_json(row["value"]) if row else Settings()
 
 
+# 序列化并保存经过校验的本地配置。
 def save_settings(value: Settings):
     execute("INSERT INTO settings(key,value) VALUES('app',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (value.model_dump_json(),))
 
 
+# 将带时间和级别的通知持久化，供界面展示。
 def notify(message: str, level="info"):
     execute("INSERT INTO notifications(ts,level,message) VALUES(?,?,?)", (timestamp(), level, message[:2000]))
 
 
+# 建立数据库与初始配置，并补充内置证券及启动恢复所需状态。
 def initialize():
     with connection() as c:
         c.executescript(SCHEMA)

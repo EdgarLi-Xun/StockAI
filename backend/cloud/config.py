@@ -1,3 +1,4 @@
+# 从环境变量构建公网服务配置，集中校验站点地址、目录和 Cookie 策略。
 from __future__ import annotations
 
 import os
@@ -8,6 +9,7 @@ from urllib.parse import urlsplit
 from backend.config import ROOT
 
 
+# 声明公网部署路径、会话、模型、邮件、备份及后台执行配置。
 @dataclass(frozen=True)
 class CloudConfig:
     data: Path
@@ -28,7 +30,12 @@ class CloudConfig:
     background: bool = True
     model_timeout: int = 180
     backup_hour: int = 2
+    desktop_mode: bool = False
+    desktop_instance: str = ""
+    sync_private_networks: tuple[str,...] = ()
+    sync_ca_file: str = ""
 
+    # 将环境变量转换为配置对象，并应用部署所需的默认值。
     @classmethod
     def from_env(cls):
         return cls(
@@ -45,14 +52,19 @@ class CloudConfig:
             ollama_enabled=os.environ.get("STOCKAI_CLOUD_OLLAMA_ENABLED", "0")=="1",
             background=os.environ.get("STOCKAI_CLOUD_NO_BACKGROUND")!="1",
             model_timeout=int(os.environ.get("STOCKAI_CLOUD_MODEL_TIMEOUT", "180")),
+            sync_private_networks=tuple(v.strip() for v in os.environ.get('STOCKAI_SYNC_PRIVATE_NETWORKS','').split(',') if v.strip()),
+            sync_ca_file=os.environ.get('STOCKAI_SYNC_CA_FILE',''),
         )
 
+    # 检查生产站点地址、路径和关键配置，拒绝不满足条件的部署。
     def validate(self):
         p=urlsplit(self.public_url)
         if p.username or p.password or p.query or p.fragment or p.path not in {"", "/"} or not p.hostname:
             raise ValueError("公开站点 URL 必须为固定站点根地址")
         if p.scheme!="https" and not (self.dev and p.scheme=="http" and p.hostname in {"127.0.0.1","localhost","testserver"}):
             raise ValueError("公网入口必须使用 HTTPS；仅显式开发模式允许本机 HTTP")
+        if self.desktop_mode and (not self.dev or p.scheme!="http" or p.hostname!="127.0.0.1" or not self.desktop_instance or not self.desktop_instance.isalnum()):
+            raise ValueError("桌面服务必须绑定明确的本机回环地址和独立实例")
         if self.erasures==self.data or self.erasures.is_relative_to(self.data) or self.key_file.is_relative_to(self.data):
             raise ValueError("注销记录与凭据主密钥必须保存在研究数据目录之外")
         if not 10<=self.model_timeout<=600:
@@ -61,10 +73,14 @@ class CloudConfig:
         if o.scheme not in {"http","https"} or not o.hostname or o.username or o.password or o.query or o.fragment or o.path not in {"", "/"}:
             raise ValueError("站点 Ollama 地址无效")
 
+    # 根据开发或生产模式选择会话 Cookie 名称。
     @property
     def session_cookie(self):
+        if self.desktop_mode:return "stockai_desktop_"+self.desktop_instance[:12]+"_session"
         return "stockai_dev_session" if self.dev else "__Host-stockai_session"
 
+    # 根据开发或生产模式选择 CSRF Cookie 名称。
     @property
     def csrf_cookie(self):
+        if self.desktop_mode:return "stockai_desktop_"+self.desktop_instance[:12]+"_csrf"
         return "stockai_dev_csrf" if self.dev else "__Host-stockai_csrf"

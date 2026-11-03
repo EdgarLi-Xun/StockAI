@@ -1,0 +1,18 @@
+{
+  "version": "3.2.0-preview.2",
+  "exe_sha256": "7639decd3ff9afaee1f646ca2f05f1f187b76f812cb0f71c075af88ca489790c",
+  "relocated_exe_sha256": "7639decd3ff9afaee1f646ca2f05f1f187b76f812cb0f71c075af88ca489790c",
+  "source_sha256": "2a38f5ad5fef9e3e17ed0067691b05a40490cb734b091f0af5bdc167c5890058",
+  "python_node_removed_from_path": true,
+  "chinese_and_space_paths": true,
+  "assistant_static_greeting": true,
+  "assistant_model_greeting": true,
+  "assistant_followup": true,
+  "frozen_api_and_queue_verified": true,
+  "model_execution_uses_offline_test_transport": true,
+  "native_gui_loaded": true,
+  "old_workspace_opened_by_both_real_versions": true,
+  "existing_owner_password_key_and_research_preserved": true,
+  "real_user_workspace_accessed": false,
+  "real_provider_called": false
+}

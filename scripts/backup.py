@@ -1,3 +1,4 @@
+# 为本地服务提供可独立运行的备份命令，复用数据库初始化与完整性校验。
 import argparse
 import json
 import sys

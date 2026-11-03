@@ -1,3 +1,4 @@
+# 校验并备份本地数据库、研究报告和快照，恢复前检查确认与关联完整性。
 from __future__ import annotations
 
 import hashlib
@@ -16,6 +17,7 @@ from .config import DATA, VERSION, timestamp
 LOCK = threading.RLock()
 
 
+# 检查数据库完整性、外键及报告文件关联，返回备份统计。
 def inspect_database(path):
     c=sqlite3.connect(path)
     try:
@@ -26,6 +28,7 @@ def inspect_database(path):
         c.close()
 
 
+# 生成包含数据库和报告文件的归档，并校验清单与校验和。
 def create_backup():
     if not LOCK.acquire(blocking=False):
         raise ValueError("研究任务运行中，请待任务完成后备份")
@@ -63,6 +66,7 @@ def create_backup():
         LOCK.release()
 
 
+# 验证备份标识并解析到备份目录内，阻止路径越界。
 def backup_path(ident):
     if len(ident)!=32 or any(c not in "0123456789abcdef" for c in ident):
         raise ValueError("备份标识不合法")
@@ -72,6 +76,7 @@ def backup_path(ident):
     return path
 
 
+# 列出已保存的备份及其统计和可用状态。
 def list_backups():
     result=[]
     for path in sorted((DATA/"backups").glob("*.zip"),reverse=True):
@@ -84,6 +89,7 @@ def list_backups():
     return sorted(result,key=lambda x:x.get("created_at",""),reverse=True)
 
 
+# 核验确认文字和备份内容，恢复数据库与研究档案并检查一致性。
 def restore_backup(ident, confirmation):
     if confirmation!="恢复备份":
         raise ValueError("请键入“恢复备份”确认替换本地数据")
@@ -108,7 +114,7 @@ def restore_backup(ident, confirmation):
         if counts!=manifest["counts"]:
             candidate.unlink()
             raise ValueError("备份记录数量不匹配")
-        # Always make a recovery point of current data before replacing it.
+        # 替换前先备份当前数据，为本次恢复保留回退点。
         safety=create_backup()
         folder=DATA/"reports"
         folder.mkdir(parents=True,exist_ok=True)
@@ -118,7 +124,7 @@ def restore_backup(ident, confirmation):
                 temp=p.with_suffix(p.suffix+".restore")
                 temp.write_bytes(raw)
                 temp.replace(p)
-        # SQLite backup API replaces pages transactionally and handles active WAL correctly.
+        # 通过 SQLite 备份 API 事务性替换数据页，并正确处理活动 WAL 状态。
         source=sqlite3.connect(candidate)
         target=sqlite3.connect(DATA/"stockai.sqlite3",timeout=30)
         try:

@@ -1,8 +1,12 @@
+# 为环境变量指定的站点启用 HTTPS 反向代理。
 {$STOCKAI_DOMAIN} {
     encode zstd gzip
+    # 在代理层限制请求体积，与应用输入上限共同约束上传。
     request_body {
         max_size 10MB
     }
+    # 启用 HSTS，后续请求优先使用 HTTPS。
     header Strict-Transport-Security "max-age=31536000"
+    # 仅向私有应用容器转发请求。
     reverse_proxy app:8766
 }

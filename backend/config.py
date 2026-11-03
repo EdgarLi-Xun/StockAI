@@ -1,3 +1,4 @@
+# 定义本地服务配置、上海时区、费用假设和允许的访问范围。
 from __future__ import annotations
 
 import os
@@ -14,14 +15,17 @@ VERSION = "2.0.0"
 STRATEGY_VERSION = "ma-cross-next-open/2.0.0"
 
 
+# 获取带上海时区的当前时间，统一研究日期与任务计划口径。
 def now() -> datetime:
     return datetime.now(TZ)
 
 
+# 生成带时区的 ISO 时间字符串，用于日志与归档。
 def timestamp() -> str:
     return now().isoformat(timespec="seconds")
 
 
+# 集中定义股票、ETF 的费用、滑点及人工核验状态。
 class Fees(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stock_commission: float = Field(0.0003, ge=0, le=0.05)
@@ -35,6 +39,7 @@ class Fees(BaseModel):
     note: str = Field("默认费率仅为模拟假设，尚未核对券商交割单。ETF不套用股票印花税和过户费。", max_length=500)
 
 
+# 声明模型、预算、调度、访问控制与通知配置，并拒绝额外字段。
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ollama_url: str = "http://127.0.0.1:11434"
@@ -60,6 +65,7 @@ class Settings(BaseModel):
     proxy_hostname: str = Field("",max_length=200)
     allowed_networks: list[str] = Field(default_factory=lambda: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"])
 
+    # 限制模型地址为允许的本地服务，防止任意远程调用。
     @field_validator("ollama_url")
     @classmethod
     def local_model_only(cls, value: str) -> str:
@@ -68,6 +74,7 @@ class Settings(BaseModel):
             raise ValueError("仅允许本机、不含凭据的 Ollama HTTP 地址")
         return value.rstrip("/")
 
+    # 校验任务时间为合法的小时和分钟格式。
     @field_validator("morning_time", "closing_time", "weekly_time")
     @classmethod
     def check_time(cls, value: str) -> str:
@@ -76,6 +83,7 @@ class Settings(BaseModel):
             raise ValueError("时间格式须为 HH:MM")
         return value
 
+    # 固定研究与任务调度时区，避免日期边界出现歧义。
     @field_validator("timezone")
     @classmethod
     def shanghai_only(cls, value: str) -> str:
@@ -83,6 +91,7 @@ class Settings(BaseModel):
             raise ValueError("本版调度统一使用 Asia/Shanghai")
         return value
 
+    # 限制行情提供方为已实现并支持的数据源。
     @field_validator("data_provider")
     @classmethod
     def provider_only(cls, value: str) -> str:
@@ -90,6 +99,7 @@ class Settings(BaseModel):
             raise ValueError("不支持的数据源")
         return value
 
+    # 校验允许访问的 CIDR 网段，限制为明确的内网范围。
     @field_validator("allowed_networks")
     @classmethod
     def private_networks(cls, value: list[str]) -> list[str]:
@@ -102,6 +112,7 @@ class Settings(BaseModel):
                 raise ValueError("仅允许私有网段")
         return value
 
+    # 校验反向代理主机名，防止将地址或路径混入主机配置。
     @field_validator("proxy_hostname")
     @classmethod
     def proxy_host(cls,value):

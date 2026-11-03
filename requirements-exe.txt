@@ -1,0 +1,4 @@
+-r requirements-desktop.txt
+-r requirements-cloud.txt
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9

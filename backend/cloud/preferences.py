@@ -1,3 +1,4 @@
+# 管理每位用户独立的研究预算、费用和调度偏好。
 import json
 
 from pydantic import BaseModel,ConfigDict,Field,field_validator
@@ -6,6 +7,7 @@ from backend.config import Fees,Settings
 from .store import json_text
 
 
+# 定义个人预算、费用和自动任务参数，限制允许修改的字段。
 class Preferences(BaseModel):
     model_config=ConfigDict(extra="forbid")
     budget:float=Field(1000,gt=0,le=1000)
@@ -20,12 +22,14 @@ class Preferences(BaseModel):
     closing_time:str="16:00"
     weekly_time:str="20:00"
 
+    # 校验个人计划采用合法的小时和分钟格式。
     @field_validator("morning_time","closing_time","weekly_time")
     @classmethod
     def valid_time(cls,v):
         return Settings.check_time(v)
 
 
+# 按用户读取并校验个人偏好，不允许省略用户归属。
 def get_preferences(store,uid):
     if not uid:
         raise ValueError("必须指定用户")
@@ -35,6 +39,7 @@ def get_preferences(store,uid):
     return Preferences.model_validate_json(row["payload_json"])
 
 
+# 在确认账号有效后保存个人偏好，仅影响后续任务快照。
 def save_preferences(store,uid,value):
     prefs=Preferences.model_validate(value)
     with store.user_lock(uid),store.tx(immediate=True) as c:
