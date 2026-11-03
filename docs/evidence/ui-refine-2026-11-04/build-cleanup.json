@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-04",
+  "targets": [
+    {
+      "path": ".tmp/ui-refine-2-release/.tmp/exe-build/work",
+      "bytes": 312668160
+    },
+    {
+      "path": ".tmp/ui-refine-2-release/dist",
+      "bytes": 286593213
+    },
+    {
+      "path": ".tmp/ui-refine-2/site",
+      "bytes": 1076435
+    }
+  ],
+  "bytes": 600337808,
+  "temporary_dependency_junctions_removed": 2,
+  "shared_dependencies_preserved": true,
+  "prior_releases_preserved": true,
+  "current_binary": "dist/StockAI-3.2.0-preview.5-Windows.exe",
+  "source_snapshot_preserved": ".tmp/ui-refine-2-release"
+}

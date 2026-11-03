@@ -1,0 +1,14 @@
+{
+  "version": "3.2.0-preview.5",
+  "sha256": "834ae5b056937239ded0a0bb8e9880f5bf26b795db5d4dfb8d64fc24d9b36f15",
+  "bytes": 286592539,
+  "source_base_commit": "8fcc574dd060b6e2f5835e7f0c8e41d1c0bd2a7a",
+  "source_sha256": "37a18279c6488690ad26b8ed210078826b565340398f817b9f3220f14f630aec",
+  "packaged_frontend_files_verified": 19,
+  "frontend_identity_sha256": "4017f14df2478b4b90782cfb46ea98c44fc11800f51d3e4148c39fdb95ddc06c",
+  "offline_self_test_passed": true,
+  "personal_data_included": false,
+  "uncommitted_parallel_work_included": false,
+  "snapshot": ".tmp/ui-refine-2-release",
+  "published": false
+}

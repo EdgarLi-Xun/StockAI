@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "two_clients_same_owner": true,
+  "readiness": "empty",
+  "usage_available": true,
+  "frontend_assets": true,
+  "frozen_collector_dispatch": true,
+  "assistant_static_greeting": true,
+  "assistant_model_greeting": true,
+  "assistant_followup": true,
+  "assistant_test_transport_calls": 2,
+  "qt": "6.12.0",
+  "akshare": "1.20.21",
+  "sqlite_journal": "delete",
+  "backup_identity_present": true,
+  "real_provider": false,
+  "real_market_requests": false
+}

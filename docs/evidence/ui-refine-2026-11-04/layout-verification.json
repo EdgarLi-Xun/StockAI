@@ -1,0 +1,139 @@
+{
+  "date": "2026-11-04",
+  "synthetic_workspace": true,
+  "source_snapshot": ".tmp/ui-refine-2-release",
+  "dashboard": {
+    "contrast": [
+      {
+        "background": "rgb(243, 245, 240)",
+        "foreground": "rgb(28, 53, 37)",
+        "ratio": 12.07,
+        "selector": ".page-heading h1"
+      },
+      {
+        "background": "rgb(243, 245, 240)",
+        "foreground": "rgb(97, 115, 101)",
+        "ratio": 4.61,
+        "selector": ".page-heading p"
+      },
+      {
+        "background": "rgb(255, 255, 255)",
+        "foreground": "rgb(95, 116, 99)",
+        "ratio": 5.04,
+        "selector": ".metric-label"
+      },
+      {
+        "background": "rgb(255, 255, 255)",
+        "foreground": "rgb(97, 115, 95)",
+        "ratio": 5.09,
+        "selector": ".metric-note"
+      },
+      {
+        "background": "rgb(36, 78, 54)",
+        "foreground": "rgb(212, 231, 208)",
+        "ratio": 7.28,
+        "selector": ".accent-card .metric-label"
+      },
+      {
+        "background": "rgb(36, 78, 54)",
+        "foreground": "rgb(217, 236, 209)",
+        "ratio": 7.61,
+        "selector": ".accent-card .metric-link"
+      },
+      {
+        "background": "rgb(255, 254, 249)",
+        "foreground": "rgb(101, 114, 92)",
+        "ratio": 5.05,
+        "selector": ".metal-summary-info .quote-time"
+      },
+      {
+        "background": "rgb(252, 253, 251)",
+        "foreground": "rgb(99, 117, 97)",
+        "ratio": 4.85,
+        "selector": ".workspace-nav-section h2"
+      }
+    ],
+    "navCount": 1,
+    "overflow": false,
+    "rootTransform": "none",
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "mobile_modal": {
+    "modal": {
+      "bottom": 642.296875,
+      "height": 504.59375,
+      "left": 16,
+      "right": 329,
+      "top": 137.703125,
+      "width": 313,
+      "x": 16,
+      "y": 137.703125
+    },
+    "overflow": false,
+    "rootTransform": "none",
+    "scrim": {
+      "bottom": 780,
+      "height": 780,
+      "left": 0,
+      "right": 345,
+      "top": 0,
+      "width": 345,
+      "x": 0,
+      "y": 0
+    },
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "model_form": {
+    "mobile": {
+      "viewport": [
+        360,
+        780
+      ],
+      "columns": "263px",
+      "input_widths": [
+        263,
+        263,
+        263,
+        263,
+        263,
+        263,
+        263,
+        263
+      ],
+      "overflow": false
+    },
+    "tablet": {
+      "viewport": [
+        1024,
+        768
+      ],
+      "columns": "336.781px 336.781px",
+      "overflow": false
+    }
+  },
+  "mobile_tasks": {
+    "viewport": [
+      360,
+      780
+    ],
+    "schedule_columns": "311px",
+    "overflow": false
+  },
+  "mobile_readiness": {
+    "viewport": [
+      360,
+      780
+    ],
+    "heading_columns": "231px 70px",
+    "overflow": false
+  },
+  "console_errors": [],
+  "real_market_requests": false,
+  "real_provider_requests": false
+}
