@@ -1,0 +1,194 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.7",
+  "sqlite": "3.50.4",
+  "cpus": 20,
+  "memory": "unavailable",
+  "peak_process_rss_kib": null,
+  "fixture": {
+    "users": 20,
+    "authenticated_sessions": 20,
+    "shared_securities": 300,
+    "watchlist_per_user": 300,
+    "alerts_per_user": 50,
+    "journal_versions_per_user": 1000,
+    "experiments_per_user": 200,
+    "sessions_per_user": 100,
+    "messages_per_session": 200,
+    "shared_daily_bars": 18000,
+    "data_quality": "synthetic historical bars; current calendar and risk verification intentionally unknown"
+  },
+  "fixture_seconds": 21.195216299965978,
+  "database_bytes": 354054144,
+  "sequential_http": {
+    "/api/me/readiness?size=20": {
+      "count": 5,
+      "p95": 0.23402119998354465,
+      "max": 0.23402119998354465
+    },
+    "/api/me/usage": {
+      "count": 5,
+      "p95": 0.016844699974171817,
+      "max": 0.016844699974171817
+    },
+    "/api/me/alerts?size=20": {
+      "count": 5,
+      "p95": 0.06482049997430295,
+      "max": 0.06482049997430295
+    },
+    "/api/me/journals?size=20": {
+      "count": 5,
+      "p95": 0.012630500015802681,
+      "max": 0.012630500015802681
+    },
+    "/api/me/experiment-topics?size=20": {
+      "count": 5,
+      "p95": 0.012074399972334504,
+      "max": 0.012074399972334504
+    },
+    "/api/me/experiments?size=20": {
+      "count": 5,
+      "p95": 0.05885350005701184,
+      "max": 0.05885350005701184
+    },
+    "/api/me/assistant/sessions?size=20": {
+      "count": 5,
+      "p95": 0.012949600000865757,
+      "max": 0.012949600000865757
+    },
+    "/api/me/assistant/sessions/chat:f2db281780a541edabced70e3d075c92:0?size=20": {
+      "count": 5,
+      "p95": 0.10630069999024272,
+      "max": 0.10630069999024272
+    },
+    "/api/me/research/options": {
+      "count": 5,
+      "p95": 0.03176849998999387,
+      "max": 0.03176849998999387
+    },
+    "/api/me/journals/journal:f2db281780a541edabced70e3d075c92:0": {
+      "count": 5,
+      "p95": 0.20630650001112372,
+      "max": 0.20630650001112372
+    }
+  },
+  "concurrent_http_read": {
+    "requests": 120,
+    "p95": 1.316260699997656,
+    "max": 1.962911699898541
+  },
+  "mixed": {
+    "jobs": 20,
+    "completed": [
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "assistant",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "standard",
+        "status": "success",
+        "error_code": null
+      },
+      {
+        "kind": "profile_test",
+        "status": "success",
+        "error_code": null
+      }
+    ],
+    "model_delay_seconds": 0.05,
+    "max_model_concurrency": 1,
+    "accept_p95": 0.04114869993645698,
+    "stop_ack": 0.018454200006090105,
+    "all_users_dispatched": 20
+  },
+  "alerts_full_cycle": 17.702950400067493,
+  "failures": [],
+  "real_provider": false,
+  "real_smtp": false
+}

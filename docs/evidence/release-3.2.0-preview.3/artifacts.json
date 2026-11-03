@@ -1,0 +1,142 @@
+{
+  "version": "3.2.0-preview.3",
+  "date": "2026-11-03",
+  "timezone": "Asia/Shanghai",
+  "stage": "preview",
+  "backend_tests": {
+    "passed": 382,
+    "failed": 0,
+    "skipped": 0,
+    "skipped_tests": [],
+    "scale_fixture_enabled": true,
+    "base_run": {
+      "passed": 381,
+      "failed": 1,
+      "failure": "Scale fixture optional telemetry imported Unix-only resource on Windows after business assertions"
+    },
+    "followup_run": {
+      "passed": 1,
+      "failed": 0,
+      "test": "test_twenty_user_scale_reads_mixed_queue_recovery",
+      "fix": "Only optional resource telemetry changed to unknown on unsupported platforms; business and latency assertions retained"
+    },
+    "application_sources_unchanged_between_runs": true
+  },
+  "frontend_tests": {
+    "passed": 8,
+    "failed": 0,
+    "skipped": 0
+  },
+  "frontends": {
+    "frontend/dist": {
+      "files": 9,
+      "version": "3.2.0-preview.3",
+      "identity_sha256": "0ed58b462639732eedb1ad211cb615a001bd43d85a68eb48d57cbdb704c52929"
+    },
+    "frontend/dist-public": {
+      "files": 18,
+      "version": "3.2.0-preview.3",
+      "identity_sha256": "5ed0242b8f1afbe8ea0215248e6f246fa791155cdd923bcd12af27414d20b552"
+    }
+  },
+  "source_sha256": "7497c853611ee69babb11cfd17890a43b9042cb2e2330944db8c5547197fee92",
+  "source_scan": {
+    "candidate_files": 278,
+    "findings": [],
+    "baseline_test_fixture_matches": [
+      {
+        "path": "docs/evidence/sync-upgrade-2026-11-02/tests.json",
+        "line": 394,
+        "rule": "credential_url"
+      },
+      {
+        "path": "docs/evidence/task-assistant-2026-11-03/tests-base.xml",
+        "line": 1,
+        "rule": "credential_url"
+      },
+      {
+        "path": "tests/test_budget_risk.py",
+        "line": 108,
+        "rule": "credential_url"
+      }
+    ]
+  },
+  "archive_smoke": [
+    {
+      "component": "public",
+      "passed": true,
+      "version": "3.2.0-preview.3",
+      "frontend": true,
+      "unauthenticated_boundary": true,
+      "environment": "Windows development; not Linux production"
+    },
+    {
+      "component": "hub",
+      "passed": true,
+      "version": "3.2.0-preview.3",
+      "qt_imported": false,
+      "environment": "Windows development; not Linux production"
+    }
+  ],
+  "frozen_self_test": {
+    "passed": true,
+    "two_clients_same_owner": true,
+    "readiness": "empty",
+    "usage_available": true,
+    "frontend_assets": true,
+    "frozen_collector_dispatch": true,
+    "assistant_static_greeting": true,
+    "assistant_model_greeting": true,
+    "assistant_followup": true,
+    "assistant_test_transport_calls": 2,
+    "qt": "6.12.0",
+    "akshare": "1.20.21",
+    "sqlite_journal": "delete",
+    "backup_identity_present": true,
+    "real_provider": false,
+    "real_market_requests": false
+  },
+  "frozen_gui": {
+    "passed": true,
+    "desktop_loaded": true,
+    "version": "3.2.0-preview.3"
+  },
+  "environment": {
+    "platform": "Windows x64",
+    "python": "3.13.7",
+    "pyside6": "6.12.0"
+  },
+  "artifacts": [
+    {
+      "name": "StockAI-3.2.0-preview.3-Windows.exe",
+      "bytes": 286576843,
+      "sha256": "6e54cb53db6abd56d91a7a25262d3ed01163f9f68b745bca14e5338254bc689d"
+    },
+    {
+      "name": "StockAI-3.2.0-preview.3-Public.zip",
+      "bytes": 2199647,
+      "sha256": "02fccf37c219cb4cee8aede0379e7f0277e314eb06138eb97615dbdcd943ca48",
+      "manifest_files": 265
+    },
+    {
+      "name": "StockAI-3.2.0-preview.3-Hub.zip",
+      "bytes": 608470,
+      "sha256": "5cbabebad1cbb90b5e8427054ecf21ead34b4ff204b30c9122902711ac3814a9",
+      "manifest_files": 123
+    }
+  ],
+  "real_provider_calls": false,
+  "real_mail_sent": false,
+  "commands": [
+    ".venv/Scripts/python.exe -m pytest -x -o faulthandler_timeout=90 --basetemp=.tmp/pytest-release-3.2.0-preview.3-final --junitxml=.tmp/release-3.2.0-preview.3-final.xml (STOCKAI_RESEARCH_LOAD=1)",
+    ".venv/Scripts/python.exe -m pytest tests/test_workbench_load.py -x -o faulthandler_timeout=90 --basetemp=.tmp/pytest-release-3.2.0-preview.3-load --junitxml=.tmp/release-3.2.0-preview.3-load.xml (STOCKAI_RESEARCH_LOAD=1)",
+    "node --test tests/frontend-*.test.mjs",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run build:public",
+    ".venv/Scripts/python.exe scripts/package-exe.py --skip-build",
+    ".venv/Scripts/python.exe scripts/package-cloud.py",
+    ".venv/Scripts/python.exe scripts/package-hub.py",
+    "StockAI.exe --self-test --data-dir <isolated-workspace> --result <result>",
+    "StockAI.exe --smoke-test --data-dir <isolated-workspace> --result <result>"
+  ]
+}
