@@ -1,0 +1,259 @@
+{
+  "applied": true,
+  "retained": [
+    "StockAI-3.2.0-preview.3 published EXE/Public/Hub and checksums",
+    "StockAI-3.2.0-preview.4 local preview",
+    "current release source snapshot",
+    "runtime and personal data",
+    "dependencies and packaging tools"
+  ],
+  "bytes": 5433662120,
+  "targets": [
+    {
+      "path": "dist\\ui-refresh",
+      "bytes": 286569730,
+      "files": 3,
+      "removed": true
+    },
+    {
+      "path": "dist\\assistant-fix-3.2.0-preview.2",
+      "bytes": 288803957,
+      "files": 9,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\ui-refresh",
+      "bytes": 631107546,
+      "files": 260,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\exe-namefix-build",
+      "bytes": 312557001,
+      "files": 18,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\namefix-source-20261103",
+      "bytes": 647578964,
+      "files": 2160,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\assistant-fix-release-source",
+      "bytes": 6983326,
+      "files": 301,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\release-smoke-20261101-1",
+      "bytes": 2076519,
+      "files": 135,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\release-smoke-20261101-final",
+      "bytes": 2088155,
+      "files": 137,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\public-smoke-20261101-final",
+      "bytes": 2592200,
+      "files": 134,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\release-archive-smoke-public",
+      "bytes": 6471260,
+      "files": 334,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\release-archive-smoke-hub",
+      "bytes": 1669153,
+      "files": 145,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\exe-build\\work",
+      "bytes": 1495456634,
+      "files": 75,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\ui-polish-release\\.tmp\\exe-build\\work",
+      "bytes": 312666528,
+      "files": 15,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\ui-polish-release\\dist",
+      "bytes": 286592151,
+      "files": 3,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\exe-build\\StockAI-3.1.0-preview.1-Windows.spec",
+      "bytes": 2432,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\exe-build\\StockAI-3.2.0-preview.1-Windows.spec",
+      "bytes": 2432,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\exe-build\\StockAI-3.2.0-preview.2-Windows.spec",
+      "bytes": 2432,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": ".tmp\\exe-build\\StockAI-3.2.0-preview.3-Windows.spec",
+      "bytes": 2432,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-2.0.0-Windows.zip",
+      "bytes": 686883,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-2.0.0-Windows.zip.sha256",
+      "bytes": 93,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.0.0-Public.zip",
+      "bytes": 637622,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.0.0-Public.zip.sha256",
+      "bytes": 92,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.1.0-preview.1-Public.zip",
+      "bytes": 1118224,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.1.0-preview.1-Public.zip.sha256",
+      "bytes": 102,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.1.0-preview.1-Windows.exe",
+      "bytes": 286298685,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.1.0-preview.1-Windows.exe.sha256",
+      "bytes": 103,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.1.0-preview.1-Windows.exe.build.json",
+      "bytes": 483,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Hub.zip",
+      "bytes": 492520,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Hub.zip.sha256",
+      "bytes": 99,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Public.zip",
+      "bytes": 1533515,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Public.zip.sha256",
+      "bytes": 102,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Windows.exe",
+      "bytes": 286546029,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Windows.exe.sha256",
+      "bytes": 103,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.1-Windows.exe.build.json",
+      "bytes": 571,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.2-Windows.exe",
+      "bytes": 286550756,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.2-Windows.exe.sha256",
+      "bytes": 103,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.2-Windows.exe.build.json",
+      "bytes": 571,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.3-Windows-NameFix.exe",
+      "bytes": 286570444,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.3-Windows-NameFix.exe.sha256",
+      "bytes": 111,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.3-Windows-NameFix.exe.build.json",
+      "bytes": 571,
+      "files": 1,
+      "removed": true
+    },
+    {
+      "path": "dist\\StockAI-3.2.0-preview.3-Windows-NameFix.exe.verification.json",
+      "bytes": 1486,
+      "files": 1,
+      "removed": true
+    }
+  ]
+}

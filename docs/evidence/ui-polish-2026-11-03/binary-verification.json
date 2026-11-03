@@ -1,0 +1,12 @@
+{
+  "version": "3.2.0-preview.4",
+  "sha256": "a9c656a186d71d83228056f7f2df3f847938c6c44b554d28f73435061fd91536",
+  "bytes": 286591477,
+  "packaged_frontend_files_verified": 19,
+  "source_sha256": "4df6fba8ae620e26bd409674fc438d68b2d75c8a5bc878fc8919aee11cf389df",
+  "frontend_identity_sha256": "cef8c7a6cac3a296a7a69c522fa941e13d0592981ed90a993771b661bba712e3",
+  "offline_self_test_passed": true,
+  "personal_data_included": false,
+  "snapshot": ".tmp/ui-polish-release",
+  "published": false
+}

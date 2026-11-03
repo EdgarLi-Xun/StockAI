@@ -1,5 +1,9 @@
 # StockAI
 
+## 2026-11-03 页面整理
+
+个人空间导航由 PublicApp + components/WorkspaceNav.vue + workspaceNavigation.ts 统一持有，navigation.css 在 workspace.css 后加载。App.vue 自有侧栏/顶栏仅用于原源码本地模式；PublicApp 中的 ResearchWorkbench 和助手独立页传 embedded，避免重新出现第二套导航。悬浮助手保持持续挂载，不能在切页时销毁。手机抽屉需处理 CSS 过渡后的焦点、Esc、Tab 循环与变宽后关闭，否则 inert 会阻止页面交互。旧构建副本可能通过 Junction 指向实际 frontend/node_modules，清理时只能先非递归移除链接本身，不能沿链接删除依赖。详情见 docs/修复记录-统一导航与构建清理.md；preview.4 为本地构建，未发布。
+
 StockAI 是股票研究与模拟交易工具。以下术语用于区分使用者、模型服务及个人保存的模型接入选择。
 
 ## Language

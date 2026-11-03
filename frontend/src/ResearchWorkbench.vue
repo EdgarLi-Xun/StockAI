@@ -12,7 +12,7 @@ import SourceFacts from './components/SourceFacts.vue'
 import './research.css'
 
 // 接收当前研究页面、登录身份和从报告或证券跳转带入的上下文。
-const props = defineProps<{ view: string, user: any, context?: { kind: string, id: string, report_id?: string } | null, assistantPanel?: boolean, showHistory?: boolean }>()
+const props = defineProps<{ view: string, user: any, context?: { kind: string, id: string, report_id?: string } | null, assistantPanel?: boolean, showHistory?: boolean, embedded?: boolean }>()
 const emit = defineEmits<{ navigate: [name: string], 'clear-context': [] }>()
 // 定义研究增强导航，与后端已实现的功能范围对应。
 const sections = [ ['readiness','数据就绪度'], ['usage','模型用量'], ['alerts','条件提醒'], ['journals','研究日志'], ['portfolio','组合风险'], ['experiments','历史实验'], ['assistant','AI 助手'] ]
@@ -149,8 +149,8 @@ onBeforeUnmount(()=>{alive=false;sessionRead++;clearInterval(poll);window.remove
 
 <template>
 <!-- 增强工作台按功能分区展示，所有事实来自本人可访问的服务端对象。 -->
-  <div class="research-shell">
-    <aside v-if="!assistantPanel" class="research-nav"><div class="research-nav-heading"><span class="eyebrow">RESEARCH DESK</span><strong>把研究连起来</strong></div><nav aria-label="研究增强功能"><button @click="emit('navigate','dashboard')"><ArrowLeft :size="17"/>研究总览</button><button @click="emit('navigate','jobs')"><Activity :size="17"/>任务中心</button><button v-for="s in sections" :key="s[0]" :class="{active:view===s[0]}" @click="emit('navigate',s[0]!)"><Bell v-if="s[0]==='alerts'" :size="17"/><MessageSquare v-else-if="s[0]==='assistant'" :size="17"/><FlaskConical v-else-if="s[0]==='experiments'" :size="17"/><ShieldCheck v-else-if="s[0]==='readiness'" :size="17"/><Activity v-else :size="17"/>{{s[1]}}</button></nav><p>私人记录归本人所有<br/>Asia/Shanghai · 仅供研究与模拟</p><button class="text-button" @click="emit('navigate','dashboard')"><ArrowLeft :size="14"/>返回研究总览</button></aside>
+  <div :class="['research-shell', {'research-embedded':embedded}]">
+    <aside v-if="!assistantPanel&&!embedded" class="research-nav"><div class="research-nav-heading"><span class="eyebrow">RESEARCH DESK</span><strong>把研究连起来</strong></div><nav aria-label="研究增强功能"><button @click="emit('navigate','dashboard')"><ArrowLeft :size="17"/>研究总览</button><button @click="emit('navigate','jobs')"><Activity :size="17"/>任务中心</button><button v-for="s in sections" :key="s[0]" :class="{active:view===s[0]}" @click="emit('navigate',s[0]!)"><Bell v-if="s[0]==='alerts'" :size="17"/><MessageSquare v-else-if="s[0]==='assistant'" :size="17"/><FlaskConical v-else-if="s[0]==='experiments'" :size="17"/><ShieldCheck v-else-if="s[0]==='readiness'" :size="17"/><Activity v-else :size="17"/>{{s[1]}}</button></nav><p>私人记录归本人所有<br/>Asia/Shanghai · 仅供研究与模拟</p><button class="text-button" @click="emit('navigate','dashboard')"><ArrowLeft :size="14"/>返回研究总览</button></aside>
     <main class="research-main">
       <div v-if="!assistantPanel" class="page-heading"><div><div class="eyebrow">YOUR RESEARCH, CONNECTED</div><h1>{{title}}</h1><p>{{descriptions[view]}}</p></div><button class="secondary small" :disabled="loading||busy" @click="refresh"><RefreshCw :size="14" :class="{spin:loading}"/>刷新</button></div>
       <div v-if="editor&&!editorOpen" class="public-message">有未保存草稿。<button class="text-button" @click="editorOpen=true">继续编辑</button></div><div v-if="error" role="alert" class="public-message error">{{error}}<button class="text-button" @click="refresh">重试读取</button></div><div v-if="notice" role="status" class="public-message research-notice">{{notice}}<button class="text-button" @click="notice=''" aria-label="关闭提示">收起</button></div>

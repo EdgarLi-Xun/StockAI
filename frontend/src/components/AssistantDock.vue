@@ -65,14 +65,14 @@ defineExpose({ open, dirty })
       <div><MessageSquare :size="18"/><strong>AI 助手</strong><span v-if="pending" role="status"><LoaderCircle :size="13" class="spin"/>正在生成</span></div>
       <div class="button-row">
         <button v-if="!fullPage" class="icon-button" :aria-pressed="historyOpen" aria-label="查看历史对话" @click="historyOpen=!historyOpen"><History :size="17"/></button>
-        <button class="icon-button" aria-label="新建对话" @click="client?.newSession()"><Plus :size="18"/></button>
+        <button v-if="!fullPage" class="icon-button" aria-label="新建对话" @click="client?.newSession()"><Plus :size="18"/></button>
         <button v-if="!fullPage" class="icon-button" aria-label="在独立页面打开" @click="expand"><Expand :size="17"/></button>
         <button v-if="!fullPage" class="icon-button" aria-label="收起 AI 助手" @click="collapse"><Minus :size="19"/></button>
         <button v-else class="text-button" @click="leavePage"><ArrowLeft :size="15"/>返回页面并悬浮</button>
       </div>
     </header>
     <!-- 一个持续挂载的实例负责两种展示；收起、换页和展开都不会重新发送。 -->
-    <ResearchWorkbench v-if="initialized" ref="client" view="assistant" :user="user" :context="context" :assistant-panel="!fullPage" :show-history="historyOpen" @navigate="navigate" @clear-context="emit('clear-context')"/>
+    <ResearchWorkbench v-if="initialized" ref="client" view="assistant" :user="user" :context="context" :assistant-panel="!fullPage" :embedded="fullPage" :show-history="historyOpen" @navigate="navigate" @clear-context="emit('clear-context')"/>
   </section>
   <button v-show="!fullPage && !blocked" ref="launcher" :style="viewportStyle" class="assistant-launcher" :aria-label="'打开 AI 助手' + (pending ? '，正在生成' : unread ? '，有新回复' : '')" :aria-expanded="opened" @click="opened ? collapse() : open()">
     <LoaderCircle v-if="pending" :size="21" class="spin"/><MessageSquare v-else :size="21"/>

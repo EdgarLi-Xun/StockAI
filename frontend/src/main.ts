@@ -6,4 +6,5 @@ import './style.css'
 const module = import.meta.env.MODE === 'public' ? await import('./PublicApp.vue') : await import('./App.vue')
 // 在模式专属样式之后应用统一的工作台视觉规范。
 await import('./workspace.css')
+await import('./navigation.css')
 createApp(module.default).mount('#app')
