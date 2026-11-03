@@ -47,7 +47,8 @@ def create_app(cfg=None):
         finally:
             runtime.close()
     app=FastAPI(title="StockAI 公网个人研究空间",version=PUBLIC_VERSION,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
-    hosts=[urlsplit(cfg.public_url).hostname]+(["127.0.0.1","localhost","testserver"] if cfg.dev else [])
+    origins={cfg.public_url,*cfg.desktop_origins} if cfg.desktop_mode else {cfg.public_url}
+    hosts=[urlsplit(origin).hostname for origin in origins]+(["127.0.0.1","localhost","testserver"] if cfg.dev else [])
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=hosts)
 
     # 从应用状态取得当前运行时，供路由与依赖共享。
@@ -110,7 +111,9 @@ def create_app(cfg=None):
             if client_version and client_version!=PUBLIC_VERSION and request.method not in {'GET','HEAD','OPTIONS'}:
                 return JSONResponse({'code':'CLIENT_VERSION','detail':'站点版本已更新，请保存草稿并刷新页面'},409)
         if request.url.path.startswith("/api/") and request.method not in {"GET","HEAD","OPTIONS"}:
-            if request.headers.get("origin","").rstrip("/")!=cfg.public_url:
+            origin=request.headers.get("origin","").rstrip("/")
+            request_origin=f'{request.url.scheme}://{request.headers.get("host","")}'
+            if origin not in origins or (cfg.desktop_mode and origin!=request_origin):
                 return JSONResponse({"detail":"请求来源验证失败","code":"ORIGIN_REJECTED"},403)
             csrf=request.cookies.get(cfg.csrf_cookie,"");header=request.headers.get("x-csrf-token","")
             if not csrf or not hmac.compare_digest(csrf,header):

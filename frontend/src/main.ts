@@ -1,4 +1,5 @@
 // 前端引导入口：加载全局样式并根据构建模式选择应用。
+import './clientIds'
 import { createApp } from 'vue'
 import './style.css'
 

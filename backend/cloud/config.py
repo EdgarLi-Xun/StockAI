@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import ipaddress
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -32,6 +33,7 @@ class CloudConfig:
     backup_hour: int = 2
     desktop_mode: bool = False
     desktop_instance: str = ""
+    desktop_origins: tuple[str,...] = ()
     sync_private_networks: tuple[str,...] = ()
     sync_ca_file: str = ""
 
@@ -64,7 +66,17 @@ class CloudConfig:
         if p.scheme!="https" and not (self.dev and p.scheme=="http" and p.hostname in {"127.0.0.1","localhost","testserver"}):
             raise ValueError("公网入口必须使用 HTTPS；仅显式开发模式允许本机 HTTP")
         if self.desktop_mode and (not self.dev or p.scheme!="http" or p.hostname!="127.0.0.1" or not self.desktop_instance or not self.desktop_instance.isalnum()):
-            raise ValueError("桌面服务必须绑定明确的本机回环地址和独立实例")
+            raise ValueError("桌面服务必须使用明确的本机主入口和独立实例")
+        if self.desktop_origins and not self.desktop_mode:
+            raise ValueError("附加本机访问地址仅适用于桌面服务")
+        for origin in self.desktop_origins:
+            parsed=urlsplit(origin)
+            if parsed.hostname!="localhost":
+                address=ipaddress.IPv4Address(parsed.hostname)
+                if address.is_unspecified or address.is_multicast or str(address)=="255.255.255.255":
+                    raise ValueError("桌面访问地址必须为明确的本机 IPv4 地址")
+            if parsed.port!=p.port or origin!=f"http://{parsed.hostname}:{p.port}":
+                raise ValueError("桌面访问地址必须为同一端口的 HTTP 根地址")
         if self.erasures==self.data or self.erasures.is_relative_to(self.data) or self.key_file.is_relative_to(self.data):
             raise ValueError("注销记录与凭据主密钥必须保存在研究数据目录之外")
         if not 10<=self.model_timeout<=600:

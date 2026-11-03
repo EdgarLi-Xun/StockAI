@@ -1,7 +1,8 @@
-"""One persistent workspace and one loopback service for desktop and browser clients."""
+"""One persistent workspace and one IPv4 service for desktop and browser clients."""
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -41,10 +42,22 @@ def choose_port(preferred=8765):
         try:
             with socket.socket() as s:
                 if sys.platform=="win32":s.setsockopt(socket.SOL_SOCKET,socket.SO_EXCLUSIVEADDRUSE,1)
-                s.bind(("127.0.0.1",port))
+                s.bind(("0.0.0.0",port))
             return port
         except OSError:continue
     raise RuntimeError("本机服务端口均被占用，请关闭不使用的 StockAI 实例后重试")
+
+
+def local_origins(port):
+    """Trust concrete addresses of this machine, never a wildcard Host/Origin."""
+    addresses={"127.0.0.1"}
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET,socket.SOCK_STREAM):
+            address=ipaddress.IPv4Address(info[4][0])
+            if not address.is_unspecified and not address.is_multicast and str(address)!="255.255.255.255":
+                addresses.add(str(address))
+    except OSError:pass
+    return tuple(f"http://{address}:{port}" for address in ["localhost",*sorted(addresses)])
 
 
 def local_config(home,port,background=True):
@@ -56,7 +69,7 @@ def local_config(home,port,background=True):
     recipient=""
     if identity.is_file():
         recipient=next((line.split(":",1)[1].strip() for line in identity.read_text().splitlines() if line.startswith("# public key:")),"")
-    return CloudConfig(data=home/"data",erasures=home/"control",key_file=home/"secrets/keys.json",public_url=f"http://127.0.0.1:{port}",dev=True,desktop_mode=True,desktop_instance=instance_id(home),background=background,ollama_enabled=True,age_bin=str(tools/"age.exe"),age_recipient=recipient)
+    return CloudConfig(data=home/"data",erasures=home/"control",key_file=home/"secrets/keys.json",public_url=f"http://127.0.0.1:{port}",dev=True,desktop_mode=True,desktop_instance=instance_id(home),desktop_origins=local_origins(port),background=background,ollama_enabled=True,age_bin=str(tools/"age.exe"),age_recipient=recipient)
 
 
 def prepare(home):
@@ -104,7 +117,7 @@ class Host:
         from backend.public_app import create_app
         prepare(self.home)
         cfg=local_config(self.home,self.port,self.background)
-        self.server=uvicorn.Server(uvicorn.Config(create_app(cfg),host="127.0.0.1",port=self.port,workers=1,proxy_headers=False,loop="asyncio",http="h11",ws="none",lifespan="on",access_log=False,log_level="warning",log_config=None))
+        self.server=uvicorn.Server(uvicorn.Config(create_app(cfg),host="0.0.0.0",port=self.port,workers=1,proxy_headers=False,loop="asyncio",http="h11",ws="none",lifespan="on",access_log=False,log_level="warning",log_config=None))
         def run():
             try:self.server.run()
             except BaseException as exc:self.error=exc
