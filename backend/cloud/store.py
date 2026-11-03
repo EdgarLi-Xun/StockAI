@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS mail_outbox(
  expires_at TEXT NOT NULL,error_code TEXT,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS user_settings(
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,payload_json TEXT NOT NULL,default_profile_id TEXT);
+CREATE TABLE IF NOT EXISTS workspace_setup(
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,source TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS user_watchlist(
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,instrument_id TEXT NOT NULL REFERENCES instruments(id),
  group_name TEXT NOT NULL,pinned INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,PRIMARY KEY(user_id,instrument_id));

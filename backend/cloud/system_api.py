@@ -23,6 +23,16 @@ def install(app,rt,user,admin):
     @app.get('/api/me/sync')
     def sync_status(request:Request,a=Depends(user)):return rt(request).store.sync_service.details(a.id)
 
+    @app.get('/api/me/workspace-setup')
+    def workspace_setup(request:Request,a=Depends(user)):
+        from .workspace_setup import status
+        return status(rt(request).store,a.id)
+
+    @app.post('/api/me/workspace-setup')
+    def workspace_source(value:dict,request:Request,a=Depends(user)):
+        from .workspace_setup import select
+        return select(rt(request).store,a.id,value)
+
     @app.post('/api/me/sync/migration/preview')
     def migration_preview(value:dict,request:Request,a=Depends(user)):return rt(request).store.sync_service.migration_preview(a.id,value)
 

@@ -3,10 +3,22 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Cloud, RefreshCw, ShieldCheck, Download, Monitor, Pause, Play, ArrowRight, Link, Unplug } from 'lucide-vue-next'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import { api, post } from './api'
+import { parseRecovery, syncConnection, type DataSource } from './workspaceSetup'
 const props=defineProps<{user:any,desktop:boolean}>()
+const emit=defineEmits<{ready:[]}>()
 const sync=ref<any>({status:'loading'}),upgrade=ref<any>(null),busy=ref(false),error=ref(''),notice=ref('')
 const tab=ref('sync'),preview=ref<any>(null),devices=ref<any>(null),conflicts=ref<any[]>([]),points=ref<any[]>([])
-const form=ref({backend:'hub',url:'',device_name:'我的设备',create:true,username:'',email:'',password:'',token:'',grant:'',allow_private:false,recovery:''})
+const form=ref({backend:'hub',url:'',device_name:'我的设备',create:false,username:'',email:'',password:'',token:'',grant:'',allow_private:false,recovery:''})
+const setup=ref<any>(null),source=ref<DataSource|''>(''),recoveryFile=ref('')
+const dataSources:{id:DataSource,title:string,description:string}[]=[
+  {id:'independent',title:'全新开始 / 独立使用',description:'在当前环境研究，之后随时可以接入同步。'},
+  {id:'desktop',title:'从已有桌面版同步',description:'将另一台电脑上的 StockAI 3.2 个人资料带到这里。'},
+  {id:'web',title:'从已有 Web / NAS 同步',description:'将另一套 StockAI Web 站点的个人资料带到这里。'},
+  {id:'publish',title:'创建空间供其他环境加入',description:'上传本端资料，再让其他电脑或站点加入同一个空间。'},
+  {id:'legacy',title:'从旧版本地版迁移',description:'旧源码版 8765 的 data 目录，由管理员离线迁移。'},
+]
+const remoteSource=computed(()=>['desktop','web','publish'].includes(source.value))
+let recoveryRead=0
 const pointPreview=ref<any>(null),migrationOpen=ref(false),migrationPreview=ref<any>(null),confirmText=ref('');let confirmResolve:((answer:boolean)=>void)|null=null
 async function guard(){if(!dirty.value)return true;confirmText.value='当前页面有尚未处理的输入。确认离开并清除这些临时输入？';return new Promise<boolean>(r=>confirmResolve=r)}
 function settle(answer:boolean){confirmText.value='';confirmResolve?.(answer);confirmResolve=null}
@@ -20,9 +32,18 @@ const checkStates:Record<string,string>={never_checked:'尚未检查',checking:'
 const tx=computed(()=>upgrade.value?.transaction)
 const configured=computed(()=>sync.value.status!=='unconfigured'&&sync.value.status!=='loading')
 const date=(value:string)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—'
-async function act(fn:()=>Promise<any>,message='') {if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const value=await fn();notice.value=message;return value}catch(e:any){error.value=e.message}finally{busy.value=false}}
+async function act(fn:()=>Promise<any>,message='') {if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const value=await fn();if(message)notice.value=message;return value}catch(e:any){error.value=e.message}finally{busy.value=false}}
 async function load(){sync.value=await api('/me/sync');if(props.user.role==='admin')upgrade.value=await api('/admin/upgrades')}
-async function connect(){await act(async()=>{const value={...form.value,recovery:form.value.recovery?JSON.parse(form.value.recovery):undefined};try{if(migrationOpen.value){migrationPreview.value=await post('/me/sync/migration/preview',value)}else{sync.value=await post('/me/sync/connect',value);preview.value=await post('/me/sync/preview')}}finally{form.value.password='';form.value.token='';form.value.recovery=''}},'连接已验证。请检查首次合并预览。')}
+async function loadSetup(){setup.value=await api('/me/workspace-setup');if(!source.value&&setup.value.source)source.value=setup.value.source}
+function changeSource(value:DataSource){source.value=value;recoveryRead++;form.value.password='';form.value.token='';form.value.grant='';form.value.recovery='';recoveryFile.value='';preview.value=null;error.value='';notice.value=''}
+async function startIndependent(){await act(async()=>{setup.value=await post('/me/workspace-setup',{source:'independent'});emit('ready')})}
+async function checkLegacy(){await act(async()=>{await Promise.all([load(),loadSetup()]);notice.value=setup.value.has_data?'已检测到个人资料，可进入研究工作台核对。':'尚未检测到迁入的个人资料，请核对离线迁移结果。'})}
+async function readRecoveryFile(event:Event){
+  const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file)return
+  const current=++recoveryRead;form.value.recovery='';recoveryFile.value=''
+  await act(async()=>{try{if(file.size>1024*1024)throw new Error('恢复材料文件超过 1 MiB，请核对是否选中了正确的 JSON 文件。');const text=await file.text();if(current!==recoveryRead)return;parseRecovery(text);form.value.recovery=text;recoveryFile.value=file.name;notice.value='恢复材料已读取，验证连接后仍需检查并确认合并预览。'}finally{input.value=''}})
+}
+async function connect(){await act(async()=>{try{const value=migrationOpen.value?{...form.value,create:true,recovery:undefined}:syncConnection(source.value,form.value);if(migrationOpen.value){migrationPreview.value=await post('/me/sync/migration/preview',value)}else{setup.value=await post('/me/workspace-setup',{source:source.value});sync.value=await post('/me/sync/connect',value);preview.value=await post('/me/sync/preview')}}finally{form.value.password='';form.value.token='';form.value.grant='';form.value.recovery='';recoveryFile.value=''}},'连接已验证。请检查合并预览，确认后才导入资料。')}
 async function merge(){await act(async()=>{sync.value=await post('/me/sync/run',{preview_id:preview.value?.id});preview.value=null;await details()},'本轮同步已完成，未完成的批次会继续保留。')}
 async function details(){const value=await Promise.all([api('/me/sync/devices'),api('/me/sync/conflicts'),api('/me/sync/checkpoints')]);devices.value=value[0];conflicts.value=value[1];points.value=value[2];caps.value={...devices.value.limits}}
 async function recoveryExport(){await act(async()=>{try{recovery.value=JSON.stringify(await post('/me/sync/recovery',{password:password.value}),null,2)}finally{password.value=''}},'请单独保管恢复材料；其中包含同步解密密钥。')}
@@ -31,11 +52,11 @@ async function prepare(){await act(async()=>{await post('/admin/upgrades/plan',m
 async function cleanup(){const value=await act(()=>post('/admin/upgrades/cleanup',{confirmation:'清理已过期的升级缓存'}));if(value){await load();notice.value=value.status==='waiting'?value.reason:'已清理 '+value.files.length+' 处过期升级缓存，释放 '+(value.bytes/1024/1024).toFixed(1)+' MB。'}}
 async function upload(event:Event){const file=(event.target as HTMLInputElement).files?.[0];if(!file||!tx.value)return;await act(async()=>{for(let offset=0;offset<file.size;offset+=3*1024*1024){const bytes=new Uint8Array(await file.slice(offset,offset+3*1024*1024).arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));await post('/admin/upgrades/'+tx.value.id+'/upload',{offset,data:btoa(binary)})}await load()},'离线包已导入并完成长度和摘要验证。')}
 const client=crypto.randomUUID();let timer:ReturnType<typeof setInterval>
-const dirty=computed(()=>!!(form.value.password||password.value||form.value.recovery||manifest.value||manual.value))
+const dirty=computed(()=>!!(form.value.password||form.value.token||form.value.grant||password.value||form.value.recovery||manifest.value||manual.value))
 defineExpose({guard,dirty})
 function beforeUnload(e:BeforeUnloadEvent){if(dirty.value){e.preventDefault();e.returnValue=''}}
-onMounted(()=>{void act(load);window.addEventListener('beforeunload',beforeUnload);timer=setInterval(()=>{void load().catch(()=>{});void post('/me/client-state',{id:client,dirty:dirty.value}).catch(()=>{})},10000)})
-onBeforeUnmount(()=>{clearInterval(timer);window.removeEventListener('beforeunload',beforeUnload);void post('/me/client-state',{id:client,dirty:false}).catch(()=>{});recovery.value='';form.value.password='';password.value=''})
+onMounted(()=>{void act(()=>Promise.all([load(),loadSetup()]));window.addEventListener('beforeunload',beforeUnload);timer=setInterval(()=>{void load().catch(()=>{});void post('/me/client-state',{id:client,dirty:dirty.value}).catch(()=>{})},10000)})
+onBeforeUnmount(()=>{recoveryRead++;clearInterval(timer);window.removeEventListener('beforeunload',beforeUnload);void post('/me/client-state',{id:client,dirty:false}).catch(()=>{});recovery.value='';form.value.password='';form.value.recovery='';form.value.grant='';password.value='';settle(false)})
 </script>
 
 <template>
@@ -44,14 +65,22 @@ onBeforeUnmount(()=>{clearInterval(timer);window.removeEventListener('beforeunlo
     <div class="button-row system-tabs"><button :class="tab==='sync'?'primary':'secondary'" @click="tab='sync'"><Cloud :size="16" />个人资料同步</button><button :class="tab==='upgrade'?'primary':'secondary'" @click="tab='upgrade'"><Monitor :size="16" />关于与升级</button></div>
     <p v-if="error" role="alert" class="public-message error">{{ error }}</p><p v-if="notice" role="status" class="public-message success">{{ notice }}</p>
     <template v-if="tab==='sync'">
-      <section class="panel personal-form"><div class="panel-heading"><div><h2>{{ states[sync.status]||sync.status }}</h2><p v-if="configured">{{ sync.device_name }} · {{ sync.backend==='hub'?'独立 Hub':'WebDAV' }} · 最近成功 {{ date(sync.last_success) }}</p><p v-else>先在本机或 Web 独立研究，需要时再连接自己的同步空间。</p></div><Cloud :size="23" /></div>
+      <section v-if="setup&&!configured&&sync.status!=='loading'" class="panel data-source-panel">
+        <div class="panel-heading"><div><h2>{{ setup.required?'这个环境的数据从哪里来？':'选择数据来源' }}</h2><p>可以从已有环境带入个人资料，也可以独立使用。{{ setup.has_data?'当前已有的资料会保留。':'新环境不会按登录邮箱自动取回其他环境的数据。' }}</p></div><Download :size="23" /></div>
+        <fieldset class="data-source-options"><legend class="source-legend">选择本环境的开始方式</legend><label v-for="option in dataSources" :key="option.id" :class="['data-source-option',{selected:source===option.id}]"><input v-model="source" type="radio" name="data-source" :value="option.id" :disabled="busy" @change="changeSource(option.id)" /><span><strong>{{ option.id==='independent'&&setup.has_data?'继续使用当前资料':option.title }}</strong><small>{{ option.description }}</small></span></label></fieldset>
+        <div v-if="source==='independent'" class="source-next"><p>{{ setup.has_data?'保留当前资料，继续在此环境独立研究。':'从空白研究空间开始，之后可在“同步与版本”重新选择数据来源。' }}</p><button class="primary" :disabled="busy" @click="startIndependent">{{ setup.has_data?'保留资料并进入工作台':'全新开始' }}<ArrowRight :size="16" /></button></div>
+        <div v-else-if="source==='desktop'||source==='web'" class="source-next"><h3>先在{{ source==='desktop'?'原电脑':'原 Web / NAS' }}准备资料</h3><ol><li>打开“同步与版本”。若尚未绑定，先创建 Hub / WebDAV 空间，再完成首次上传和所有剩余批次。</li><li>验证原账号密码并导出“同步恢复材料”。使用 Hub 时，再生成一个十分钟内有效的设备授权码。</li><li>在下方填写同一个同步服务地址和凭据，选择恢复材料文件，验证后检查合并预览。</li></ol><p>同步服务地址是 Hub 或 WebDAV 的 HTTPS 地址。两端需要加入同一个空间；原研究工作台的网址不能直接作为 Hub 地址。</p></div>
+        <div v-else-if="source==='publish'" class="source-next"><p>在下方选择 Hub / WebDAV 并创建空间。首次上传完成后，在本页导出恢复材料，供其他环境加入。</p></div>
+        <div v-else-if="source==='legacy'" class="source-next"><h3>旧源码版数据迁移</h3><p v-if="!setup.legacy_available">{{ setup.legacy_reason }}</p><template v-else><p>将旧版完整 data 目录放到服务器并只读挂载。管理员停止应用后，使用现有离线迁移命令导入到当前账号；迁移会先创建加密恢复点，再校验并复制资料。</p><code>python -m backend.cloud.cli migrate --source &lt;旧版data目录&gt; --admin-id {{ user.id }}</code><p>Docker 部署需在应用容器中运行此命令，并将旧目录只读挂载。完成后启动服务并重新登录，资料会出现在当前账号下。</p></template><button class="secondary" :disabled="busy" @click="checkLegacy">检查迁移结果</button></div>
+      </section>
+      <section v-if="configured||remoteSource" class="panel personal-form"><div class="panel-heading"><div><h2>{{ states[sync.status]||sync.status }}</h2><p v-if="configured">{{ sync.device_name }} · {{ sync.backend==='hub'?'独立 Hub':'WebDAV' }} · 最近成功 {{ date(sync.last_success) }}</p><p v-else>{{ source==='publish'?'创建空间并上传本端资料':'加入已有空间，将个人资料同步到当前环境' }}</p></div><Cloud :size="23" /></div>
         <div v-if="configured" class="system-summary"><span><b>{{ sync.pending_upload||0 }}</b> 待发送</span><span><b>{{ sync.conflicts||0 }}</b> 待处理冲突</span><span v-if="sync.missing_dependencies">{{ sync.missing_dependencies }} 项等待依赖</span><span>空间 {{ sync.space_id }}</span></div>
         <div v-if="configured" class="button-row"><button class="primary" :disabled="busy||sync.status==='paused'" @click="act(async()=>{preview=await post('/me/sync/preview')})"><RefreshCw :size="15" />预览并同步</button><button class="secondary" :disabled="busy" @click="act(async()=>{sync=await post('/me/sync/pause',{paused:sync.status!=='paused'})})"><component :is="sync.status==='paused'?Play:Pause" :size="15" />{{ sync.status==='paused'?'恢复同步':'暂停同步' }}</button><button class="secondary" :disabled="busy" @click="act(details)">设备、冲突与恢复点</button><small v-if="sync.metrics">本轮 {{ sync.metrics.uploaded_operations }} 项 · {{ sync.metrics.elapsed_seconds }} 秒 · 上传 {{ ((sync.metrics.uploaded_bytes||0)/1024).toFixed(1) }} KB</small><label class="check-label"><input type="checkbox" :checked="sync.automatic" @change="act(async()=>{sync=await post('/me/sync/pause',{paused:sync.status==='paused',automatic:($event.target as HTMLInputElement).checked})})" />自动同步</label></div>
-        <button v-if="configured&&sync.status==='paused'" class="text-button" @click="migrationOpen=!migrationOpen">更换同步后端</button><form v-if="(!configured||migrationOpen)&&sync.status!=='loading'" class="form-grid" @submit.prevent="connect">
+        <button v-if="configured&&sync.status==='paused'" class="text-button" @click="migrationOpen=!migrationOpen">更换同步后端</button><form v-if="((!configured&&remoteSource)||migrationOpen)&&sync.status!=='loading'" class="form-grid" @submit.prevent="connect">
           <label>同步后端<select v-model="form.backend"><option value="hub">StockAI Hub</option><option value="webdav">WebDAV / NAS</option></select></label><label>设备名称<input v-model="form.device_name" maxlength="80" required /></label>
-          <label class="span-two">HTTPS 服务根地址<input v-model="form.url" type="url" placeholder="https://sync.example.com" required /></label><label v-if="!migrationOpen" class="check-label span-two"><input v-model="form.create" type="checkbox" />创建我的新同步空间（取消则加入已有空间）</label>
+          <label class="span-two">Hub / WebDAV 的 HTTPS 服务根地址<input v-model="form.url" type="url" placeholder="https://sync.example.com" required /></label><p v-if="!migrationOpen" class="personal-note span-two">{{ source==='publish'?'本次会创建一个新的同步空间。':'本次会加入恢复材料对应的已有空间。' }}</p>
           <label>{{ form.backend==='hub'?'Hub 账号邮箱':'WebDAV 用户名' }}<input v-if="form.backend==='hub'" v-model="form.email" type="email" autocomplete="username" required /><input v-else v-model="form.username" autocomplete="username" required /></label><label>服务密码<input v-model="form.password" type="password" autocomplete="current-password" required /></label>
-          <template v-if="!form.create&&!migrationOpen"><label v-if="form.backend==='hub'">十分钟单次设备授权码<input v-model="form.grant" required autocomplete="off" /></label><label class="span-two">从已有设备导出的本人恢复材料<textarea v-model="form.recovery" rows="4" required spellcheck="false" /></label></template>
+          <template v-if="source!=='publish'&&!migrationOpen"><label v-if="form.backend==='hub'">十分钟单次设备授权码<input v-model="form.grant" required autocomplete="off" /></label><label class="span-two recovery-file">选择原设备导出的同步恢复材料文件<input type="file" accept=".json,application/json" :disabled="busy" @change="readRecoveryFile" /><small v-if="recoveryFile">已读取：{{ recoveryFile }}</small></label><label class="span-two">本人恢复材料（也可粘贴 JSON）<textarea v-model="form.recovery" rows="4" required spellcheck="false" autocomplete="off" /></label></template>
           <label class="check-label span-two"><input v-model="form.allow_private" type="checkbox" />连接本人信任的内网 NAS（Web 站点还需管理员配置可访问网段）</label><p class="personal-note span-two">凭据加密保存在当前运行端。同步包不包含模型 Key、登录会话或模型数据授权。接收到的规则、任务和委托不会自动执行。</p><button class="primary" :disabled="busy"><Link :size="16" />{{ migrationOpen?'验证目标并预览迁移':'验证身份并连接' }}</button>
         </form>
       </section>
@@ -71,6 +100,7 @@ onBeforeUnmount(()=>{clearInterval(timer);window.removeEventListener('beforeunlo
   </main>
 </template>
 <style scoped>
+.data-source-options{border:0;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.source-legend{font-size:13px;color:var(--muted);margin-bottom:14px}.data-source-option{display:flex;flex-direction:row;align-items:flex-start;gap:12px;margin:0;border:1px solid var(--border);border-radius:8px;padding:18px;cursor:pointer}.data-source-option.selected{border-color:var(--green);background:#f1f7f3}.data-source-option:focus-within{outline:2px solid var(--green);outline-offset:2px}.data-source-option input{width:16px;height:16px;min-height:0;margin:2px 0 0;flex-shrink:0;accent-color:var(--green)}.data-source-option strong{font-size:14px}.data-source-option small{margin-top:8px;font-weight:400;line-height:1.8}.source-next{margin-top:22px;border-top:1px solid var(--border);padding-top:22px}.source-next h3{font-size:15px}.source-next ol{padding-left:24px;color:var(--muted);font-size:14px;line-height:1.9}.source-next li+li{margin-top:8px}.source-next code{display:block;background:#f5f7f6;border-radius:6px;padding:14px;white-space:pre-wrap;font-size:12px}.system-settings .recovery-file input{max-width:100%;font-size:13px}
 .system-settings{max-width:1160px;margin:auto;padding-bottom:70px}.system-settings .panel{padding:24px}.system-settings .panel-heading{padding:0 0 22px}.system-settings .personal-form .form-grid{padding:0;gap:0 20px}.system-settings p{line-height:1.85;color:#77887e;margin:12px 0 20px}.system-settings h2{margin-bottom:12px}.system-settings .page-heading{display:flex;align-items:center;justify-content:space-between}.system-settings .personal-list-row small{margin-top:7px}.system-tabs{margin-bottom:24px}.system-settings>.panel{margin-top:22px}.system-settings .panel{margin-bottom:22px}.system-summary{display:flex;gap:24px;flex-wrap:wrap;padding:18px 0 24px;color:var(--muted)}.system-summary b{color:var(--text);font-size:21px}.system-subsection{margin-top:25px;padding-top:22px;border-top:1px solid var(--line)}.system-conflict{padding:18px 0;border-bottom:1px solid var(--line)}pre{max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:15px;border-radius:9px;font-size:12px}summary{cursor:pointer;margin-bottom:12px}progress{width:100%}small{display:block;color:var(--muted)}.form-grid>.secondary{align-self:end}.invite-result{overflow-wrap:anywhere}input[type=file]{max-width:260px;font-size:12px}code{overflow-wrap:anywhere}ul{padding-left:22px}
-@media(max-width:700px){.system-settings .form-grid{grid-template-columns:1fr}.system-settings .span-two{grid-column:span 1}.system-settings .panel{padding:20px}.system-summary{gap:14px}}
+@media(max-width:700px){.data-source-options{grid-template-columns:1fr}.system-settings .form-grid{grid-template-columns:1fr}.system-settings .span-two{grid-column:span 1}.system-settings .panel{padding:20px}.system-summary{gap:14px}}
 </style>
