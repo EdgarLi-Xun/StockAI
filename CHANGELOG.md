@@ -1,5 +1,19 @@
 # 更新记录
 
+## [3.2.4] - 2026-11-04
+
+- 工作台采用更紧凑的总览、指标带和导航，常用入口归为 9 项；手机增加底部导航，原有页面地址继续可用。
+- 总览优先展示包含 ETF 的自选、持仓收益、真实数据缺口和最近研究，缺行情时保留空状态。
+- 证券详情改为完整研究工作区，整合自选切换、行情图表、来源依据、官方核验、持仓和含费预算。
+- 宽屏助手停靠在右侧，模型选择移至面板顶部；切页继续保留草稿和引用，当前证券由本人明确选择附加。
+- 修正核验保存后的详情刷新，以及快速切换证券时的旧详情、旧预算和历史行情导入问题。
+- 助手收到不完整持仓或小数数量时先追问，不再整轮失败；完整的整数型小数数量可规范为整数，非法成本或数量仍拒绝。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.4-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区；此版本进入稳定通道，Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.3] - 2026-11-04
 
 - Windows 桌面改为每用户安装包，装到 `%LOCALAPPDATA%\Programs\StockAI`，不要求管理员权限。开始菜单可打开，研究资料仍在原工作区。
@@ -133,6 +147,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.4]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.4
 [3.2.3]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.3
 [3.2.2]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.2
 [3.2.1]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.1
