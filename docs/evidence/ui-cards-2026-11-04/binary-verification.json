@@ -1,0 +1,14 @@
+{
+  "version": "3.2.0-preview.7",
+  "sha256": "0167bd7485a3e43a8ad3ebfe0e2d08929a5ff3b61d0fb45bc4f90e256e818c9b",
+  "bytes": 286627874,
+  "source_base_commit": "080740c8d2cbf0a957824bd1a190c4d340c57021",
+  "source_sha256": "ce312813ad41fee4b003da99d3921cd22bc61205c2271c1b70ce975bc51e94a9",
+  "packaged_frontend_files_verified": 19,
+  "frontend_identity_sha256": "39e39708ccd265244f91785714c0e8bff61cd3dffb7bdf738d0b08613521b508",
+  "offline_self_test_passed": true,
+  "personal_data_included": false,
+  "uncommitted_parallel_work_included": false,
+  "snapshot": ".tmp/ui-cards-4/release",
+  "published": false
+}

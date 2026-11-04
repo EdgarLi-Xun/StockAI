@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-04",
+  "targets": [
+    {
+      "path": ".tmp/ui-cards-4/source",
+      "bytes": 7474601
+    },
+    {
+      "path": ".tmp/ui-cards-4/release/.tmp/exe-build/work",
+      "bytes": 312744087
+    },
+    {
+      "path": ".tmp/ui-cards-4/release/dist",
+      "bytes": 286628548
+    },
+    {
+      "path": ".tmp/ui-cards-4/superseded-build",
+      "bytes": 286628873
+    }
+  ],
+  "bytes": 893476109,
+  "temporary_dependency_junctions_removed": 3,
+  "shared_dependencies_preserved": true,
+  "prior_releases_preserved": true,
+  "current_binary": "dist/StockAI-3.2.0-preview.7-Windows.exe",
+  "source_snapshot_preserved": ".tmp/ui-cards-4/release"
+}

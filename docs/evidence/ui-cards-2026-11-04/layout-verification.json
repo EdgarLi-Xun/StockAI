@@ -1,0 +1,288 @@
+{
+  "date": "2026-11-04",
+  "source_snapshot": ".tmp/ui-cards-4/release",
+  "source_base": "080740c8d2cbf0a957824bd1a190c4d340c57021",
+  "synthetic_workspace": true,
+  "early_empty_state_before_version_bump": {
+    "before": {
+      "addButtons": [
+        "添加配置",
+        "添加第一套配置"
+      ],
+      "empty": {
+        "bottom": 561.765625,
+        "height": 332.484375,
+        "left": 262.390625,
+        "right": 1241.609375,
+        "top": 229.28125,
+        "width": 979.21875,
+        "x": 262.390625,
+        "y": 229.28125
+      },
+      "viewport": [
+        1280,
+        720
+      ]
+    },
+    "after": {
+      "addButtons": [
+        "添加第一套配置"
+      ],
+      "empty": {
+        "bottom": 473.28125,
+        "height": 244,
+        "left": 262.390625,
+        "right": 1241.609375,
+        "top": 229.28125,
+        "width": 979.21875,
+        "x": 262.390625,
+        "y": 229.28125
+      },
+      "overflow": false,
+      "viewport": [
+        1280,
+        720
+      ]
+    },
+    "mobile": {
+      "addButtons": [
+        "添加第一套配置"
+      ],
+      "emptyColumns": "278px",
+      "navVisible": "hidden",
+      "overflow": false,
+      "viewport": [
+        360,
+        780
+      ]
+    },
+    "add_and_cancel_worked": true
+  },
+  "models_desktop": {
+    "cards": [
+      {
+        "actionsTop": 661.515625,
+        "fieldsOverflow": false,
+        "height": 501.234375,
+        "title": "日常观察 · 本机研究模型（界面验收）",
+        "titleHeight": 27.890625,
+        "width": 470.109375
+      },
+      {
+        "actionsTop": 661.515625,
+        "fieldsOverflow": false,
+        "height": 501.234375,
+        "title": "长文本阅读 · 历史研究摘要与原始资料整理（界面验收）",
+        "titleHeight": 55.78125,
+        "width": 470.109375
+      }
+    ],
+    "headingAddButtons": [
+      "添加配置"
+    ],
+    "overflow": false,
+    "version": "个人资料独立保存v3.2.0-preview.7",
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "models_tablet": {
+    "cards": [
+      {
+        "actionsTop": 684.90625,
+        "fieldsOverflow": false,
+        "height": 524.625
+      },
+      {
+        "actionsTop": 684.90625,
+        "fieldsOverflow": false,
+        "height": 524.625
+      }
+    ],
+    "columns": "359.781px 359.781px",
+    "overflow": false,
+    "viewport": [
+      1024,
+      768
+    ]
+  },
+  "models_mobile": {
+    "cards": [
+      {
+        "fieldsOverflow": false,
+        "width": 313
+      },
+      {
+        "fieldsOverflow": false,
+        "width": 313
+      }
+    ],
+    "columns": "313px",
+    "launcher": {
+      "bottom": 764,
+      "height": 48,
+      "left": 281,
+      "right": 329,
+      "top": 716,
+      "width": 48,
+      "x": 281,
+      "y": 716
+    },
+    "overflow": false,
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "models_edit_opened": true,
+  "reports_desktop": {
+    "overflow": false,
+    "rows": [
+      {
+        "columns": "44px 747.25px 61.9688px 18px",
+        "rect": {
+          "bottom": 440.25,
+          "height": 133.375,
+          "left": 263.390625,
+          "right": 1240.609375,
+          "top": 306.875,
+          "width": 977.21875,
+          "x": 263.390625,
+          "y": 306.875
+        },
+        "title": "今日无合格模拟候选",
+        "titleColor": "rgb(32, 55, 43)"
+      }
+    ],
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "reports_mobile": {
+    "overflow": false,
+    "rows": [
+      {
+        "columns": "36px 210px 16px",
+        "title": "今日无合格模拟候选",
+        "titleScrollWidth": 210,
+        "titleWidth": 210,
+        "width": 326
+      }
+    ],
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "report_open_and_return_worked": true,
+  "assistant_dock_desktop": {
+    "cards": [
+      {
+        "actions": {
+          "bottom": 703.515625,
+          "height": 42,
+          "left": 289.390625,
+          "right": 705.5,
+          "top": 661.515625,
+          "width": 416.109375,
+          "x": 289.390625,
+          "y": 661.515625
+        },
+        "height": 501.234375
+      },
+      {
+        "actions": {
+          "bottom": 703.515625,
+          "height": 42,
+          "left": 783.5,
+          "right": 1199.609375,
+          "top": 661.515625,
+          "width": 416.109375,
+          "x": 783.5,
+          "y": 661.515625
+        },
+        "height": 501.234375
+      }
+    ],
+    "launcher": {
+      "bottom": 696,
+      "height": 48,
+      "left": 20,
+      "right": 204,
+      "top": 648,
+      "width": 184,
+      "x": 20,
+      "y": 648
+    },
+    "launcherOutsideContent": true,
+    "mainLeft": 224,
+    "overflow": false,
+    "version": "个人资料独立保存v3.2.0-preview.7",
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "assistant_dock_tablet": {
+    "launcher": {
+      "bottom": 744,
+      "height": 48,
+      "left": 20,
+      "right": 184,
+      "top": 696,
+      "width": 164,
+      "x": 20,
+      "y": 696
+    },
+    "launcherOutsideContent": true,
+    "mainLeft": 204,
+    "overflow": false,
+    "viewport": [
+      1024,
+      768
+    ]
+  },
+  "assistant_panel_desktop": {
+    "draft": "侧栏入口验收，尚未发送",
+    "panel": {
+      "bottom": 696,
+      "height": 604,
+      "left": 240,
+      "right": 660,
+      "top": 92,
+      "width": 420,
+      "x": 240,
+      "y": 92
+    },
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "assistant_panel_mobile": {
+    "draft": "侧栏入口验收，尚未发送",
+    "panel": {
+      "bottom": 704,
+      "height": 628,
+      "left": 8,
+      "right": 337,
+      "top": 76,
+      "width": 329,
+      "x": 8,
+      "y": 76
+    },
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "final_identity": {
+    "navigationStylesheet": "http://127.0.0.1:8797/assets/navigation-BJy9vPmA.css",
+    "version": "个人资料独立保存v3.2.0-preview.7"
+  },
+  "console_errors": [],
+  "real_provider_requests": false,
+  "real_market_requests": false
+}
