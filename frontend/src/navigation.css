@@ -223,6 +223,19 @@
   .public-main .schedule-card:last-child { border-bottom: 0; }
   .public-main .schedule-card .button-row { gap: 14px; }
   .public-main .task-summary article { padding: 16px 18px; }
+  .public-main .research-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px; }
+  .public-main .research-filters > label { min-width: 0; }
+  .public-main .research-filters > label:has(input:not([type]), input[type="text"], input[type="search"]) { grid-column: 1 / -1; }
+  .public-main .research-filters :is(input, select, button) { width: 100%; min-width: 0; min-height: 44px; }
+  .public-main .research-filters > button { height: auto; }
+  .public-main .task-center .filter-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .public-main .task-center .filter-toolbar > .search-box { grid-column: 1 / -1; }
+  .public-main .filter-toolbar .search-box { width: 100%; max-width: none; min-width: 0; }
+  .public-main .filter-toolbar :is(.search-box, select, button) { min-height: 44px; }
+  .public-main .filter-toolbar :is(input, select) { min-width: 0; }
+  .public-workspace .assistant-launcher { width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 12px; gap: 0; border-radius: 50%; }
+  .public-workspace .assistant-launcher > span { display: none; }
+  .public-workspace .assistant-launcher > i { position: absolute; top: 3px; right: 3px; border: 2px solid currentColor; }
   .public-auth { grid-template-columns: 1fr; }
   .public-auth .auth-form-area { min-height: 100svh; padding: 32px 24px; }
   .public-auth .public-auth-card input:not([type=checkbox]) { font-size: 16px; }

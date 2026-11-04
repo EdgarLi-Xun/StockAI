@@ -1,0 +1,14 @@
+{
+  "version": "3.2.0-preview.6",
+  "sha256": "e4b67f7a1e246dd9b0f1cdf8de2bd424fec1fdbf956b6e7d4ad1b88f900b34ae",
+  "bytes": 286597486,
+  "source_base_commit": "e73eff8b219f69c10f6c4894931cc71f8c6a7ed8",
+  "source_sha256": "1bfba98c7893385d05c0665f154316c5fad947ad269bc178775c19822f35bc2e",
+  "packaged_frontend_files_verified": 19,
+  "frontend_identity_sha256": "07af8b7f12b8c51a6463855495bcf46781b201d911c084daf6fda7aebbb1d891",
+  "offline_self_test_passed": true,
+  "personal_data_included": false,
+  "uncommitted_parallel_work_included": false,
+  "snapshot": ".tmp/ui-detail-3/release",
+  "published": false
+}

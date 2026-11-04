@@ -1,0 +1,281 @@
+{
+  "date": "2026-11-04",
+  "source_snapshot": ".tmp/ui-detail-3/release",
+  "source_base": "e73eff8b219f69c10f6c4894931cc71f8c6a7ed8",
+  "synthetic_workspace": true,
+  "readiness_before": {
+    "filters": [
+      {
+        "rect": {
+          "bottom": 760.046875,
+          "height": 75.484375,
+          "left": 37,
+          "right": 189,
+          "top": 684.5625,
+          "width": 152,
+          "x": 37,
+          "y": 684.5625
+        },
+        "tag": "LABEL",
+        "text": null
+      },
+      {
+        "rect": {
+          "bottom": 760.046875,
+          "height": 73.6875,
+          "left": 198,
+          "right": 308,
+          "top": 686.359375,
+          "width": 110,
+          "x": 198,
+          "y": 686.359375
+        },
+        "tag": "LABEL",
+        "text": null
+      },
+      {
+        "rect": {
+          "bottom": 813.046875,
+          "height": 44,
+          "left": 37,
+          "right": 99,
+          "top": 769.046875,
+          "width": 62,
+          "x": 37,
+          "y": 769.046875
+        },
+        "tag": "BUTTON",
+        "text": "筛选"
+      }
+    ],
+    "overflow": false,
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "readiness_after": {
+    "columns": "129.5px 129.5px",
+    "filters": [
+      {
+        "rect": {
+          "bottom": 760.046875,
+          "height": 75.484375,
+          "left": 37,
+          "right": 308,
+          "top": 684.5625,
+          "width": 271,
+          "x": 37,
+          "y": 684.5625
+        },
+        "tag": "LABEL"
+      },
+      {
+        "rect": {
+          "bottom": 845.734375,
+          "height": 73.6875,
+          "left": 37,
+          "right": 166.5,
+          "top": 772.046875,
+          "width": 129.5,
+          "x": 37,
+          "y": 772.046875
+        },
+        "tag": "LABEL"
+      },
+      {
+        "rect": {
+          "bottom": 845.734375,
+          "height": 44,
+          "left": 178.5,
+          "right": 308,
+          "top": 801.734375,
+          "width": 129.5,
+          "x": 178.5,
+          "y": 801.734375
+        },
+        "tag": "BUTTON"
+      }
+    ],
+    "launcher": {
+      "bottom": 764,
+      "height": 48,
+      "left": 281,
+      "right": 329,
+      "top": 716,
+      "width": 48,
+      "x": 281,
+      "y": 716
+    },
+    "launcherName": "打开 AI 助手",
+    "overflow": false,
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "readiness_filter_result": {
+    "pagination": "每页2050共 10 条 · 第 1 页上一页下一页",
+    "query": "布局验收证券二",
+    "rows": [
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002",
+      "布局验收证券二SH:600002"
+    ]
+  },
+  "tasks": {
+    "columns": "126.5px 126.5px",
+    "controls": [
+      {
+        "rect": {
+          "bottom": 412.015625,
+          "height": 44,
+          "left": 41,
+          "right": 304,
+          "top": 368.015625,
+          "width": 263,
+          "x": 41,
+          "y": 368.015625
+        },
+        "tag": "DIV"
+      },
+      {
+        "rect": {
+          "bottom": 466.015625,
+          "height": 44,
+          "left": 41,
+          "right": 167.5,
+          "top": 422.015625,
+          "width": 126.5,
+          "x": 41,
+          "y": 422.015625
+        },
+        "tag": "SELECT"
+      },
+      {
+        "rect": {
+          "bottom": 466.015625,
+          "height": 44,
+          "left": 177.5,
+          "right": 304,
+          "top": 422.015625,
+          "width": 126.5,
+          "x": 177.5,
+          "y": 422.015625
+        },
+        "tag": "SELECT"
+      }
+    ],
+    "overflow": false,
+    "viewport": [
+      360,
+      780
+    ],
+    "visibleRows": "标准版早报2026-11-04 12:02:09 · 手动任务已完成2026-11-04 12:02:102026-11-04 12:02:100自动 AI 未开启，本次仅生成规则报告详情 / 日志查看报告补充 AI"
+  },
+  "assistant": {
+    "draft": "界面验收草稿，尚未发送",
+    "launcher": {
+      "bottom": 724,
+      "height": 48,
+      "left": 241,
+      "right": 289,
+      "top": 676,
+      "width": 48,
+      "x": 241,
+      "y": 676
+    },
+    "launcherName": "打开 AI 助手",
+    "overflow": false,
+    "panel": {
+      "bottom": 664,
+      "height": 588,
+      "left": 8,
+      "right": 297,
+      "top": 76,
+      "width": 289,
+      "x": 8,
+      "y": 76
+    },
+    "viewport": [
+      320,
+      740
+    ]
+  },
+  "desktop": {
+    "launcher": {
+      "bottom": 696,
+      "height": 48,
+      "left": 1117,
+      "right": 1241,
+      "top": 648,
+      "width": 124,
+      "x": 1117,
+      "y": 648
+    },
+    "launcherText": "block",
+    "overflow": false,
+    "version": "个人资料独立保存v3.2.0-preview.6",
+    "viewport": [
+      1280,
+      720
+    ]
+  },
+  "tablet": {
+    "filterDisplay": "flex",
+    "overflow": false,
+    "viewport": [
+      1024,
+      768
+    ]
+  },
+  "final_mobile": {
+    "filterColumns": "129.5px 129.5px",
+    "launcher": {
+      "bottom": 764,
+      "height": 48,
+      "left": 281,
+      "right": 329,
+      "top": 716,
+      "width": 48,
+      "x": 281,
+      "y": 716
+    },
+    "navigationStylesheet": "http://127.0.0.1:8796/assets/navigation-BWO4TgDb.css",
+    "overflow": false,
+    "searchWidth": 271,
+    "version": "个人资料独立保存v3.2.0-preview.6",
+    "viewport": [
+      360,
+      780
+    ]
+  },
+  "final_watchlist": {
+    "controlHeights": [
+      44,
+      44,
+      44,
+      44,
+      44,
+      44
+    ],
+    "overflow": false,
+    "tableScrollWidth": 806,
+    "tableViewport": 271,
+    "version": "个人资料独立保存v3.2.0-preview.6",
+    "viewport": [
+      320,
+      740
+    ]
+  },
+  "console_errors": [],
+  "real_provider_requests": false,
+  "real_market_requests": false
+}

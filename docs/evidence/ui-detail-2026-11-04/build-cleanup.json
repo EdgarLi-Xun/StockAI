@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-04",
+  "targets": [
+    {
+      "path": ".tmp/ui-detail-3/source",
+      "bytes": 6775138
+    },
+    {
+      "path": ".tmp/ui-detail-3/release/.tmp/exe-build/work",
+      "bytes": 312680262
+    },
+    {
+      "path": ".tmp/ui-detail-3/release/dist",
+      "bytes": 286598160
+    }
+  ],
+  "bytes": 606053560,
+  "temporary_dependency_junctions_removed": 3,
+  "shared_dependencies_preserved": true,
+  "prior_releases_preserved": true,
+  "current_binary": "dist/StockAI-3.2.0-preview.6-Windows.exe",
+  "source_snapshot_preserved": ".tmp/ui-detail-3/release"
+}
