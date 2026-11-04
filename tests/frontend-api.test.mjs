@@ -39,3 +39,10 @@ test('the current unauthorized identity still receives session-expiry handling',
   await assert.rejects(pending, error=>error.code==='LOGIN_REQUIRED')
   assert.deepEqual(c.events,['stockai-auth-required'])
 })
+
+test('an anonymous startup check does not report an expired login', async () => {
+  const c=client(), pending=c.api.api('/auth/me', { allowAnonymous:true })
+  c.respond({ok:false,status:401,json:async()=>({code:'LOGIN_REQUIRED',detail:'请先登录'})})
+  await assert.rejects(pending, error=>error.status===401)
+  assert.deepEqual(c.events,[])
+})

@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-04",
+  "version": "3.2.0-preview.5",
+  "binary": "StockAI-3.2.0-preview.5-Windows-RememberCredentials.exe",
+  "sha256": "e84dfc32459abe8b87550e48a973e8a892235788284d99d7ebcf745b61441f0c",
+  "bytes": 286633758,
+  "snapshot_source_sha256": "5260b65133db6fda7eeda44ed4c2ff38610a36cdaab613feaace748717f6cdca",
+  "frontend_sha256": "8325bb8ea83663e233ed69db0e82a6d8d10d0fbc3c8e4d74da4c165460be2487",
+  "backend_tests": 44,
+  "frontend_tests": 41,
+  "typescript_check": true,
+  "production_build": true,
+  "native_checks": {
+    "remembered_session_reopened": true,
+    "saved_login_reopened": true,
+    "autofilled_password_can_log_in": true,
+    "logout_does_not_auto_login": true,
+    "forgotten_login_empty_after_restart": true
+  },
+  "packaged_self_test": {
+    "passed": true,
+    "two_clients_same_owner": true,
+    "readiness": "empty",
+    "usage_available": true,
+    "frontend_assets": true,
+    "frozen_collector_dispatch": true,
+    "assistant_static_greeting": true,
+    "assistant_model_greeting": true,
+    "assistant_followup": true,
+    "assistant_test_transport_calls": 2,
+    "qt": "6.12.0",
+    "akshare": "1.20.21",
+    "sqlite_journal": "delete",
+    "backup_identity_present": true,
+    "real_provider": false,
+    "real_market_requests": false
+  },
+  "packaged_qt_smoke_test": {
+    "passed": true,
+    "desktop_loaded": true,
+    "web_url": "http://127.0.0.1:8920",
+    "version": "3.2.0-preview.5"
+  }
+}

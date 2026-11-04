@@ -24,14 +24,15 @@ function headers(options: RequestInit = {}) {
 }
 
 // 统一发起同源请求，解析业务错误并在公网会话失效时通知入口组件。
-export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+export async function api<T = any>(path: string, options: RequestInit & { allowAnonymous?: boolean } = {}): Promise<T> {
   const epoch=privateEpoch
-  const response = await fetch(url(path, options.method), { ...options, credentials: 'same-origin', headers: headers(options) })
+  const { allowAnonymous = false, ...request } = options
+  const response = await fetch(url(path, request.method), { ...request, credentials: 'same-origin', headers: headers(request) })
   checkSession(epoch)
   if (!response.ok) {
     const value = await response.json().catch(() => ({}))
     checkSession(epoch)
-    if (PUBLIC && response.status === 401 && value.code === 'LOGIN_REQUIRED') window.dispatchEvent(new Event('stockai-auth-required'))
+    if (PUBLIC && !allowAnonymous && response.status === 401 && value.code === 'LOGIN_REQUIRED') window.dispatchEvent(new Event('stockai-auth-required'))
     const detail = typeof value.detail === 'string' ? value.detail : Array.isArray(value.detail) ? value.detail.map((r: any) => r.msg).join('；') : '请求失败，请稍后重试'
     throw Object.assign(new Error(detail), { code: value.code, status: response.status })
   }

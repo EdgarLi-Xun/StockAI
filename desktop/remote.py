@@ -56,6 +56,8 @@ def launch(home,args):
             if kind==QWebEnginePage.NavigationType.NavigationTypeLinkClicked and destination.scheme()=='https':QDesktopServices.openUrl(destination)
             return False
     page=Page(profile,view);view.setPage(page)
+    from desktop.credentials_bridge import attach_login_credentials
+    attach_login_credentials(page,str(home.resolve())+'|remote|'+ident,url)
     menu=window.menuBar().addMenu('StockAI')
     requested_close={};pending_close={}
     def local():

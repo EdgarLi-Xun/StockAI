@@ -129,6 +129,8 @@ def launch(home,args):
             if kind==QWebEnginePage.NavigationType.NavigationTypeLinkClicked and url.scheme() in ('https','http'):QDesktopServices.openUrl(url)
             return False
     page=Page(profile,view);view.setPage(page)
+    from desktop.credentials_bridge import attach_login_credentials
+    attach_login_credentials(page,os.path.normcase(str(home.resolve()))+'|local',host.url)
     tray=QSystemTrayIcon(icon,app);tray.setToolTip('StockAI · 桌面与 Web 共用本机工作区')
     menu=QMenu();tray.setContextMenu(menu)
     def show():window.showNormal();window.raise_();window.activateWindow()

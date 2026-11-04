@@ -18,6 +18,8 @@ from .preferences import Preferences
 from .store import stamp,json_text
 
 HASHER=PasswordHasher(time_cost=2,memory_cost=65536,parallelism=2)
+SESSION_TTL=8*3600
+REMEMBERED_SESSION_TTL=30*86400
 
 
 # 携带稳定错误码、展示消息和 HTTP 状态，统一表达身份与权限失败。
@@ -26,6 +28,13 @@ class AuthError(ValueError):
     def __init__(self,code,message,status=400):
         self.code,self.message,self.status=code,message,status
         super().__init__(message)
+
+
+# 在服务端统一限制临时与记忆会话，拒绝字符串等含糊的记忆选项。
+def session_lifetime(remember=False):
+    if not isinstance(remember,bool):
+        raise AuthError("INVALID_INPUT","记住登录状态须为布尔值")
+    return REMEMBERED_SESSION_TTL if remember else SESSION_TTL
 
 
 # 以 UTC 当前时间计算带微秒精度的过期时间。
@@ -187,7 +196,8 @@ class Auth:
         return {"success":True}
 
     # 检查限流、密码与账号状态，生成会话及对应 CSRF 令牌。
-    def login(self,email,password,peer):
+    def login(self,email,password,peer,remember=False):
+        ttl=session_lifetime(remember)
         self.limit("login-ip",peer,20,300)
         normalized=email_value(email)
         self.limit("login-email",normalized,10,300)
@@ -203,7 +213,7 @@ class Auth:
             latest=c.execute("SELECT * FROM users WHERE id=? AND status!='disabled' AND password_hash=?",(row["id"],row["password_hash"])).fetchone()
             if not latest:
                 raise AuthError("INVALID_LOGIN","账号状态已改变，请重新登录",401)
-            c.execute("INSERT INTO sessions VALUES(?,?,?,?,NULL,?)",(digest(token),row["id"],digest(csrf),later(8*3600),stamp()))
+            c.execute("INSERT INTO sessions VALUES(?,?,?,?,NULL,?)",(digest(token),row["id"],digest(csrf),later(ttl),stamp()))
             if rehashed:
                 c.execute("UPDATE users SET password_hash=? WHERE id=? AND password_hash=?",(rehashed,row["id"],row["password_hash"]))
         return token,csrf,self.actor(token)

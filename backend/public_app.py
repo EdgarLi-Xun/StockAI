@@ -6,9 +6,11 @@ import csv
 import hmac
 import io
 import json
+import math
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime,timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -26,7 +28,7 @@ from backend.instruments import InstrumentInput
 from backend.research import resample_weekly
 from backend.simulation import OrderInput
 from .cloud import backups,collector,jobs,market,models,simulation,workspace
-from .cloud.auth import Actor,AuthError
+from .cloud.auth import Actor,AuthError,SESSION_TTL,session_lifetime
 from .cloud.config import CloudConfig
 from .cloud.crypto import digest
 from .cloud.lifecycle import erase
@@ -68,8 +70,19 @@ def create_app(cfg=None):
             raise AuthError("ADMIN_REQUIRED","此操作需要站点管理员",403)
         return a
     # 根据部署模式设置会话与 CSRF Cookie 的安全属性。
-    def cookie(response,name,value,httponly):
-        response.set_cookie(name,value,max_age=8*3600,secure=not cfg.dev,httponly=httponly,samesite="lax",path="/")
+    def cookie(response,name,value,httponly,max_age=SESSION_TTL):
+        response.set_cookie(name,value,max_age=max_age,secure=not cfg.dev,httponly=httponly,samesite="lax",path="/")
+    # 仅记忆登录时写持久 Cookie；服务端始终校验固定有效期和撤销状态。
+    def login_response(request,payload):
+        remember=payload.get("remember",False);ttl=session_lifetime(remember)
+        token,csrf,a=rt(request).auth.login(payload.get("email",""),payload.get("password",""),request.client.host,remember=remember)
+        response=JSONResponse({"user":a.public()})
+        cookie(response,cfg.session_cookie,token,True,ttl if remember else None)
+        cookie(response,cfg.csrf_cookie,csrf,False,ttl)
+        return response
+    def clear_auth_cookies(response):
+        for name,httponly in ((cfg.session_cookie,True),(cfg.csrf_cookie,False)):
+            response.delete_cookie(name,path="/",secure=not cfg.dev,httponly=httponly,samesite="lax")
     # 构造带正确内容类型和附件文件名的导出响应。
     def export(value,name,media="application/json"):
         return Response(value,media_type=media,headers={"Content-Disposition":f'attachment; filename="{name}"'})
@@ -149,25 +162,30 @@ def create_app(cfg=None):
             import ipaddress
             if not ipaddress.ip_address(request.client.host).is_loopback or any(request.headers.get(h) for h in ("forwarded","x-forwarded-for","x-real-ip")):
                 raise AuthError("LOCAL_ONLY","仅允许本机初始化",403)
+            session_lifetime(payload.get("remember",False))
             runtime=rt(request)
             with runtime.store.tx(immediate=True) as c:
                 if c.execute("SELECT id FROM users LIMIT 1").fetchone():raise AuthError("ALREADY_INITIALIZED","本机研究空间已创建，请登录",409)
                 runtime.auth.new_user(payload.get("email",""),payload.get("password",""),role="admin",verified=True,c=c)
-            token,csrf,a=runtime.auth.login(payload.get("email",""),payload.get("password",""),request.client.host)
-            response=JSONResponse({"user":a.public()});cookie(response,cfg.session_cookie,token,True);cookie(response,cfg.csrf_cookie,csrf,False)
-            return response
+            return login_response(request,payload)
 
     # 签发或更新当前会话绑定的 CSRF 令牌。
     @app.get("/api/auth/csrf")
     def csrf(request:Request):
         session=request.cookies.get(cfg.session_cookie)
+        ttl=SESSION_TTL
         try:
             if session:
-                rt(request).auth.actor(session)
+                a=rt(request).auth.actor(session)
+                row=rt(request).store.one("SELECT expires_at FROM sessions WHERE token_hash=?",(a.session_hash,))
+                if row:
+                    ttl=max(1,math.ceil((datetime.fromisoformat(row["expires_at"])-datetime.now(timezone.utc)).total_seconds()))
+                else:
+                    session=None
         except AuthError:
             session=None
         value=rt(request).auth.csrf(session)
-        response=JSONResponse({"csrf_token":value});cookie(response,cfg.csrf_cookie,value,False)
+        response=JSONResponse({"csrf_token":value});cookie(response,cfg.csrf_cookie,value,False,ttl)
         if not session:
             response.delete_cookie(cfg.session_cookie,path="/",secure=not cfg.dev,httponly=True,samesite="lax")
         return response
@@ -179,9 +197,7 @@ def create_app(cfg=None):
     # 验证邮箱与密码，设置会话 Cookie 并返回公开身份。
     @app.post("/api/auth/login")
     def login(payload:dict,request:Request):
-        token,csrf,a=rt(request).auth.login(payload.get("email",""),payload.get("password",""),request.client.host)
-        response=JSONResponse({"user":a.public()});cookie(response,cfg.session_cookie,token,True);cookie(response,cfg.csrf_cookie,csrf,False)
-        return response
+        return login_response(request,payload)
     # 返回当前登录用户允许公开的账号信息。
     @app.get("/api/auth/me")
     def me(a:Actor=Depends(actor)):
@@ -190,7 +206,7 @@ def create_app(cfg=None):
     @app.post("/api/auth/logout")
     def logout(request:Request,a:Actor=Depends(actor)):
         rt(request).store.execute("UPDATE sessions SET revoked_at=? WHERE token_hash=? AND user_id=?",(stamp(),a.session_hash,a.id))
-        response=JSONResponse({"success":True});response.delete_cookie(cfg.session_cookie,path="/",secure=not cfg.dev,httponly=True,samesite="lax")
+        response=JSONResponse({"success":True});clear_auth_cookies(response)
         return response
     # 为当前账号重新发送受限频率的邮箱验证邮件。
     @app.post("/api/auth/resend-verification")
