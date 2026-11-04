@@ -23,9 +23,14 @@ class Runner:
         current=self.manager.state.get('active-installation')
         self.manager.state.put('previous-installation:'+tx['id'],current)
         if self.manager.form=='exe':
-            target=folder/'StockAI.exe';shutil.copy2(package,target)
+            setup=str((tx.get('release') or {}).get('asset_name') or '').endswith('-Setup.exe')
+            target=folder/('StockAI-Setup.exe' if setup else 'StockAI.exe');shutil.copy2(package,target)
             if file_hash(target)!=tx['release']['package']['sha256']:raise UpgradeError('PACKAGE')
-            return {'path':str(target),'sha256':file_hash(target),'version':tx['target_version'],'form':'exe','transaction':tx['id']}
+            installed={'path':str(target),'sha256':file_hash(target),'version':tx['target_version'],'form':'exe','transaction':tx['id']}
+            if setup:
+                from .install_path import install_exe
+                installed.update(layout='setup',program=str(install_exe()))
+            return installed
         stage=folder/'code';stage.mkdir(exist_ok=True)
         with zipfile.ZipFile(package) as source:
             from .archive import validate_names
@@ -48,7 +53,13 @@ class Runner:
         cfg=self.manager.cfg
         value={'component':self.manager.component,'data':str(cfg.data),'erasures':str(cfg.erasures),'key_file':str(cfg.key_file),'public_url':cfg.public_url,'dev':cfg.dev,'expected_version':tx['target_version'],'baseline':tx.get('checkpoint',{}).get('counts',{}),'client_only':getattr(self.manager,'client_only',False)}
         atomic_private(config,canonical(value));result.unlink(missing_ok=True)
-        if installation['form']=='exe':command=[installation['path'],'--upgrade-probe',str(config),'--result',str(result)];cwd=folder
+        if installation.get('layout')=='setup':
+            from .install_path import silent_install
+            staging=folder/'app'
+            if staging.exists():shutil.rmtree(staging)
+            silent_install(Path(installation['path']),staging)
+            command=[str(staging/'StockAI.exe'),'--upgrade-probe',str(config),'--result',str(result)];cwd=folder
+        elif installation['form']=='exe':command=[installation['path'],'--upgrade-probe',str(config),'--result',str(result)];cwd=folder
         else:
             command=[sys.executable,'-m','backend.upgrades.probe',str(config),'--result',str(result)];cwd=Path(installation['path'])
         environment={k:v for k,v in os.environ.items() if k not in ('PYTHONPATH','PYTHONHOME')};environment.update(PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1',STOCKAI_CLOUD_NO_BACKGROUND='1')
@@ -67,10 +78,19 @@ class Runner:
         self.manager.state.put('active-installation',previous)
 
     def verify(self,value):
+        if value.get('layout')=='installed':
+            from .install_path import install_exe
+            path=Path(value['path']).resolve()
+            if path!=install_exe().resolve() or path.is_symlink() or not path.is_file():raise UpgradeError('PACKAGE')
+            return path
         path=Path(value['path']).resolve()
         if not path.is_relative_to(self.root.resolve()) or path.is_symlink():raise UpgradeError('PACKAGE')
         if value['form']=='exe':
             if not path.is_file() or file_hash(path)!=value['sha256']:raise UpgradeError('PACKAGE')
+            if value.get('layout')=='setup':
+                from .install_path import install_exe
+                program=Path(value.get('program','')).resolve()
+                if program!=install_exe().resolve() or program.is_symlink():raise UpgradeError('PACKAGE')
         else:
             for name,expected in value['files'].items():
                 file=(path/name).resolve()

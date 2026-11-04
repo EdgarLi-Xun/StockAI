@@ -13,7 +13,7 @@ def target(component='desktop',form='exe'):
     return {'component':component,'form':form,'architecture':'x64'}
 
 
-def release(version='3.3.0-preview.1',*,suffix='Windows.exe',size=1234,**changes):
+def release(version='3.3.0-preview.1',*,suffix='Setup.exe',size=1234,**changes):
     value={'tag_name':'v'+version,'draft':False,'prerelease':'-' in version,'published_at':'2026-11-04T00:00:00Z','assets':[{'name':f'StockAI-{version}-{suffix}','state':'uploaded','size':size,'browser_download_url':'https://unrelated.example.test/do-not-use.exe'}]}
     value.update(changes);return value
 
@@ -45,16 +45,17 @@ def test_channels_and_semver_choose_the_highest_matching_public_release(channel,
     assert 'Authorization' not in fetcher.requests[0][1]
 
 
-@pytest.mark.parametrize('component,form,suffix',[('desktop','exe','Windows.exe'),('desktop','source','Windows.zip'),('web','source','Public.zip'),('hub','source','Hub.zip')])
+@pytest.mark.parametrize('component,form,suffix',[('desktop','exe','Setup.exe'),('desktop','source','Windows.zip'),('web','source','Public.zip'),('hub','source','Hub.zip')])
 def test_only_the_matching_component_and_installation_form_is_offered(component,form,suffix):
-    data=release();data['assets']=[release(suffix=value)['assets'][0] for value in ('Windows.exe','Windows.zip','Public.zip','Hub.zip')]
+    data=release();data['assets']=[release(suffix=value)['assets'][0] for value in ('Setup.exe','Windows.zip','Public.zip','Hub.zip')]
     result=latest(Pages([data]),'EdgarLi-Xun/StockAI',target(component,form),'preview')
     assert result['asset_name'].endswith(suffix) and result['component']==component
 
 
 def test_missing_packages_and_prereleases_do_not_appear_on_the_stable_channel():
     assert latest(Pages([release(),release('4.0.0',prerelease=True),release('3.3.0',suffix='Public.zip')]),'owner/repo',target(),'stable') is None
-    assert latest(Pages([release(assets=[{'name':'StockAI-3.3.0-preview.1-Windows.exe','size':1234,'state':'new'}])]),'owner/repo',target(),'preview') is None
+    assert latest(Pages([release(assets=[{'name':'StockAI-3.3.0-preview.1-Setup.exe','size':1234,'state':'new'}])]),'owner/repo',target(),'preview') is None
+    assert latest(Pages([release(suffix='Windows.exe')]),'owner/repo',target(),'preview') is None
 
 
 def test_pagination_does_not_hide_a_newer_version_from_later_pages():
@@ -133,12 +134,12 @@ def desktop(manager,fetcher):
 
 
 def published(payload,version='3.3.0'):
-    name=f'StockAI-{version}-Windows.exe'
+    name=f'StockAI-{version}-Setup.exe'
     return name,payload,(hashlib.sha256(payload).hexdigest()+'  '+name+'\n').encode()
 
 
 def test_checksum_line_must_name_the_same_asset_in_lowercase():
-    name='StockAI-3.3.0-Windows.exe';digest='ab'*32
+    name='StockAI-3.3.0-Setup.exe';digest='ab'*32
     assert parse_checksum((digest+'  '+name+'\n').encode(),name)==digest
     for raw in ((digest+'  other.exe\n').encode(),(digest+' *'+name+'\n').encode(),(digest.upper()+'  '+name+'\n').encode(),(digest+'  '+name+'\n\n').encode(),'not-ascii-\xff'.encode()):
         with pytest.raises(UpgradeError) as error:parse_checksum(raw,name)
@@ -168,6 +169,13 @@ def test_desktop_downloads_the_official_asset(manager):
     assert tx['release']['package']['url']==asset_url('EdgarLi-Xun/StockAI','3.3.0',name)
     assert m.fetcher.reads[0][0].endswith(name+'.sha256') and m.fetcher.reads[0][2]==ASSET_HOSTS
     assert m.download(tx['id'])['status']=='verified' and m.package_path(m.current()).read_bytes()==payload
+    from backend.upgrades.runner import Runner
+    from backend.upgrades.install_path import install_exe
+    staged=Runner(m).prepare(m.current(),m.package_path(m.current()))
+    assert staged['layout']=='setup' and staged['path'].endswith('StockAI-Setup.exe') and staged['program']==str(install_exe())
+    assert Runner(m).verify(staged).name=='StockAI-Setup.exe'
+    staged['program']=str(install_exe().parent/'elsewhere.exe')
+    with pytest.raises(UpgradeError):Runner(m).verify(staged)
     assert m.fetcher.requests[-1][0].endswith('/'+name) and m.fetcher.requests[-1][2]==ASSET_HOSTS
 
 

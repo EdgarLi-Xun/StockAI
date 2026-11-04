@@ -29,6 +29,9 @@ LABELS = {'budget': '单只证券预算（元）', 'min_daily_amount': '最低�
           'fees.stock_transfer': '股票过户费率', 'fees.stock_stamp_sell': '股票卖出印花税率',
           'fees.slippage_bps': '模拟滑点（基点）'}
 ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|加到|加进|加一下|放入|放进|放到|记入|记到|录入|开启|关闭|启用|停用|持仓价|持仓价格|持仓数量')
+HOLDING_GAP = re.compile(r'持仓(?:数据|价格|价|数量|记录)?.{0,12}(?:还是没有|仍然没有|没有|还未|还没|仍未|没|未).{0,8}(?:添加进去|加上|写入|保存|记录|填上|填进去|添加|进去)')
+HOLDING_RETRY = re.compile(r'^(?:还是|仍然|依然|依旧)(?:没有|没|未)(?:添加|加上|写入|保存)(?:进去|上|了)?[啊呀吧呢。！!？?\s]*$')
+TUTORIAL = re.compile(r'投资平台|登录您|以下步骤|帮助文档|联系客服')
 
 
 class SettingChange(BaseModel):
@@ -56,6 +59,110 @@ class StockProposal(BaseModel):
 class ApplyInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     confirm: Literal[True]
+
+
+def holding_followup(question):
+    """用户在说持仓没写进去，而不是在问怎么操作。"""
+    text = question.strip()
+    return bool(HOLDING_GAP.search(text) or HOLDING_RETRY.fullmatch(text))
+
+
+def stated_holding(text):
+    """从用户原话提取成对的代码、持仓价和数量；缺任一项就不猜。"""
+    symbol = re.search(r'(?<!\d)(\d{6})(?!\d)', text)
+    cost = re.search(r'持仓价(?:格)?\s*(?:改为|设为|改成|调为|是|为)?\s*(\d+(?:\.\d{1,4})?)', text)
+    quantity = re.search(r'持仓数量\s*(?:改为|设为|改成|调为|是|为)?\s*(\d{1,9})', text)
+    if not quantity:
+        quantity = re.search(r'持仓\s*(?:改为|设为|改成|调为|是|为)?\s*(\d{1,9})\s*股', text)
+    if not symbol or not cost or not quantity:
+        return None
+    return {'kind': 'add_stock', 'market': 'SH', 'symbol': symbol.group(1), 'group_name': '我的自选',
+            'cost_price': cost.group(1), 'quantity': int(quantity.group(1))}
+
+
+def _complete_holding(item):
+    quantity = item.get('quantity')
+    return item.get('kind') == 'add_stock' and item.get('symbol') and item.get('cost_price') not in (None, '') and isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0
+
+
+def _proposal(item):
+    return {'kind': 'add_stock', 'market': item.get('market') or 'SH', 'symbol': str(item['symbol']),
+            'group_name': item.get('group_name') or '我的自选', 'cost_price': item['cost_price'], 'quantity': int(item['quantity'])}
+
+
+def _saved(store, uid, proposal):
+    value = stock_input(proposal)
+    ident = value.market + ':' + value.symbol
+    row = store.one('SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id=?', (uid, ident))
+    if not row or row['cost_price'] in (None, ''):
+        return False
+    cost, quantity = market.normalize_holding(proposal.get('cost_price'), proposal.get('quantity'))
+    return row['cost_price'] == cost and row['quantity'] == quantity
+
+
+def recent_holdings(store, uid, session_id):
+    """按时间从新到旧找回本会话说过的持仓，并标出是否已写入自选。"""
+    rows = store.query("SELECT question,reply_json FROM assistant_requests WHERE user_id=? AND session_id=? AND status='success' ORDER BY created_at DESC LIMIT 10", (uid, session_id))
+    found, seen = [], set()
+    for row in rows:
+        reply = json.loads(row['reply_json'] or '{}')
+        items = [item for item in reply.get('actions') or [] if _complete_holding(item)]
+        stated = stated_holding(row['question'])
+        if stated:
+            items.append(stated)
+        for item in items:
+            symbol = str(item['symbol'])
+            if symbol in seen:
+                continue
+            proposal = _proposal(item)
+            try:
+                saved = _saved(store, uid, proposal)
+            except ValueError:
+                continue
+            seen.add(symbol)
+            found.append((proposal, saved))
+            if len(found) == 3:
+                return found
+    return found
+
+
+def pending_proposals(store, uid, session_id):
+    return [proposal for proposal, saved in recent_holdings(store, uid, session_id) if not saved]
+
+
+def action_history_note(reply):
+    lines = []
+    for action in reply.get('actions') or []:
+        if action.get('kind') != 'add_stock':
+            continue
+        state = '已应用' if action.get('applied_at') else '未应用'
+        lines.append('方案 ' + str(action.get('symbol')) + ' 持仓价' + str(action.get('cost_price')) + ' 数量' + str(action.get('quantity')) + ' ' + state)
+    return '\n'.join(lines)
+
+
+def restore_unsaved_holding(store, uid, session_id, question, answer):
+    """持仓没写进去时，用本会话里已核对过的价和数量重做方案，不沿用操作步骤。"""
+    if not holding_followup(question):
+        return answer
+    records = recent_holdings(store, uid, session_id)
+    pending = [proposal for proposal, saved in records if not saved]
+    saved = [proposal for proposal, saved in records if saved]
+    if pending:
+        try:
+            actions = prepare(store, uid, pending)
+        except ValueError:
+            actions = []
+        if actions:
+            return {**answer, 'actions': actions, 'citations': [], 'answer': '持仓还没写入自选。请核对下面的方案，点击按钮后才会保存。'}
+    kept = [item for item in answer.get('actions') or [] if _complete_holding(item)]
+    if kept:
+        if TUTORIAL.search(answer.get('answer') or ''):
+            return {**answer, 'actions': kept, 'citations': [], 'answer': '持仓还没写入自选。请核对下面的方案，点击按钮后才会保存。'}
+        return answer
+    if saved:
+        text = '、'.join(item['symbol'] + ' 持仓价 ' + str(item['cost_price']) + '，数量 ' + str(item['quantity']) for item in saved)
+        return {**answer, 'actions': [], 'citations': [], 'answer': '这组持仓已经在自选里：' + text + '。可以在自选列表查看持仓价和数量。'}
+    return {**answer, 'actions': [], 'citations': [], 'answer': '持仓价和持仓数量要成对填写后才能写入。请直接说股票代码、持仓价和持仓数量，我会准备方案，你点击后才会保存。'}
 
 
 def configuration(store, uid):

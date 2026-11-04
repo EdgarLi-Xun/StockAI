@@ -27,7 +27,7 @@ def repository(source):
 
 def latest(fetcher,repo,target,channel):
     headers={'Accept':'application/vnd.github+json','User-Agent':'StockAI/'+VERSION,'X-GitHub-Api-Version':'2026-03-10'}
-    suffix={'desktop':{'exe':'Windows.exe','source':'Windows.zip'},'web':{'source':'Public.zip'},'hub':{'source':'Hub.zip'}}.get(target['component'],{}).get(target['form'])
+    suffix={'desktop':{'exe':'Setup.exe','source':'Windows.zip'},'web':{'source':'Public.zip'},'hub':{'source':'Hub.zip'}}.get(target['component'],{}).get(target['form'])
     if not suffix or target['architecture']!='x64':return None
     candidates=[]
     for page in range(1,6):

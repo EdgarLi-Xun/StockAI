@@ -460,6 +460,66 @@ def test_holding_inputs_must_be_a_valid_pair(cloud, proposal):
         assistant_actions.prepare(store, uid, [{'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '我的自选', **proposal}])
 
 
+def test_missing_holding_reuses_the_earlier_proposal_instead_of_a_manual_guide(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    sid = session(store, uid)
+    first = submit(store, keys, uid, sid, '添加000911，持仓价4.85，持仓数量300')
+    prepared = run(cloud, first, lambda *args: response('请核对持仓后添加到自选。', actions=[
+        {'kind': 'add_stock', 'market': 'SZ', 'symbol': '000911', 'cost_price': '4.85', 'quantity': 300}]))
+    assert prepared['reply']['actions'][0]['cost_price'] == '4.85'
+    assert not store.one('SELECT * FROM user_watchlist WHERE user_id=?', (uid,))
+    follow = submit(store, keys, uid, sid, '持仓数据没有添加进去')
+    row = store.one('SELECT * FROM assistant_requests WHERE id=?', (follow['id'],))
+    proto, *_ = assistant.protocol(store, uid, row, {})
+    current = json.loads(proto['messages'][-1]['content'])
+    assert current['pending_holdings'][0]['symbol'] == '000911'
+    assert current['pending_holdings'][0]['quantity'] == 300
+    assert not any(item['kind'] == 'help' for item in current['sources'])
+    result = run(cloud, follow, lambda *args: response(
+        '您可以通过以下步骤将股票添加到自选的持仓中：登录您的投资平台，搜索ST广糖。', ['help:watchlist']))
+    assert result['status'] == 'success', result
+    action = result['reply']['actions'][0]
+    assert action['instrument_id'] == 'SZ:000911' and action['cost_price'] == '4.85' and action['quantity'] == 300
+    assert '投资平台' not in result['reply']['answer'] and result['reply']['citations'] == []
+    assert not result['reply']['references']
+    assert not store.one('SELECT * FROM user_watchlist WHERE user_id=?', (uid,))
+    assistant_actions.apply(store, uid, follow['id'], 0)
+    saved = store.one("SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id='SZ:000911'", (uid,))
+    assert saved['cost_price'] == '4.85' and saved['quantity'] == 300
+
+
+def test_missing_holding_can_be_recovered_from_the_user_words_when_the_action_omitted_it(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud); listed_stock(store)
+    sid = session(store, uid)
+    first = submit(store, keys, uid, sid, '添加600519，持仓价8，持仓数量100')
+    run(cloud, first, lambda *args: response('请先核对代码。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600519'}]))
+    assistant_actions.apply(store, uid, first['id'], 0)
+    assert store.one("SELECT cost_price FROM user_watchlist WHERE user_id=? AND instrument_id='SH:600519'", (uid,))['cost_price'] is None
+    follow = submit(store, keys, uid, sid, '还是没有添加进去')
+    result = run(cloud, follow, lambda *args: response('请到自选页面手动填写。'))
+    assert result['reply']['actions'][0]['cost_price'] == '8' and result['reply']['actions'][0]['quantity'] == 100
+    assistant_actions.apply(store, uid, follow['id'], 0)
+    assert store.one("SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id='SH:600519'", (uid,))['quantity'] == 100
+
+
+def test_saved_holding_is_not_proposed_again(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud); listed_stock(store, '600000', '浦发银行')
+    sid = session(store, uid)
+    first = submit(store, keys, uid, sid, '添加600000，持仓价4.85，持仓数量300')
+    run(cloud, first, lambda *args: response('请核对持仓。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600000', 'cost_price': '4.85', 'quantity': 300}]))
+    assistant_actions.apply(store, uid, first['id'], 0)
+    follow = submit(store, keys, uid, sid, '持仓数据没有添加进去')
+    result = run(cloud, follow, lambda *args: response('登录您的投资平台后再添加。'))
+    assert result['reply']['actions'] == []
+    assert '已经在自选里' in result['reply']['answer'] and '投资平台' not in result['reply']['answer']
+    assert not assistant_actions.holding_followup('我的持仓收益怎么算')
+
+
 def test_colloquial_add_to_watchlist_enables_stock_action(cloud):
     store, keys, *_, uid = cloud
     profile(cloud)

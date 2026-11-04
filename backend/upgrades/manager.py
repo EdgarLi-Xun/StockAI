@@ -124,7 +124,7 @@ class Manager(Cache):
             if check.get('status')!='download_available' or found.get('signature_verified') is not False:raise UpgradeError('UNTRUSTED','当前没有可安装的 GitHub 发行包')
             version,name,size=found.get('version'),found.get('asset_name'),found.get('size')
             if found.get('component')!='desktop' or found.get('channel')!=self.state.get('settings')['channel']:raise UpgradeError('TARGET')
-            if not isinstance(version,str) or name!=f'StockAI-{version}-Windows.exe' or type(size) is not int or not 0<size<=2*1024*1024*1024:raise UpgradeError('TARGET')
+            if not isinstance(version,str) or name!=f'StockAI-{version}-Setup.exe' or type(size) is not int or not 0<size<=2*1024*1024*1024:raise UpgradeError('TARGET')
             try:newer=Version(version)>Version(self.version)
             except (TypeError,ValueError):raise UpgradeError('TARGET') from None
             if not newer:raise UpgradeError('DOWNGRADE')
@@ -144,7 +144,7 @@ class Manager(Cache):
         version,name=release.get('version'),release.get('asset_name')
         if getattr(self,'client_only',False) or self.component!='desktop' or self.form!='exe' or not repo:raise UpgradeError('TARGET')
         if tx.get('trust')!='github-sha256' or release.get('component')!='desktop' or release.get('form')!='exe':raise UpgradeError('UNTRUSTED')
-        if not isinstance(version,str) or name!=f'StockAI-{version}-Windows.exe':raise UpgradeError('TARGET')
+        if not isinstance(version,str) or name!=f'StockAI-{version}-Setup.exe':raise UpgradeError('TARGET')
         try:newer=Version(version)>Version(self.version)
         except (TypeError,ValueError):raise UpgradeError('TARGET') from None
         if not newer:raise UpgradeError('DOWNGRADE')

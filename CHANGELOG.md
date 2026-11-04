@@ -1,5 +1,17 @@
 # 更新记录
 
+## [3.2.3] - 2026-11-04
+
+- Windows 桌面改为每用户安装包，装到 `%LOCALAPPDATA%\Programs\StockAI`，不要求管理员权限。开始菜单可打开，研究资料仍在原工作区。
+- 安装包去掉 Qt 调试资源、未使用模块和多余语言包。已发布的 3.2.2 单文件版不会自动换成安装包，需要手动安装一次。
+- 之后的桌面升级下载同名 `Setup.exe`，用发布页 SHA-256 核对，确认后覆盖安装并重新打开。
+- 助手在用户说明持仓没写进去时，沿用本会话里已核对的代码、持仓价和数量重做方案，不再改成操作步骤。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.3-Setup.exe`、同版 Public / Hub ZIP、各自 SHA256 和安装包构建元数据。
+- 此版本进入稳定通道。不覆盖 3.2.2，也不自动把 Web / Hub 部署到服务器。
+
 ## [3.2.2] - 2026-11-04
 
 - 已安装的 Windows 桌面版可在「关于与升级」下载新版 EXE，或导入已经下载的同名文件。
@@ -121,6 +133,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.3]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.3
 [3.2.2]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.2
 [3.2.1]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.1
 [3.2.0]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0

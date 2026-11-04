@@ -3,7 +3,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import time
@@ -21,8 +20,10 @@ def forward(home,arguments,client_only=False):
     else:m=manager('desktop',str(home))
     selected=m.state.get('active-installation')
     if not selected or selected['version']==VERSION:return False
-    path=Runner(m).verify(selected)
-    command=[str(path)] if selected['form']=='exe' else [sys.executable,str(path/'stockai_desktop.py')]
+    from backend.upgrades.install_path import program_path
+    Runner(m).verify(selected);target=program_path(selected)
+    if selected['form']=='exe' and getattr(sys,'frozen',False) and target.resolve()==Path(sys.executable).resolve():return False
+    command=[str(target)] if selected['form']=='exe' else [sys.executable,str(target/'stockai_desktop.py')]
     subprocess.Popen([*command,*arguments],**hidden_process());return True
 
 
@@ -37,7 +38,6 @@ def helper(argv=None):
     p.add_argument('--client-only',action='store_true');p.add_argument('--remote-url');p.add_argument('--remote-account');args=p.parse_args(argv)
     from backend.upgrades.cli import manager
     from backend.upgrades.runner import Runner
-    from backend.upgrades.checkpoint import file_hash
     from backend.cloud.lifecycle import ProcessLock,recover_swap
     if args.client_only:
         from desktop.client_updates import manager as client_manager
@@ -60,9 +60,10 @@ def helper(argv=None):
     try:
         if not args.client_only:recover_swap(m.cfg,m.keys)
         if getattr(sys,'frozen',False) and not m.state.get('active-installation'):
-            source=Path(sys.executable);checksum=file_hash(source);folder=runner.root/('bootstrap-'+checksum[:24]);folder.mkdir(exist_ok=True);target=folder/'StockAI.exe'
-            if not target.exists():shutil.copy2(source,target)
-            m.state.put('active-installation',{'path':str(target),'sha256':checksum,'version':m.version,'form':'exe','transaction':'bootstrap'})
+            from backend.upgrades.install_path import install_exe
+            source=Path(sys.executable).resolve()
+            if source==install_exe().resolve() and source.is_file() and not source.is_symlink():
+                m.state.put('active-installation',{'path':str(source),'version':m.version,'form':'exe','layout':'installed','transaction':'bootstrap'})
         try:tx=m.execute(args.id,args.confirmation,runner,actor='desktop-owner')
         except Exception as exc:
             tx=m.current()
@@ -71,8 +72,15 @@ def helper(argv=None):
     finally:lock.__exit__()
     if tx['status']=='succeeded' or (tx['status'] in ('rolled_back','failed') and not tx.get('writes_opened',False)):
         selected=m.state.get('active-installation')
-        if selected:
-            path=runner.verify(selected);command=[str(path)] if selected['form']=='exe' else [sys.executable,str(path/'stockai_desktop.py')]
-        else:command=[sys.executable,str(Path(__file__).resolve().parents[1]/'stockai_desktop.py')]
         mode=['--remote-url',args.remote_url,'--remote-account',args.remote_account or ''] if args.client_only else ['--local']
-        subprocess.Popen([*command,'--data-dir',args.home,*mode],**hidden_process())
+        if selected and selected.get('layout')=='setup' and tx['status']=='succeeded':
+            from backend.upgrades.install_path import schedule_swap
+            runner.verify(selected);schedule_swap(os.getpid(),runner.root/args.id/'app',['--data-dir',args.home,*mode])
+        elif selected:
+            from backend.upgrades.install_path import program_path
+            runner.verify(selected);target=program_path(selected)
+            command=[str(target)] if selected['form']=='exe' else [sys.executable,str(target/'stockai_desktop.py')]
+            subprocess.Popen([*command,'--data-dir',args.home,*mode],**hidden_process())
+        else:
+            command=[sys.executable,str(Path(__file__).resolve().parents[1]/'stockai_desktop.py')]
+            subprocess.Popen([*command,'--data-dir',args.home,*mode],**hidden_process())
