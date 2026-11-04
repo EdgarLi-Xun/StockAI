@@ -2,23 +2,29 @@
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, Expand, History, LoaderCircle, MessageSquare, Minus, Plus } from 'lucide-vue-next'
 
-const props = defineProps<{ user: any, fullPage: boolean, context?: {kind:string,id:string,report_id?:string}|null }>()
-const emit = defineEmits<{ navigate: [name:string], 'clear-context': [] }>()
+const props = defineProps<{ user: any, fullPage: boolean, context?: {kind:string,id:string,report_id?:string}|null, dock?: boolean, security?: {id:string,name:string}|null }>()
+const emit = defineEmits<{ navigate: [name:string], 'clear-context': [], docked: [docked:boolean], 'attach-current': [] }>()
 const ResearchWorkbench = defineAsyncComponent(() => import('../ResearchWorkbench.vue'))
 const client = ref<any>(null), launcher = ref<HTMLButtonElement|null>(null), container = ref<HTMLElement|null>(null)
 const initialized = ref(props.fullPage), opened = ref(false), historyOpen = ref(false), unread = ref(false), blocked = ref(false)
+const requestFocus = ref(false)
 const viewportStyle=ref<Record<string,string>>({})
 const shortViewport=ref(false)
 const visible = computed(() => props.fullPage || opened.value)
+const dockMedia=window.matchMedia('(min-width: 1181px)'),wide=ref(dockMedia.matches)
+const docked=computed(()=>!!props.dock&&wide.value&&!props.fullPage&&visible.value&&!blocked.value)
+function dockingChanged(){wide.value=dockMedia.matches}
+watch(docked,value=>emit('docked',value),{immediate:true})
 const pending = computed(() => !!client.value?.pending)
 const dirty = computed(() => !!client.value?.dirty)
 const messageVersion = computed(() => client.value?.messageVersion || '')
 const status = computed(() => pending.value ? '正在生成' : unread.value ? '有新回复' : 'AI 助手')
 let observer: MutationObserver|undefined, previousPage = 'dashboard'
 
-async function open() {
+async function open(focus=true) {
+  requestFocus.value = focus
   initialized.value = true; opened.value = true; unread.value = false
-  await nextTick(); client.value?.focusQuestion()
+  await nextTick(); if(focus)client.value?.focusQuestion()
 }
 async function collapse() {
   opened.value = false
@@ -41,7 +47,7 @@ function checkDialogs() {
 function updateViewport(){const v=window.visualViewport;shortViewport.value=(v?.height||window.innerHeight)<650;if(v)viewportStyle.value={'--assistant-viewport-height':v.height+'px','--assistant-keyboard-inset':Math.max(0,window.innerHeight-v.height-v.offsetTop)+'px'}}
 watch(messageVersion, (value, old) => { if (value && old && value !== old && !visible.value && !pending.value) unread.value = true })
 watch(visible, value => { if (value) { initialized.value = true; unread.value = false; void client.value?.reload() } })
-watch(client, async value => { if (value && visible.value) { await nextTick(); value.focusQuestion() } })
+watch(client, async value => { if (value && visible.value && requestFocus.value) { await nextTick(); value.focusQuestion() } })
 watch(() => props.context, value => { if (value) void open() })
 watch(() => props.fullPage, async () => {
   const messages = container.value?.querySelector<HTMLElement>('.assistant-messages')
@@ -50,17 +56,18 @@ watch(() => props.fullPage, async () => {
   if (messages) messages.scrollTop = position
 })
 onMounted(() => {
+  dockMedia.addEventListener('change',dockingChanged)
   window.addEventListener('keydown', escape)
   observer = new MutationObserver(checkDialogs)
   observer.observe(document.body, { childList:true, subtree:true })
   checkDialogs();updateViewport();window.visualViewport?.addEventListener('resize',updateViewport);window.visualViewport?.addEventListener('scroll',updateViewport)
 })
-onBeforeUnmount(() => { observer?.disconnect(); window.removeEventListener('keydown', escape);window.visualViewport?.removeEventListener('resize',updateViewport);window.visualViewport?.removeEventListener('scroll',updateViewport) })
+onBeforeUnmount(() => { emit('docked',false);dockMedia.removeEventListener('change',dockingChanged);observer?.disconnect(); window.removeEventListener('keydown', escape);window.visualViewport?.removeEventListener('resize',updateViewport);window.visualViewport?.removeEventListener('scroll',updateViewport) })
 defineExpose({ open, dirty })
 </script>
 
 <template>
-  <section v-show="visible && !blocked" ref="container" :style="viewportStyle" :class="['assistant-host', fullPage ? 'assistant-host-page' : 'assistant-host-panel', {'assistant-short':shortViewport}]" :role="fullPage ? undefined : 'region'" aria-label="AI 助手对话面板" :inert="!visible || blocked">
+  <section v-show="visible && !blocked" ref="container" :style="viewportStyle" :class="['assistant-host', fullPage ? 'assistant-host-page' : 'assistant-host-panel', {'assistant-short':shortViewport,'assistant-host-docked':docked}]" :role="fullPage ? undefined : 'region'" aria-label="AI 助手对话面板" :inert="!visible || blocked">
     <header class="assistant-host-toolbar">
       <div><MessageSquare :size="18"/><strong>AI 助手</strong><span v-if="pending" role="status"><LoaderCircle :size="13" class="spin"/>正在生成</span></div>
       <div class="button-row">
@@ -71,6 +78,7 @@ defineExpose({ open, dirty })
         <button v-else class="text-button" @click="leavePage"><ArrowLeft :size="15"/>返回页面并悬浮</button>
       </div>
     </header>
+    <div v-if="security" class="assistant-current-security"><span>当前证券：{{ security.name }}</span><button type="button" class="text-button" @click="emit('attach-current')">使用当前证券</button></div>
     <!-- 一个持续挂载的实例负责两种展示；收起、换页和展开都不会重新发送。 -->
     <ResearchWorkbench v-if="initialized" ref="client" view="assistant" :user="user" :context="context" :assistant-panel="!fullPage" :embedded="fullPage" :show-history="historyOpen" @navigate="navigate" @clear-context="emit('clear-context')"/>
   </section>

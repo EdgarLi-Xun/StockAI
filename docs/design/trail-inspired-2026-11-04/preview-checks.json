@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-04",
+  "timezone": "Asia/Shanghai",
+  "scope": "Standalone synthetic design preview only; no production app or model requests",
+  "final_fragment_sha256": "8351ae46df84bacdf73b4ae92f22527955d07735a17c1ccd7b1e46615414c295",
+  "checks": [
+    {
+      "check": "theme_and_source_and_draft",
+      "theme": "dark",
+      "sourceFeedback": "来源预览：示例日 K 快照 · 2026-11-03 15:00 · 不复权 · 原始链接与版本可查。",
+      "draft": "设计预览中的草稿"
+    },
+    {
+      "attachedContext": "已附加：510300.SH",
+      "check": "symbol_switch",
+      "holdingReturn": "−1.12% · 不含费用",
+      "price": "2.126",
+      "security": "159915.SZ"
+    },
+    {
+      "check": "task_navigation",
+      "feedback": ""
+    },
+    {
+      "bottomNav": "grid",
+      "check": "390_overview",
+      "overflow": false,
+      "table": 315,
+      "viewport": 343,
+      "width": 343
+    },
+    {
+      "check": "320_overview",
+      "overflow": false,
+      "overflows": [
+        {
+          "class": "sa-tablewrap",
+          "scrollWidth": 260,
+          "width": 245
+        },
+        {
+          "class": "",
+          "scrollWidth": 74,
+          "width": 64
+        }
+      ],
+      "viewport": 273,
+      "width": 273
+    },
+    {
+      "check": "320_overview_after_refinement",
+      "overflow": false,
+      "overflows": [],
+      "scrollY": 0,
+      "viewport": 273,
+      "width": 273
+    },
+    {
+      "chartWidth": 469,
+      "check": "1024_workbench",
+      "overflow": false,
+      "viewport": 977,
+      "width": 977
+    },
+    {
+      "check": "320_workbench",
+      "overflow": false,
+      "overflows": [],
+      "viewport": 273,
+      "width": 273
+    },
+    {
+      "appHeight": 1001.078125,
+      "appWidth": 1233,
+      "bodyColor": "rgb(32, 49, 46)",
+      "canvas": "rgb(244, 246, 246)",
+      "check": "default_desktop_overview",
+      "icons": 33,
+      "muted": "rgb(104, 120, 117)",
+      "overflow": false,
+      "panel": "rgb(255, 255, 255)",
+      "sampleLabel": "设计预览 · 示例数据",
+      "viewport": 1233,
+      "watchlistTop": 323.578125
+    },
+    {
+      "check": "task_feedback_after_refinement",
+      "visibleFeedback": "预览：此处展开任务详情、执行日志与安全重试入口。"
+    }
+  ],
+  "console_errors": [],
+  "viewport_override_reset": true,
+  "captures": [
+    "overview.jpg",
+    "workbench.jpg",
+    "workbench-dark.jpg",
+    "mobile-overview.jpg"
+  ],
+  "limitations": [
+    "Viewport checks are not physical phone verification.",
+    "Secondary screens in the prototype are simplified design scenes.",
+    "Preview host adds margins; inner rendering widths are recorded explicitly."
+  ]
+}

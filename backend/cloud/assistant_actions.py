@@ -80,6 +80,58 @@ def stated_holding(text):
             'cost_price': cost.group(1), 'quantity': int(quantity.group(1))}
 
 
+def _whole_quantity(quantity):
+    """整数型小数收成整数；非整数数量不能写入。其它类型留给结构校验。"""
+    if isinstance(quantity, bool) or not isinstance(quantity, float):
+        return quantity, False
+    if quantity.is_integer():
+        return int(quantity), False
+    return quantity, True
+
+
+def salvage_partial_holding(raw):
+    """半套持仓先拆掉：只填一侧或数量不是整数时去掉方案，并改成追问。"""
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return raw
+    actions = data.get('actions') if isinstance(data, dict) else None
+    if not isinstance(actions, list):
+        return raw
+    kept, dropped, changed = [], [], False
+    for action in actions:
+        if not isinstance(action, dict) or action.get('kind') != 'add_stock':
+            kept.append(action)
+            continue
+        item = dict(action)
+        original = item.get('quantity', None)
+        quantity, bad_quantity = _whole_quantity(original)
+        if type(quantity) is not type(original):
+            item['quantity'] = quantity
+            changed = True
+        cost = item.get('cost_price', None)
+        cost_missing = cost in (None, '')
+        quantity_missing = quantity is None
+        if bad_quantity or cost_missing != quantity_missing:
+            dropped.append(item)
+            changed = True
+            continue
+        kept.append(item)
+    if not changed:
+        return raw
+    data['actions'] = kept
+    if dropped:
+        symbols = []
+        for item in dropped:
+            symbol = str(item.get('symbol') or '').strip()
+            if symbol and symbol not in symbols:
+                symbols.append(symbol)
+        lead = '、'.join(symbols) + '的' if symbols else ''
+        data['answer'] = lead + '持仓价和持仓数量要成对填写后才能写入。请直接回复缺少的持仓价或持仓数量；只加入自选、先不记持仓时可以说不填。我会准备方案，你点击后才会保存。'
+        data['citations'] = []
+    return json.dumps(data, ensure_ascii=False)
+
+
 def _complete_holding(item):
     quantity = item.get('quantity')
     return item.get('kind') == 'add_stock' and item.get('symbol') and item.get('cost_price') not in (None, '') and isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X } from 'lucide-vue-next'
-import { workspaceSections } from '../workspaceNavigation'
+import { workspaceGroup, workspaceSections } from '../workspaceNavigation'
 
 const props = defineProps<{ current: string, open: boolean, admin: boolean }>()
-const emit = defineEmits<{ navigate: [route: string], close: [] }>()
+const emit = defineEmits<{ navigate: [route: string], close: [], open: [] }>()
 const navigation = ref<HTMLElement|null>(null)
-const active = computed(() => props.current === 'backtest' ? 'experiments' : props.current)
+const active = computed(() => workspaceGroup(props.current)?.id)
 const version = __STOCKAI_VERSION__
 const icons = { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X }
 const icon = (name: string) => (icons as any)[name]
@@ -50,4 +50,11 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', keyboard); narrowV
     </nav>
     <footer class="workspace-nav-footer"><icons.LockKeyhole :size="13"/><span>个人资料独立保存</span><small>v{{ version }}</small></footer>
   </aside>
+  <nav v-if="!open" class="workspace-mobile-nav" aria-label="常用导航">
+    <button type="button" :aria-current="active==='dashboard'?'page':undefined" @click="emit('navigate','dashboard')"><icons.LayoutDashboard :size="19"/><span>总览</span></button>
+    <button type="button" :aria-current="active==='watchlist'?'page':undefined" @click="emit('navigate','watchlist')"><icons.ChartCandlestick :size="19"/><span>自选</span></button>
+    <button type="button" :aria-current="active==='reports'||active==='candidates'?'page':undefined" @click="emit('navigate','reports')"><icons.FileText :size="19"/><span>研究</span></button>
+    <button type="button" :aria-current="active==='simulation'?'page':undefined" @click="emit('navigate','simulation')"><icons.Wallet :size="19"/><span>组合</span></button>
+    <button type="button" aria-label="打开更多导航" :aria-current="!['dashboard','watchlist','reports','candidates','simulation'].includes(active || '')?'page':undefined" :aria-expanded="open" aria-controls="primary-workspace-navigation" @click="emit('open')"><icons.Settings2 :size="19"/><span>更多</span></button>
+  </nav>
 </template>

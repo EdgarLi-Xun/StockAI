@@ -1,0 +1,242 @@
+{
+  "date": "2026-11-04",
+  "timezone": "Asia/Shanghai",
+  "scope": "Isolated synthetic desktop/Web application verification",
+  "checks": [
+    {
+      "check": "holdings_and_budget",
+      "holdings": "持仓价\n3.72\n持仓数量\n1000\n持仓金额\n3,883.00\n当天收益\n20.00\n当天收益率\n+0.52%\n总收益率\n+4.25%",
+      "budget": "成交金额\n¥388.30\n预计买入费用\n¥5.00\n含费总成本\n¥393.30\n通过预算门槛\n\n默认费率仅为模拟假设，尚未核对券商交割单。ETF不套用股票印花税和过户费。 预算通过不等于交易资格通过。\n\n最低佣金敏感性：佣金底限¥0 → 总成本¥388.42；佣金底限¥5 → 总成本¥393.3；佣金底限¥10 → 总成本¥398.3"
+    },
+    {
+      "check": "explicit_context_and_draft",
+      "current": "布局验收 · 黄金 ETF",
+      "attached": "证券资料 · 布局验收 · 宽基 ETF SH:510300 ×",
+      "draft": "保留这段研究草稿，不发送。"
+    },
+    {
+      "check": "report_navigation_keeps_assistant_draft",
+      "draft": "保留这段研究草稿，不发送。",
+      "tabs": "研究报告\n研究日志\n周度复盘"
+    },
+    {
+      "check": "settings_group",
+      "tabs": "外观与偏好\n模型配置\n模型用量\n数据与来源\n同步与版本",
+      "emptyState": "从一套个人模型配置开始"
+    },
+    {
+      "check": "390_models",
+      "main": {
+        "bottom": 844,
+        "height": 788,
+        "left": 0,
+        "right": 390,
+        "top": 56,
+        "width": 390,
+        "x": 0,
+        "y": 56
+      },
+      "nav": {
+        "open": false,
+        "transform": "matrix(1, 0, 0, 1, -248, 0)",
+        "visible": "hidden"
+      },
+      "overflow": false,
+      "overflowing": [],
+      "viewport": [
+        390,
+        844
+      ],
+      "width": 390
+    },
+    {
+      "check": "390_dashboard",
+      "assistant": {
+        "bottom": 772,
+        "height": 48,
+        "left": 313,
+        "right": 361,
+        "top": 724,
+        "width": 48,
+        "x": 313,
+        "y": 724
+      },
+      "navHeight": 60,
+      "overflow": false,
+      "table": {
+        "bottom": 821.9375,
+        "height": 294.984375,
+        "left": 15,
+        "right": 515,
+        "top": 526.953125,
+        "width": 500,
+        "x": 15,
+        "y": 526.953125
+      },
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "check": "320_dashboard",
+      "overflow": false,
+      "overflows": [
+        {
+          "class": "table-scroll",
+          "scroll": 500,
+          "width": 275
+        }
+      ],
+      "viewport": [
+        320,
+        780
+      ]
+    },
+    {
+      "check": "320_dashboard_after_refinement",
+      "container": 275,
+      "overflow": false,
+      "overflows": [],
+      "table": 275,
+      "viewport": [
+        320,
+        780
+      ]
+    },
+    {
+      "check": "mobile_unsaved_profile_guard",
+      "url": "http://127.0.0.1:8811/#models",
+      "draft": "布局验收草稿"
+    },
+    {
+      "check": "390x520_assistant",
+      "input": {
+        "bottom": 400.3125,
+        "height": 40,
+        "left": 19,
+        "right": 356,
+        "top": 360.3125,
+        "width": 337,
+        "x": 19,
+        "y": 360.3125
+      },
+      "modelControls": {
+        "bottom": 208.6875,
+        "height": 92.6875,
+        "left": 9,
+        "right": 366,
+        "top": 116,
+        "width": 357,
+        "x": 9,
+        "y": 116
+      },
+      "overflow": false,
+      "panel": {
+        "bottom": 452,
+        "height": 388,
+        "left": 8,
+        "right": 367,
+        "top": 64,
+        "width": 359,
+        "x": 8,
+        "y": 64
+      },
+      "send": {
+        "bottom": 444,
+        "height": 34,
+        "left": 283,
+        "right": 356,
+        "top": 410,
+        "width": 73,
+        "x": 283,
+        "y": 410
+      },
+      "viewport": [
+        390,
+        520
+      ]
+    },
+    {
+      "assistantWidth": 320,
+      "check": "1440_security_docked",
+      "contextWidth": 164,
+      "focused": "BODY",
+      "mainRight": 1120,
+      "overflow": false,
+      "panelLeft": 1120,
+      "viewport": [
+        1440,
+        900
+      ]
+    },
+    {
+      "canvas": "rgb(18, 26, 33)",
+      "check": "dark_theme",
+      "foreground": "rgb(228, 236, 231)",
+      "panel": "rgb(27, 37, 45)",
+      "theme": "dark"
+    },
+    {
+      "check": "global_watchlist_search",
+      "rows": 1,
+      "name": "布局验收 · 成长 ETF"
+    },
+    {
+      "check": "1024_tasks",
+      "overflow": false,
+      "scheduleWidth": 787.96875,
+      "viewport": [
+        1024,
+        768
+      ]
+    },
+    {
+      "check": "report_reference_and_full_page_continuity",
+      "reportContext": "研究报告 · 2026-11-04 · 版本 1 · 8aa851be ×",
+      "fullDraft": "继续查看这份报告，保留草稿。",
+      "returnDraft": "继续查看这份报告，保留草稿。"
+    },
+    {
+      "check": "logout_clears_workspace_search",
+      "searchAfterLogin": ""
+    }
+  ],
+  "source_sha256": {
+    "App.vue": "b421bc5383cc8b8d7369711577dfd098e64dbf308ac1f0cda026ea08e5d445a3",
+    "PublicApp.vue": "7e4ad81e5d913831fb1786850a31ee4e13a9471ba96cf285c5dce93e2bca64ce",
+    "ResearchWorkbench.vue": "6d46640c7f8917e49db3feb55dbe510ad53744e86314584703020ddd146f654e",
+    "workspaceNavigation.ts": "6364ae24b88a9fb6d2194455b0cf638d662c2d6959b7e8e7d3a4ade6c7f60c00",
+    "workspaceFormat.ts": "15d6a9b924c6dfeda18e4a373580c01ef14a0acccc7919fc7922de97abe1abbb",
+    "navigation.css": "2d479f5bd42ccc3f047a875a00d37325f065ab6a0b295f1b1474509ee30e5b06",
+    "appearance.ts": "dfc8267354315283e525d99ef1534327e8dfc21a3979af3c633132670edcd617",
+    "appearance.css": "27dde769572dd7d2508ed520c719808a61aeb6dac5dcf9ce8f6eb99876753521",
+    "components/WorkspaceNav.vue": "4d4a05efb5ee70cd139d719b34f45a6b864ae50b329d570757bac9e4ec3f9b99",
+    "components/WorkspaceTabs.vue": "947c76246628c6db1b4dd7c309b5d8e57cf6d05cc2816f01fc3b342bbf387916",
+    "components/ResearchOverview.vue": "0286b4ee157c2c5e740422af790e47c8e956c869c78128eda2a114c384307da8",
+    "components/SecurityWorkbench.vue": "5d29bfab66f7b3d54932e127378366d0fb1f346ccda052eaa4b47f459f6b7f48",
+    "components/AssistantDock.vue": "03463a9a3a0206fa4f7b7f490611a74d38a41c97bc94c04706d518ca97f6bf49",
+    "components/AssistantModelPicker.vue": "3cd3b547783f8c95d9083dcfcfe748f5061925114397f40d9b3812a300d05390"
+  },
+  "console_errors": [],
+  "frontend_tests": {
+    "passed": 50,
+    "failed": 0
+  },
+  "builds": {
+    "public": "passed",
+    "local": "passed"
+  },
+  "model_requests": 0,
+  "resolved_issues": [
+    "Home watchlist no longer inherits full-table minimum width.",
+    "Cancelled navigation keeps the model draft.",
+    "Private workspace search is cleared on logout."
+  ],
+  "viewport_override_reset": true,
+  "limitations": [
+    "Viewport simulation is not physical-phone or soft-keyboard verification.",
+    "No real model generation was requested.",
+    "Installer packaging and deployment were not performed."
+  ]
+}

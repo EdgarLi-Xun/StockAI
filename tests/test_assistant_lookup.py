@@ -460,6 +460,48 @@ def test_holding_inputs_must_be_a_valid_pair(cloud, proposal):
         assistant_actions.prepare(store, uid, [{'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '我的自选', **proposal}])
 
 
+def test_price_without_quantity_asks_instead_of_failing(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    question = '000911 持仓价 4.85 持仓价格 4.85 添加到自选，如果已经有了则更新一下'
+    sid = session(store, uid)
+    message = submit(store, keys, uid, sid, question)
+    row = store.one('SELECT * FROM assistant_requests WHERE id=?', (message['id'],))
+    prompt = assistant.protocol(store, uid, row, {})[0]['messages'][0]['content']
+    assert '先追问' in prompt and '半套持仓' in prompt and '不要说无法添加' in prompt
+    result = run(cloud, message, lambda *args: response('已准备把000911加入自选。', actions=[
+        {'kind': 'add_stock', 'market': 'SZ', 'symbol': '000911', 'cost_price': 4.85, 'quantity': None}]))
+    assert result['status'] == 'success', result
+    assert result['reply']['actions'] == [] and result['reply']['citations'] == []
+    assert '000911' in result['reply']['answer'] and '持仓数量' in result['reply']['answer']
+    assert not store.one('SELECT * FROM user_watchlist WHERE user_id=?', (uid,))
+    floated = submit(store, keys, uid, sid, question)
+    floated_result = run(cloud, floated, lambda *args: response('数量按4.85记下。', actions=[
+        {'kind': 'add_stock', 'market': 'SZ', 'symbol': '000911', 'cost_price': 4.85, 'quantity': 4.85}]))
+    assert floated_result['status'] == 'success', floated_result
+    assert floated_result['reply']['actions'] == [] and '持仓数量' in floated_result['reply']['answer']
+    whole = submit(store, keys, uid, sid, '添加600519，持仓价8，持仓数量100')
+    listed_stock(store)
+    whole_result = run(cloud, whole, lambda *args: response('请核对持仓。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'cost_price': 8, 'quantity': 100.0}]))
+    assert whole_result['status'] == 'success', whole_result
+    assert whole_result['reply']['actions'][0]['cost_price'] == '8'
+    assert whole_result['reply']['actions'][0]['quantity'] == 100
+
+
+@pytest.mark.parametrize('proposal', [
+    {'cost_price': 8, 'quantity': 0},
+    {'cost_price': -1, 'quantity': 100},
+])
+def test_invalid_holding_pair_still_fails_the_turn(cloud, proposal):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    message = submit(store, keys, uid, session(store, uid), '添加600519，持仓价8，持仓数量100')
+    result = run(cloud, message, lambda *args: response('请核对持仓。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '我的自选', **proposal}]))
+    assert result['status'] == 'failed' and result['error_code'] == 'INVALID_OUTPUT' and not result['chunks']
+
+
 def test_missing_holding_reuses_the_earlier_proposal_instead_of_a_manual_guide(cloud):
     store, keys, *_, uid = cloud
     profile(cloud)

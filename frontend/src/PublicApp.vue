@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 公网入口：管理账号会话、个人模型和偏好，并为研究界面提供已验证身份。
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Activity, ArrowLeft, ArrowRight, ChartNoAxesCombined, Check, ChevronRight, KeyRound, LoaderCircle, LogOut, Menu, Plus, Settings2, ShieldCheck, Trash2, UserRound } from 'lucide-vue-next'
+import { Activity, ArrowLeft, ArrowRight, ChartNoAxesCombined, Check, ChevronRight, KeyRound, LoaderCircle, LogOut, Menu, Plus, Search, Settings2, ShieldCheck, SunMoon, Trash2, UserRound } from 'lucide-vue-next'
 import CoreApp from './App.vue'
 import WorkspaceNav from './components/WorkspaceNav.vue'
+import WorkspaceTabs from './components/WorkspaceTabs.vue'
+import { resolvedTheme, updateAppearance } from './appearance'
 import { workspaceTitle } from './workspaceNavigation'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import AppearanceSettings from './components/AppearanceSettings.vue'
@@ -15,6 +17,7 @@ const SystemSettings = defineAsyncComponent(() => import('./SystemSettings.vue')
 const ResearchWorkbench = defineAsyncComponent(() => import('./ResearchWorkbench.vue'))
 const AssistantDock = defineAsyncComponent(() => import('./components/AssistantDock.vue'))
 const assistantDock=ref<any>(null),assistantContext=ref<{kind:string,id:string,report_id?:string}|null>(null)
+const currentSecurity=ref<{id:string,name:string}|null>(null),assistantDocked=ref(false),workspaceSearch=ref('')
 const systemSettings=ref<any>(null),core=ref<any>(null)
 const workbench = ref<any>(null), workbenchContext = ref<{kind:string,id:string,report_id?:string}|null>(null)
 const workbenchViews = new Set(['readiness','usage','alerts','journals','portfolio','experiments'])
@@ -29,6 +32,9 @@ const rememberCredentials=ref(false),savedCredentials=ref(false),credentialSuppo
 const route = ref(location.hash.slice(1).split('?')[0] || 'dashboard')
 const navigationOpen = ref(false), navigationToggle = ref<HTMLButtonElement|null>(null)
 const currentTitle = computed(() => workspaceTitle(route.value))
+async function searchSecurities(){await go('watchlist');await nextTick();if(route.value==='watchlist')core.value?.searchSecurities(workspaceSearch.value)}
+function toggleTheme(){updateAppearance({theme:resolvedTheme.value==='dark'?'light':'dark'})}
+watch(() => currentSecurity.value?.id, async id => {if(id&&window.matchMedia('(min-width: 1181px)').matches){await nextTick();void assistantDock.value?.open(false)}})
 function closeNavigation() { navigationOpen.value = false; void nextTick(() => requestAnimationFrame(() => navigationToggle.value?.focus())) }
 // 白名单区分管理和认证页面，其他导航交由核心研究工作台处理。
 const management = new Set(['models', 'preferences', 'account', 'admin', 'system', 'assistant', ...workbenchViews])
@@ -70,7 +76,7 @@ async function refreshUser() { try { user.value = await api('/auth/me', { allowA
 async function initialWorkspaceRoute() { const setup=await api('/me/workspace-setup');return setup.required||setup.first_merge?'system':'dashboard' }
 async function enterWorkspace() { await go(await initialWorkspaceRoute()) }
 // 退出或会话失效时清除模型、账号、备份和表单中的私密临时数据。
-function clearPrivate() { clearPrivateRequests();navigationOpen.value=false;assistantContext.value=null;workbenchContext.value=null; user.value = null; profiles.value = []; preferences.value = null; users.value = []; invitations.value = []; backups.value = []; siteJobs.value = []; personalJobs.value = []; editor.value = null; invite.value = null; exportPassword.value = ''; exportPrompt.value = ''; form.value.password = '' }
+function clearPrivate() { workspaceSearch.value='';currentSecurity.value=null;assistantDocked.value=false;clearPrivateRequests();navigationOpen.value=false;assistantContext.value=null;workbenchContext.value=null; user.value = null; profiles.value = []; preferences.value = null; users.value = []; invitations.value = []; backups.value = []; siteJobs.value = []; personalJobs.value = []; editor.value = null; invite.value = null; exportPassword.value = ''; exportPrompt.value = ''; form.value.password = '' }
 // 响应接口层的会话失效事件，回到登录页并尝试刷新 CSRF。
 async function sessionExpired() { clearPrivate(); route.value = 'login'; location.hash = 'login'; error.value = '登录已失效，请重新登录。'; try { await api('/auth/csrf') } catch { /* 服务暂不可达时保留登录页，下一次重新加载再恢复连接。 */ } }
 // 邮箱验证完成后按管理页面加载本人数据或管理员站点资料。
@@ -170,16 +176,17 @@ onBeforeUnmount(() => { window.removeEventListener('hashchange', hashChanged); w
     </form></main>
   </div>
   <div v-else-if="!user.verified" class="pending-verification"><div class="public-auth-card panel"><ShieldCheck :size="34" /><h1>还差一步，验证邮箱</h1><p>已登录 {{ user.email }}。请通过验证邮件开启研究、自选与模型功能。</p><div v-if="error" class="public-message error">{{ error }}</div><div v-if="notice" class="public-message">{{ notice }}</div><div class="button-row"><button class="primary" :disabled="busy" @click="action(async () => { const r = await post('/auth/resend-verification', { email: user.email }); notice = r.message })">重发验证邮件</button><button class="secondary" @click="action(refreshUser)">我已完成验证</button><button class="text-button" @click="logout">退出登录</button></div></div></div>
-  <div v-else class="public-workspace">
-    <WorkspaceNav :current="route" :open="navigationOpen" :admin="user.role==='admin'" @navigate="go" @close="closeNavigation" />
+  <div v-else class="public-workspace" :class="{'has-docked-assistant':assistantDocked,'has-security-workbench':!!currentSecurity}">
+    <WorkspaceNav :current="route" :open="navigationOpen" :admin="user.role==='admin'" @navigate="go" @close="closeNavigation" @open="navigationOpen=true" />
     <header class="public-userbar" :inert="navigationOpen">
       <div class="workspace-location"><button ref="navigationToggle" class="icon-button workspace-menu-toggle" aria-label="打开导航" :aria-expanded="navigationOpen" aria-controls="primary-workspace-navigation" @click="navigationOpen=!navigationOpen"><Menu :size="21"/></button><span class="workspace-location-root">个人研究</span><ChevronRight :size="14"/><strong>{{ currentTitle }}</strong></div>
-      <div class="public-user-actions"><span class="workspace-private-label"><ShieldCheck :size="14"/>私人空间</span><button class="user-chip" :aria-label="'账号管理 · '+user.email" :aria-current="route==='account'?'page':undefined" @click="go('account')"><UserRound :size="16"/><span>{{ user.email }}</span></button><button class="icon-button" aria-label="退出登录" :disabled="busy" @click="logout"><LogOut :size="18"/></button></div>
+      <div class="public-user-actions"><form class="workspace-search" role="search" @submit.prevent="searchSecurities"><Search :size="15"/><input v-model="workspaceSearch" aria-label="搜索自选证券" placeholder="搜索自选名称、代码…" type="search"/></form><button class="icon-button" :aria-label="resolvedTheme==='dark'?'切换浅色主题':'切换深色主题'" @click="toggleTheme"><SunMoon :size="18"/></button><button class="user-chip" :aria-label="'账号管理 · '+user.email" :aria-current="route==='account'?'page':undefined" @click="go('account')"><UserRound :size="16"/><span>{{ user.email }}</span></button><button class="icon-button" aria-label="退出登录" :disabled="busy" @click="logout"><LogOut :size="18"/></button></div>
     </header>
     <div class="public-main" :inert="navigationOpen">
+    <WorkspaceTabs :current="route" @navigate="go" />
     <SystemSettings ref="systemSettings" v-if="view==='system'" :key="user.id" :user="user" :desktop="desktopMode" @ready="go('dashboard')" />
-    <CoreApp ref="core" v-if="view === 'workspace'" :key="user.id" :public-mode="true" :public-user="user" @open-settings="go('preferences')" @open-workbench="openWorkbench" />
-    <AssistantDock ref="assistantDock" :key="'assistant-'+user.id" :user="user" :full-page="view==='assistant'" :context="assistantContext" @navigate="go" @clear-context="assistantContext=null"/>
+    <CoreApp ref="core" v-if="view === 'workspace'" :key="user.id" :public-mode="true" :public-user="user" @open-settings="go('preferences')" @open-workbench="openWorkbench" @security-context="currentSecurity=$event" />
+    <AssistantDock ref="assistantDock" :key="'assistant-'+user.id" :user="user" :full-page="view==='assistant'" :context="assistantContext" :dock="route==='watchlist'&&!!currentSecurity" :security="currentSecurity" @navigate="go" @clear-context="assistantContext=null" @docked="assistantDocked=$event" @attach-current="currentSecurity&&(assistantContext={kind:'instrument',id:currentSecurity.id})"/>
     <KeepAlive><ResearchWorkbench v-if="workbenchViews.has(view)" ref="workbench" :key="user.id" :view="view" :user="user" :context="workbenchContext" :embedded="true" @navigate="go" @clear-context="workbenchContext=null" /></KeepAlive>
     <main v-if="view!=='workspace'&&!workbenchViews.has(view) && view!=='system' && view!=='assistant'" class="personal-content">
       <div class="page-heading"><div><div class="eyebrow">{{ view === 'admin' ? 'SITE ADMINISTRATION' : 'YOUR PERSONAL SPACE' }}</div><h1>{{ { models: '我的模型配置', preferences: '个人研究偏好', account: '账号与数据', admin: '站点管理' }[view] }}</h1><p>{{ view === 'models' ? '按研究场景保存多套配置，使用自己的凭据和数据授权。' : view === 'preferences' ? '设置主题、颜色、研究费用与自动计划。' : view === 'account' ? '管理登录身份和个人研究数据的生命周期。' : '维护账号、共享资料与备份，个人研究仍按本人身份访问。' }}</p></div><button v-if="view === 'models' && !editor && profiles.length" class="primary" @click="editProfile()"><Plus :size="16" />添加配置</button></div>

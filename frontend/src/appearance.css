@@ -39,23 +39,24 @@
 :root[data-theme] :is(.topbar, .public-workspace .public-userbar) { background: var(--surface); border-color: var(--border); }
 
 /* 主操作、导航与文字链接使用同一个主题色。 */
-:root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher, .workspace-nav-section > button.active) {
+:root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher) {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
 }
 :root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher):hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-:root[data-theme] :is(.workspace-nav-section > button.active > svg, .workspace-nav-section > button.active:hover) { color: var(--on-accent); }
-:root[data-theme] .workspace-nav-active-mark { background: var(--on-accent); }
+:root[data-theme] .workspace-nav-section > button.active { background: var(--accent-soft); color: var(--accent-text); }
+:root[data-theme] :is(.workspace-nav-section > button.active > svg, .workspace-nav-section > button.active:hover) { color: var(--accent-text); }
+:root[data-theme] .workspace-nav-active-mark { background: var(--accent-text); }
 :root[data-theme] :is(a, .text-button, .public-main .text-button, .green-text, .workspace-nav-brand a > svg, .workspace-nav-brand b, .profile-permissions .allowed, .readiness-row a, .invite-result code, .assistant-answer-heading, .assistant-host-toolbar > div:first-child) { color: var(--accent-text); }
 :root[data-theme] :is(.secondary, .public-main .secondary, .assistant-starters button) { color: var(--dark); background: var(--surface); border-color: var(--border); }
 :root[data-theme] :is(.secondary, .public-main .secondary, .assistant-starters button):hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent-text); }
 :root[data-theme] :is(.workspace-nav-section > button, .research-nav nav button, .public-userbar nav button) { color: var(--dark); }
 :root[data-theme] :is(.workspace-nav-section > button:hover, .workspace-nav-section > button.active:hover, .research-nav nav button.active, .research-nav nav button:hover, .public-userbar nav button.active, .segmented > button.selected, .assistant-session.active) { background: var(--accent-soft); color: var(--accent-text); }
-:root[data-theme] .workspace-nav-section > button.active:hover { background: var(--accent-hover); color: var(--on-accent); }
+:root[data-theme] .workspace-nav-section > button.active:hover { background: var(--accent-soft); color: var(--accent-text); }
 :root[data-theme] :is(.profile-icon, .assistant-orb, .context-chips button, .empty-orbit, .user-avatar, .public-workspace .user-chip) { color: var(--accent-text); background: var(--accent-soft); border-color: var(--border); }
-:root[data-theme] :is(.public-main .metric-card.accent-card) { background: var(--accent); border-color: var(--accent); }
-:root[data-theme] .public-main .metric-card.accent-card :is(.metric-label, .metric-label > svg, .metric-value, .metric-value > span, .metric-link, .metric-note) { color: var(--on-accent); }
+:root[data-theme] :is(.public-main .metric-card.accent-card) { background: var(--accent-soft); border-color: var(--border); }
+:root[data-theme] .public-main .metric-card.accent-card :is(.metric-label, .metric-label > svg, .metric-value, .metric-link, .metric-note) { color: var(--accent-text); }
 :root[data-theme] .status-dot { background: var(--accent-text); }
 :root[data-theme] .status-dot.off { background: var(--warning); }
 :root[data-theme] :is(.industry-bar i) { background: var(--accent-text); }
