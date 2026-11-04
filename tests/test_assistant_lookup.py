@@ -374,3 +374,124 @@ def test_configuration_whitelist_and_validation_reject_unsafe_changes(changes):
     from backend.cloud.preferences import Preferences
     with pytest.raises(ValueError):
         assistant_actions.changed_preferences(Preferences().model_dump(), changes)
+
+
+def listed_stock(store, symbol='600519', name='贵州茅台'):
+    from backend.instruments import Rules
+    ident = 'SH:' + symbol
+    store.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",
+                  (ident, symbol, 'SH', name, 'stock', Rules().model_dump_json()))
+    return ident
+
+
+def daily_bar(store, ident, ts, close):
+    store.execute("INSERT INTO bars(instrument_id,timeframe,ts,open,high,low,close,volume,amount,adjustment,source,source_url,fetched_at,quality,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (ident, '1d', ts, close, close, close, close, 100, close * 100, 'none', 'test', 'https://www.sse.com.cn/test', stamp(), 'valid', '{}'))
+
+
+def test_declared_holding_uses_saved_quotes_and_does_not_rewrite_group(cloud):
+    from backend.cloud import market
+    store, keys, _, _, admin, uid = cloud
+    profile(cloud); ident = listed_stock(store)
+    daily_bar(store, ident, '2026-11-02T15:00:00+08:00', 10)
+    daily_bar(store, ident, '2026-11-03T15:00:00+08:00', 11)
+    sid = session(store, uid)
+    message = submit(store, keys, uid, sid, '添加600519，持仓价8，持仓数量100')
+    result = run(cloud, message, lambda *args: response('请核对持仓后添加到自选。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '长期观察', 'cost_price': 8, 'quantity': 100}]))
+    assert result['status'] == 'success', result
+    position = result['reply']['actions'][0]['position']
+    assert position['change_pct'] == 10 and position['market_value'] == 1100
+    assert position['daily_pnl'] == 100 and position['daily_return_pct'] == 10
+    assert position['total_pnl'] == 300 and position['total_return_pct'] == 37.5
+    assert not store.one('SELECT * FROM user_watchlist WHERE user_id=?', (uid,))
+    assistant_actions.apply(store, uid, message['id'], 0)
+    saved = store.one("SELECT * FROM user_watchlist WHERE user_id=? AND instrument_id=?", (uid, ident))
+    assert saved['group_name'] == '长期观察' and saved['pinned'] == 0
+    assert saved['cost_price'] == '8' and saved['quantity'] == 100
+    assert market.watch_rows(store, uid)[0]['position']['market_value'] == 1100
+    assert not store.one('SELECT * FROM user_watchlist WHERE user_id=?', (admin,))
+    again = submit(store, keys, uid, sid, '把600519持仓价改为9，持仓数量改为200')
+    updated = run(cloud, again, lambda *args: response('请核对持仓变更。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '不应覆盖原分组', 'cost_price': 9, 'quantity': 200}]))
+    assert updated['reply']['actions'][0]['already_exists']
+    assert updated['reply']['actions'][0]['previous_cost_price'] == '8'
+    assistant_actions.apply(store, uid, again['id'], 0)
+    row = store.one("SELECT * FROM user_watchlist WHERE user_id=? AND instrument_id=?", (uid, ident))
+    assert row['group_name'] == '长期观察' and row['pinned'] == 0
+    assert row['cost_price'] == '9' and row['quantity'] == 200
+    stale = submit(store, keys, uid, sid, '把600519持仓价设为10，持仓数量设为100')
+    prepared = run(cloud, stale, lambda *args: response('请再次核对持仓。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'cost_price': 10, 'quantity': 100}]))
+    assert prepared['status'] == 'success'
+    store.execute('UPDATE user_watchlist SET cost_price=? WHERE user_id=? AND instrument_id=?', ('7', uid, ident))
+    with pytest.raises(AuthError, match='持仓记录已经变化'):
+        assistant_actions.apply(store, uid, stale['id'], 0)
+    assert store.one("SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id=?", (uid, ident))['cost_price'] == '7'
+
+
+def test_holding_without_saved_quote_keeps_inputs_and_leaves_results_empty(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud); listed_stock(store, '600000', '浦发银行')
+    message = submit(store, keys, uid, session(store, uid), '添加600000，持仓价4.85，持仓数量300')
+    result = run(cloud, message, lambda *args: response('暂无行情，请先核对持仓。', actions=[
+        {'kind': 'add_stock', 'market': 'SH', 'symbol': '600000', 'cost_price': '4.85', 'quantity': 300}]))
+    position = result['reply']['actions'][0]['position']
+    assert position['cost_price'] == '4.85' and position['quantity'] == 300
+    assert position['market_price'] is None and position['market_value'] is None
+    assert position['daily_pnl'] is None and position['daily_return_pct'] is None
+    assert position['total_pnl'] is None and position['total_return_pct'] is None
+    assistant_actions.apply(store, uid, message['id'], 0)
+    saved = store.one("SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id='SH:600000'", (uid,))
+    assert saved['cost_price'] == '4.85' and saved['quantity'] == 300
+
+
+@pytest.mark.parametrize('proposal', [
+    {'cost_price': 8},
+    {'quantity': 100},
+    {'cost_price': 0, 'quantity': 100},
+    {'cost_price': -1, 'quantity': 100},
+    {'cost_price': 1.23456, 'quantity': 100},
+    {'cost_price': 8, 'quantity': 0},
+])
+def test_holding_inputs_must_be_a_valid_pair(cloud, proposal):
+    store, *_, uid = cloud
+    with pytest.raises(ValueError):
+        assistant_actions.prepare(store, uid, [{'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '我的自选', **proposal}])
+
+
+def test_position_price_can_be_proposed_without_opening_trade_edits():
+    assert assistant.classify('添加600519，持仓价4.85，持仓数量100', []) == 'project'
+    assert assistant.classify('把持仓价改成9', []) == 'project'
+    assert assistant.classify('修改持仓为100股', []) == 'manual'
+    assert assistant.classify('把成交改成已撤销', []) == 'manual'
+
+
+def test_watch_holding_survives_sync_projection_and_rejects_invalid_quantity(cloud):
+    from backend.sync.business import Adapter
+    from backend.sync.protocol import SyncError
+    store, _, _, _, admin, uid = cloud
+    ident = listed_stock(store)
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',
+                  (uid, ident, '长期观察', 1, stamp(), '8.5', 100))
+    with store.tx() as c:
+        payload = Adapter(store, uid, 'holding-space', 'device-a').export('watch', ident, c)
+    received = payload['tables']['user_watchlist'][0]
+    assert received['cost_price'] == '8.5' and received['quantity'] == 100 and 'user_id' not in received
+    invalid = json.loads(json_text(payload))
+    invalid['tables']['user_watchlist'][0]['quantity'] = -1
+    with pytest.raises(SyncError, match='持仓价或数量无效'):
+        with store.tx(immediate=True) as c:
+            Adapter(store, admin, 'holding-space', 'device-b').project('watch', 'ignored', invalid, c)
+    assert not store.one('SELECT * FROM user_watchlist WHERE user_id=?', (admin,))
+    with store.tx(immediate=True) as c:
+        Adapter(store, admin, 'holding-space', 'device-b').project('watch', 'ignored', payload, c)
+    copied = store.one("SELECT group_name,pinned,cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id=?", (admin, ident))
+    assert copied == {'group_name': '长期观察', 'pinned': 1, 'cost_price': '8.5', 'quantity': 100}
+    legacy = json.loads(json_text(payload))
+    for row in legacy['tables']['user_watchlist']:
+        row.pop('cost_price'); row.pop('quantity')
+    with store.tx(immediate=True) as c:
+        Adapter(store, uid, 'holding-space', 'device-a').project('watch', 'ignored', legacy, c)
+    kept = store.one("SELECT cost_price,quantity,group_name FROM user_watchlist WHERE user_id=? AND instrument_id=?", (uid, ident))
+    assert kept['cost_price'] == '8.5' and kept['quantity'] == 100 and kept['group_name'] == '长期观察'

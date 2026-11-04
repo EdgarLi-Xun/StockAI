@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS workspace_setup(
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,source TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS user_watchlist(
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,instrument_id TEXT NOT NULL REFERENCES instruments(id),
- group_name TEXT NOT NULL,pinned INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,PRIMARY KEY(user_id,instrument_id));
+ group_name TEXT NOT NULL,pinned INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,
+ cost_price TEXT,quantity INTEGER,PRIMARY KEY(user_id,instrument_id));
 CREATE TABLE IF NOT EXISTS model_profiles(
  id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,name TEXT NOT NULL,
  current_version INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1,needs_reconnect INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);
@@ -199,6 +200,9 @@ class Store:
             # 开发环境使用较旧 SQLite 时退回回滚日志模式，避免启用未修复的 WAL。
             c.executescript(LEGACY_SCHEMA.replace("PRAGMA journal_mode=WAL;","PRAGMA journal_mode="+("WAL" if fixed else "DELETE")+";"))
             c.executescript(SCHEMA)
+            columns={r[1] for r in c.execute('PRAGMA table_info(user_watchlist)')}
+            if 'cost_price' not in columns:c.execute('ALTER TABLE user_watchlist ADD COLUMN cost_price TEXT')
+            if 'quantity' not in columns:c.execute('ALTER TABLE user_watchlist ADD COLUMN quantity INTEGER')
             from .research_schema import SCHEMA as RESEARCH_SCHEMA,upgrade
             c.executescript(RESEARCH_SCHEMA)
             upgrade(c)

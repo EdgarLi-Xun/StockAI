@@ -195,7 +195,12 @@ class Adapter:
                     elif key.endswith('_json') and item is not None:row[key]=json_text(self.nested(item,False,c,name))
                 if 'user_id' in columns:row['user_id']=self.uid
                 if row.get('client_key'):row['client_key']='sync:'+str(gid)+':'+row['client_key']
-                if name=='user_watchlist':self.gid(name,row['instrument_id'],c)
+                if name=='user_watchlist':
+                    self.gid(name,row['instrument_id'],c)
+                    if 'cost_price' in row or 'quantity' in row:
+                        from backend.cloud.market import normalize_holding
+                        try:normalize_holding(row.get('cost_price'),row.get('quantity'))
+                        except ValueError:raise SyncError('CORRUPT','自选持仓价或数量无效') from None
                 if name=='user_settings':
                     row['user_id']=self.uid;current=c.execute('SELECT payload_json,default_profile_id FROM user_settings WHERE user_id=?',(self.uid,)).fetchone()
                     saved=json.loads(current['payload_json']) if current else {};received=json.loads(row['payload_json'])

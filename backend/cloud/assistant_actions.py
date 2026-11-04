@@ -28,7 +28,7 @@ LABELS = {'budget': '单只证券预算（元）', 'min_daily_amount': '最低�
           'fees.etf_commission': 'ETF 佣金率', 'fees.etf_minimum': 'ETF 最低佣金（元）',
           'fees.stock_transfer': '股票过户费率', 'fees.stock_stamp_sell': '股票卖出印花税率',
           'fees.slippage_bps': '模拟滑点（基点）'}
-ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|开启|关闭|启用|停用')
+ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|开启|关闭|启用|停用|持仓价|持仓价格|持仓数量')
 
 
 class SettingChange(BaseModel):
@@ -49,6 +49,8 @@ class StockProposal(BaseModel):
     market: Literal['SH', 'SZ', 'HK', 'US']
     symbol: str = Field(min_length=1, max_length=24)
     group_name: str = Field(default='我的自选', min_length=1, max_length=40)
+    cost_price: StrictFloat | StrictInt | StrictStr | None = None
+    quantity: StrictInt | None = None
 
 
 class ApplyInput(BaseModel):
@@ -103,13 +105,18 @@ def prepare(store, uid, proposals):
                                 'baseline': fingerprint(before), 'applied_at': None})
         elif proposal['kind'] == 'add_stock':
             value = stock_input(proposal); ident = value.market + ':' + value.symbol
+            cost, qty = market.normalize_holding(proposal.get('cost_price'), proposal.get('quantity'))
             item = store.one('SELECT name,asset_class FROM instruments WHERE id=?', (ident,))
             if item and item['asset_class'] != 'stock':
                 raise ValueError('该代码已有其他证券类型，请在自选页手动添加')
-            existing = store.one('SELECT instrument_id FROM user_watchlist WHERE user_id=? AND instrument_id=?', (uid, ident))
+            existing = store.one('SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id=?', (uid, ident))
             actions.append({'kind': 'add_stock', 'title': '添加股票到本人自选', 'instrument_id': ident,
                             'market': value.market, 'symbol': value.symbol, 'group_name': value.group_name,
                             'name': item['name'] if item else '名称待核验', 'already_exists': bool(existing),
+                            'cost_price': cost, 'quantity': qty,
+                            'previous_cost_price': existing['cost_price'] if existing else None,
+                            'previous_quantity': existing['quantity'] if existing else None,
+                            'position': market.holding_view(cost, qty, market.bars_for(store, ident, limit=2)) if cost else None,
                             'applied_at': None})
         else:
             raise ValueError('助手不支持此操作')
@@ -136,12 +143,7 @@ def apply(store, uid, request_id, index):
             after = changed_preferences(before, changes)
         elif action['kind'] == 'add_stock':
             value = stock_input(action)
-            # An existing watchlist entry is a no-op: never update its group, pins, or identity.
-            if not store.one('SELECT instrument_id FROM user_watchlist WHERE user_id=? AND instrument_id=?', (uid, action['instrument_id'])):
-                item = store.one('SELECT asset_class FROM instruments WHERE id=?', (action['instrument_id'],))
-                if item and item['asset_class'] != 'stock':
-                    raise AuthError('VERSION_CONFLICT', '证券资料已经变化，请在自选页核对', 409)
-                market.add_watch(store, uid, value)
+            cost, qty = market.normalize_holding(action.get('cost_price'), action.get('quantity'))
         else:
             raise AuthError('ACTION_NOT_ALLOWED', '此操作只能在项目页面手动进行', 403)
         with store.tx(immediate=True) as c:
@@ -151,6 +153,23 @@ def apply(store, uid, request_id, index):
                 raise AuthError('NOT_FOUND', '方案已删除', 404)
             if action['kind'] == 'preferences':
                 c.execute('UPDATE user_settings SET payload_json=? WHERE user_id=?', (json_text(after), uid))
+            elif action['kind'] == 'add_stock':
+                current = c.execute('SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id=?', (uid, action['instrument_id'])).fetchone()
+                previous = (action.get('previous_cost_price'), action.get('previous_quantity'))
+                actual = (current['cost_price'], current['quantity']) if current else (None, None)
+                if actual != previous:
+                    raise AuthError('VERSION_CONFLICT', '持仓记录已经变化，请重新生成方案再应用', 409)
+                if not current:
+                    item = c.execute('SELECT asset_class FROM instruments WHERE id=?', (action['instrument_id'],)).fetchone()
+                    if item and item['asset_class'] != 'stock':
+                        raise AuthError('VERSION_CONFLICT', '证券资料已经变化，请在自选页核对', 409)
+                    from backend.instruments import Rules
+                    rules = Rules(price_tick='0.001' if value.asset_class == 'etf' else '0.01')
+                    c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)", (action['instrument_id'], value.symbol, value.market, '名称待核验', 'stock', rules.model_dump_json()))
+                    c.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,0,?)', (uid, action['instrument_id'], value.group_name, stamp()))
+                    market.queue_names(store, c=c)
+                if cost is not None:
+                    c.execute('UPDATE user_watchlist SET cost_price=?,quantity=? WHERE user_id=? AND instrument_id=?', (cost, qty, uid, action['instrument_id']))
             action['applied_at'] = stamp()
             c.execute('UPDATE assistant_requests SET reply_json=?,updated_at=? WHERE id=? AND user_id=?', (json_text(reply), stamp(), request_id, uid))
             c.execute('UPDATE assistant_chunks SET payload_json=? WHERE request_id=? AND user_id=?', (json_text(reply), request_id, uid))

@@ -70,7 +70,7 @@ def migrate(store,keys,journal,source,admin_id):
                             row.update(group_name="",pinned=0,watched=0)
                         c.execute(f"INSERT OR REPLACE INTO {table}({','.join(columns)}) VALUES({','.join('?' for _ in columns)})",tuple(row[k] for k in columns))
                 for r in old.execute("SELECT * FROM instruments WHERE watched=1"):
-                    c.execute("INSERT INTO user_watchlist VALUES(?,?,?,?,?)",(admin_id,r["id"],r["group_name"],r["pinned"],stamp()))
+                    c.execute("INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,?,?)",(admin_id,r["id"],r["group_name"],r["pinned"],stamp()))
                 original=old.execute("SELECT value FROM settings WHERE key='app'").fetchone()
                 settings=Settings.model_validate_json(original[0]) if original else Settings()
                 prefs=Preferences.model_validate({k:v for k,v in settings.model_dump().items() if k in Preferences.model_fields})

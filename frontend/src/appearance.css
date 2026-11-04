@@ -1,0 +1,116 @@
+/* 所有运行模式共用外观变量；文字强调色独立校正对比度。 */
+:root[data-theme] {
+  color: var(--dark);
+  background: var(--canvas);
+  color-scheme: light;
+  --danger: #b63848;
+  --danger-soft: #fff0f1;
+  --success: #15704c;
+  --success-soft: #edf7f0;
+  --warning: #8a611b;
+  --warning-soft: #fcf4e3;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --danger: #ff9aa2;
+  --danger-soft: #39242c;
+  --success: #80d9ae;
+  --success-soft: #20392e;
+  --warning: #ecc17b;
+  --warning-soft: #393125;
+}
+:root[data-theme] .public-workspace {
+  --green: var(--accent);
+  --green-dark: var(--accent-hover);
+  --dark: var(--text-primary);
+  --muted: var(--text-muted);
+  --border: var(--line);
+  --surface-soft: inherit;
+  color: var(--dark);
+  background: var(--canvas);
+}
+:root[data-theme] :is(.app-shell, .research-shell) { color: var(--dark); background: var(--canvas); }
+:root[data-theme] :is(.panel, .metric-card, .modal-card, .notification-panel, .workspace-nav, .public-auth, .public-userbar, .public-main .public-userbar, .assistant-host-panel, .assistant-compose, .assistant-starters button, .task-summary, .research-metrics, .public-main .research-metrics, .public-main .metric-card, .public-main .metals-panel, .public-main .heading-actions .notification-button, .search-box, .detail-drawer, .drawer-heading, .modal, .login-card, .chart-empty strong, .chart-empty span, .empty-chart-icon) {
+  background: var(--surface);
+  color: var(--dark);
+  border-color: var(--border);
+}
+:root[data-theme] .assistant-host-panel .research-shell { background: var(--surface); }
+:root[data-theme] :is(.topbar, .public-workspace .public-userbar) { background: var(--surface); border-color: var(--border); }
+
+/* 主操作、导航与文字链接使用同一个主题色。 */
+:root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher, .workspace-nav-section > button.active) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+:root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher):hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+:root[data-theme] :is(.workspace-nav-section > button.active > svg, .workspace-nav-section > button.active:hover) { color: var(--on-accent); }
+:root[data-theme] .workspace-nav-active-mark { background: var(--on-accent); }
+:root[data-theme] :is(a, .text-button, .public-main .text-button, .green-text, .workspace-nav-brand a > svg, .workspace-nav-brand b, .profile-permissions .allowed, .readiness-row a, .invite-result code, .assistant-answer-heading, .assistant-host-toolbar > div:first-child) { color: var(--accent-text); }
+:root[data-theme] :is(.secondary, .public-main .secondary, .assistant-starters button) { color: var(--dark); background: var(--surface); border-color: var(--border); }
+:root[data-theme] :is(.secondary, .public-main .secondary, .assistant-starters button):hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent-text); }
+:root[data-theme] :is(.workspace-nav-section > button, .research-nav nav button, .public-userbar nav button) { color: var(--dark); }
+:root[data-theme] :is(.workspace-nav-section > button:hover, .workspace-nav-section > button.active:hover, .research-nav nav button.active, .research-nav nav button:hover, .public-userbar nav button.active, .segmented > button.selected, .assistant-session.active) { background: var(--accent-soft); color: var(--accent-text); }
+:root[data-theme] .workspace-nav-section > button.active:hover { background: var(--accent-hover); color: var(--on-accent); }
+:root[data-theme] :is(.profile-icon, .assistant-orb, .context-chips button, .empty-orbit, .user-avatar, .public-workspace .user-chip) { color: var(--accent-text); background: var(--accent-soft); border-color: var(--border); }
+:root[data-theme] :is(.public-main .metric-card.accent-card) { background: var(--accent); border-color: var(--accent); }
+:root[data-theme] .public-main .metric-card.accent-card :is(.metric-label, .metric-label > svg, .metric-value, .metric-value > span, .metric-link, .metric-note) { color: var(--on-accent); }
+:root[data-theme] .status-dot { background: var(--accent-text); }
+:root[data-theme] .status-dot.off { background: var(--warning); }
+:root[data-theme] :is(.industry-bar i) { background: var(--accent-text); }
+
+/* 表单、资料表格和助手与页面背景分层，供深浅主题复用。 */
+:root[data-theme] :is(input, select, textarea, .research-main input, .research-main select, .research-main textarea, .research-editor input, .research-editor select, .research-editor textarea, .public-main :is(.personal-form, .research-main, .system-settings) :is(input:not([type=checkbox]):not([type=radio]), select, textarea)) {
+  color: var(--dark);
+  background-color: var(--surface);
+  border-color: var(--border);
+  accent-color: var(--accent);
+}
+:root[data-theme] :is(input, textarea)::placeholder { color: var(--muted); opacity: .85; }
+:root[data-theme] :is(input, select, textarea):focus { border-color: var(--accent-text); box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-theme] :is(button, a, input, select, textarea, summary):focus-visible { outline-color: var(--accent-text); }
+:root[data-theme] :is(.watch-table th, .public-main .watch-table th, .assistant-scope, .assistant-host-toolbar, .assistant-question, .consent-box, .research-cash, .research-json, .task-detail pre, .research-editor pre, .source-next code, .system-settings pre, .industry-bar > div, .invite-result, .public-main .metals-link, .metals-link, .public-main .metal-symbol.silver) { background: var(--surface-soft); border-color: var(--border); }
+:root[data-theme] :is(.watch-table tbody tr:hover, .public-main .watch-table tbody tr:hover, .task-selected, .index-tabs > button.selected, .public-main .index-tabs > button.selected) { background: var(--accent-soft); border-color: var(--border); }
+:root[data-theme] :is(.watch-table th, .watch-table td, .public-main .watch-table th, .public-main .watch-table td, .research-list-row, .readiness-row, .research-event, .research-journal-row, .journal-version, .research-topic-form, .experiment-row, .source-facts dl, .source-facts details, .assistant-source, .assistant-scope, .assistant-compose, .assistant-help-index, .personal-list-row, .form-actions, .schedule-option, .profile-permissions, .report-version-controls, .benchmark-chart, .public-main .metal-summary, .public-main .metal-ratio, .public-main .index-tabs, .system-subsection, .system-conflict, .source-next) { border-color: var(--border); }
+:root[data-theme] :is(.public-main .page-heading h1, .public-main .panel-heading h2, .workspace-nav-brand a, .workspace-location strong, .metric-value, .public-main .metric-value, .watch-table td, .public-main .watch-table td, .watch-table td strong, .public-main .watch-table td strong, .security-name, .metal-price b, .public-main .metal-price b, .public-main .metal-summary-info strong, .public-main .metal-ratio strong, .personal-empty h2, .research-empty h3, .consent-box h3, .profile-card dd, .source-facts b, .market-empty h3, .public-main .market-empty h3, .watchlist-empty h3, .candidate-empty h3, .empty-inline strong, .report-document > h3, .breadcrumbs strong, .research-status b, .research-status .status-right, .public-main .research-status > span:first-child) { color: var(--dark); }
+:root[data-theme] :is(.workspace-nav-caption, .workspace-nav-section h2, .workspace-nav-section > button > svg, .workspace-nav-footer, .workspace-location-root, .workspace-location > svg, .workspace-private-label, .public-main .page-heading p, .public-main .eyebrow, .metric-label, .public-main .metric-label, .metric-value > span, .public-main .metric-value > span, .metric-note, .public-main .metric-note, .metric-link, .chart-empty strong, .chart-empty span, .watch-table th, .public-main .watch-table th, .watch-table td small, .public-main .watch-table td small, .metal-source, .public-main .metal-source, .metal-summary-info small, .public-main .metal-summary-info small, .public-main .metal-summary-info .quote-time, .metal-price small, .public-main .metal-price small, .metal-ratio > span, .metal-ratio small, .public-main .metal-ratio small, .public-main .metals-panel .panel-heading p, .system-settings p, .benchmark-legend, .benchmark-chart p, .benchmark-toolbar label, .source-facts small, .source-facts dt, .source-facts summary, .confirm-card p, .public-auth-card label, .personal-form label, .erasure-panel label, .public-export-modal label, .consent-box label, .index-tabs > button > span, .public-main .index-tabs > button > span, .index-tabs strong, .breadcrumbs, .page-footer, .market-empty p, .public-main .market-empty p, .public-main .chart-foot, .report-document p, .report-document ul, .prose-panel p, .segmented > button, .notification-item small, .group-button, .research-status, .public-main .research-status, .local-pill, .info-strip, .pending-verification p) { color: var(--muted); }
+:root[data-theme] .benchmark-chart text { fill: var(--muted); }
+:root[data-theme] .benchmark-chart line { stroke: var(--border); }
+:root[data-theme] .public-workspace :is(.assistant-scope p, .assistant-welcome p, .assistant-compose-footer small, .assistant-compose-controls small, .assistant-context-picker summary, .assistant-host-toolbar .icon-button) { color: var(--muted); }
+:root[data-theme] :is(.public-main .metals-link, .metals-link, .report-icon, .schedule-icon) { color: var(--accent-text); }
+:root[data-theme] :is(.public-main .metal-symbol.silver, .group-button) { color: var(--muted); }
+:root[data-theme] :is(.group-button, .related-chips button, .segmented, .sensitivity-grid > div, .report-icon, .schedule-icon, .indicator-grid, .budget-result, .report-document pre, .report-document code) { background: var(--surface-soft); border-color: var(--border); }
+:root[data-theme] :is(.clickable:hover, .report-list-row:hover, .icon-button:hover:not(:disabled)) { background: var(--accent-soft); }
+:root[data-theme] :is(.public-main .stats-grid, .stats-grid, .index-tabs, .report-list-row) { border-color: var(--border); }
+:root[data-theme] :is(.detail-price strong, .account-metrics b, .report-list-row strong) { color: var(--dark); }
+
+/* 行情方向和操作状态分别配色，避免更改涨跌习惯影响风险提示。 */
+:root[data-theme] .up { color: var(--quote-up) !important; }
+:root[data-theme] .down { color: var(--quote-down) !important; }
+:root[data-theme] :is(.danger-text, .public-main .danger-text, .inline-error, .erasure-panel h2) { color: var(--danger); }
+:root[data-theme] :is(.public-message, .tag.green) { color: var(--success); background: var(--success-soft); border-color: var(--border); }
+:root[data-theme] :is(.public-message.error, .tag.red) { color: var(--danger); background: var(--danger-soft); border-color: var(--border); }
+:root[data-theme] :is(.tag.amber, .info-strip) { color: var(--warning); background: var(--warning-soft); border-color: var(--border); }
+:root[data-theme] :is(.warning, .warning-text) { color: var(--warning); }
+:root[data-theme] :is(.data-status, .data-status:not(.warning)) { color: var(--success); background: var(--success-soft); }
+:root[data-theme] :is(.data-status.warning, .schedule-icon.gold) { color: var(--warning); background: var(--warning-soft); }
+:root[data-theme] :is(.error-banner, .inline-error) { color: var(--danger); background: var(--danger-soft); border-color: var(--border); }
+:root[data-theme] .tag:not(.green):not(.red):not(.amber) { color: var(--muted); background: var(--surface-soft); }
+
+/* 原源码模式的深色侧栏也随主题色变化。 */
+:root[data-theme] .sidebar { background: var(--surface); border-right: 1px solid var(--border); color: var(--dark); }
+:root[data-theme] .sidebar :is(.brand, .workspace strong, .local-model strong) { color: var(--dark); }
+:root[data-theme] .sidebar :is(.brand b span, .brand-mark) { color: var(--accent-text); background: transparent; }
+:root[data-theme] .sidebar :is(.workspace, .workspace-avatar, .model-icon) { background: var(--surface-soft); color: var(--muted); border-color: var(--border); }
+:root[data-theme] .sidebar :is(.nav-caption, .nav-item, .nav-item svg, .workspace small, .local-model small, .sidebar-foot) { color: var(--muted); }
+:root[data-theme] .sidebar :is(.nav-item:hover, .nav-item.active) { background: var(--accent-soft); color: var(--accent-text); }
+:root[data-theme] .sidebar .nav-item.active svg { color: var(--accent-text); }
+:root[data-theme] .sidebar .nav-count { color: var(--accent-text); background: var(--accent-soft); }
+:root[data-theme] .auth-story { background: var(--accent-soft); }
+:root[data-theme] .auth-story :is(.brand, h1) { color: var(--dark); }
+:root[data-theme] .auth-story :is(p, .eyebrow, small, .auth-principles) { color: var(--muted); }
+:root[data-theme] .auth-story .brand span { color: var(--accent-text); }
+:root[data-theme='dark'] .auth-story::after { border-color: var(--border); box-shadow: none; }
+:root[data-theme='dark'] .chart-empty { background-image: linear-gradient(transparent calc(100% - 1px), var(--border) 1px); }
+:root[data-theme='dark'] .modal-scrim { background: #050b13b8; }

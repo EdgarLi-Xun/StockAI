@@ -38,7 +38,7 @@ def test_twenty_user_scale_reads_mixed_queue_recovery(cloud,monkeypatch):
         bars=sample_bars(60)
         c.executemany('INSERT INTO bars VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[(r[0],'1d',b['ts'],b['open'],b['high'],b['low'],b['close'],b['volume'],b['amount'],'none',b['source'],b['source_url'],b['fetched_at'],'valid',json_text(b['metadata'])) for r in items for b in bars])
         for user in users:
-            c.executemany('INSERT INTO user_watchlist VALUES(?,?,?,0,?)',[(user,r[0],'受控分组',ts) for r in items])
+            c.executemany('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,0,?)',[(user,r[0],'受控分组',ts) for r in items])
             objects=[];versions=[]
             topic='topic:'+user;topics[user]=topic
             objects.append((topic,user,'topic',1,'active',ts,ts,json_text({'name':'受控课题'}),None));versions.append((topic,user,1,ts,json_text({'name':'受控课题'})))

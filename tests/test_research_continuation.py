@@ -160,14 +160,14 @@ def test_report_diff_keeps_nested_fee_and_total_changes_without_notes():
     assert 'PRIVATE-NOTE' not in json_text(changes)
 
 
-@pytest.mark.parametrize('answer',['现在可以买入。','我推荐加仓。','这个账户没有风险。','当前回撤为零。','当前交易资格已经通过。','资料不能证明安全。现在可以买入。'])
-def test_assistant_cannot_turn_facts_into_new_trading_or_zero_risk_claims(answer):
-    with pytest.raises(ValueError):assistant.validate_answer_text(answer,True)
+@pytest.mark.parametrize('answer',['这个账户没有风险。','当前回撤为零。','当前交易资格已经通过。'])
+def test_assistant_cannot_turn_facts_into_zero_risk_claims(answer):
+    with pytest.raises(ValueError):assistant.validate_answer_text(answer)
 
 
-@pytest.mark.parametrize('answer',['预算通过不代表可以买入，资格仍需独立核验。','不要把该结果理解为没有风险。','历史资料仅用于解释当时记录。'])
-def test_assistant_keeps_legitimate_qualified_explanations(answer):
-    assistant.validate_answer_text(answer,True)
+@pytest.mark.parametrize('answer',['现在可以买入。','我推荐加仓。','持仓成本4.85元，可以卖出。','资料不能证明安全。现在可以买入。','预算通过不代表可以买入，资格仍需独立核验。','不要把该结果理解为没有风险。','历史资料仅用于解释当时记录。'])
+def test_assistant_allows_prices_and_trade_timing(answer):
+    assistant.validate_answer_text(answer)
 
 
 def test_instrument_context_marks_missing_or_unverified_quotes(research_data,cloud):
@@ -186,7 +186,7 @@ def test_personal_fact_question_can_query_without_selected_context(question):
 
 def test_operating_help_does_not_require_personal_account_selection():
     assert assistant.classify('如何创建我的账户？',[])=='project'
-    with pytest.raises(ValueError):assistant.validate_answer_text('当前回撤为零。',False)
+    with pytest.raises(ValueError):assistant.validate_answer_text('当前回撤为零。')
 
 
 @pytest.mark.parametrize('usage,expected',[({'eval_count':3},None),({'prompt_eval_count':5},None),({'eval_count':3,'prompt_eval_count':5},8),({'eval_count':True,'prompt_eval_count':5},None),({'total_tokens':1.5},None),({'total_tokens':8.0},8),({'total_tokens':float('inf')},None),({'total_tokens':10**1000},None)])
@@ -222,4 +222,4 @@ def test_missing_context_types_can_be_queried_alongside_selected_context():
     assert assistant.classify('我的账户回撤为什么变化？',[{'kind':'report','id':'r'}])=='project'
     assert assistant.classify('比较两份报告的变化',[{'kind':'report','id':'r'}])=='project'
     assert assistant.classify('我的回测为什么失败？',[{'kind':'instrument','id':'i'}])=='project'
-    assistant.validate_answer_text('我不推荐买入，应先核验资料。',True)
+    assistant.validate_answer_text('我不推荐买入，应先核验资料。')

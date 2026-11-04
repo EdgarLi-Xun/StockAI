@@ -1,8 +1,8 @@
 # StockAI 桌面与 Web 共用版
 
-当前版本为 **3.2.0-preview.3**（2026-11-03）。从 [本版 Release](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0-preview.3) 下载 EXE，并核对同名 `.exe.sha256`。单文件桌面与附属 Web 保持共用工作区，同步、独立 Hub、远程客户端及升级操作见 [同步与升级使用说明](使用说明-同步与升级.md)。3.1 和 3.2 先前版本的验收记录保留，本次验证见 [发布记录](RELEASE-3.2.0-preview.3.md)。
+当前版本为 **3.2.0**（2026-11-04）。从 [本版 Release](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0) 下载 EXE，并核对同名 `.exe.sha256`。单文件桌面与附属 Web 保持共用工作区，同步、独立 Hub、远程客户端及升级操作见 [同步与升级使用说明](使用说明-同步与升级.md)。先前预览版和 2.0.0 的验收记录保留，本次变更见仓库根目录的更新记录。
 
-双击 `StockAI-3.2.0-preview.3-Windows.exe` 打开桌面窗口。Python、Qt、后端、网页和加密备份工具均包含在这一个 EXE 内，不需要另装 Python、Node.js 或 Linux 服务。适用于 Windows 10/11 x64。
+双击 `StockAI-3.2.0-Windows.exe` 打开桌面窗口。Python、Qt、后端、网页和加密备份工具均包含在这一个 EXE 内，不需要另装 Python、Node.js 或 Linux 服务。适用于 Windows 10/11 x64。
 
 首次运行会解包运行组件，随后在页面创建本机账号；无需邀请码或验证邮件。账号、模型配置、自选、报告、提醒、日志和实验在桌面与 Web 中共享。模型仍需本人安装 Ollama 或配置个人服务商凭据；安装包不包含模型权重、凭据或示例交易行情。
 

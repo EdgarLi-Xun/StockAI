@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 比较策略、含费买入持有与可用价格指数，只绘制共同有效日期的归一化曲线。
 import { computed,ref } from 'vue'
+import { appearancePalette } from '../appearance'
 // 接收归档实验结果及其买入持有与指数基准。
 const props=defineProps<{result:any}>()
 // 选择全区间、样本内或样本外，各区间独立设置归一化起点。
@@ -17,7 +18,7 @@ const chart=computed(()=>{
   if(!selected.length)return null
   const first=selected[0],firstHold=held.get(first.ts.slice(0,10)).equity
 // 策略和买入持有分别以共同起点权益归一化为 100，保留费用与剩余现金影响。
-  const curves=[{name:'策略',color:'#277752',values:selected.map((p:any)=>p.equity/first.equity*100)},{name:'买入持有',color:'#bb9652',values:selected.map((p:any)=>held.get(p.ts.slice(0,10)).equity/firstHold*100)}]
+  const curves=[{name:'策略',color:appearancePalette.value.accentText,values:selected.map((p:any)=>p.equity/first.equity*100)},{name:'买入持有',color:'#bb9652',values:selected.map((p:any)=>held.get(p.ts.slice(0,10)).equity/firstHold*100)}]
   if(observed.size)curves.push({name:'价格指数（观察）',color:'#8c91bd',values:selected.map((p:any)=>observed.get(p.ts.slice(0,10)).index)})
 // 根据全部可见曲线计算纵轴范围，并留出最小边距以免平坦曲线除以零。
   const all=curves.flatMap(c=>c.values);const low=Math.min(100,...all),high=Math.max(100,...all),padding=Math.max((high-low)*.15,.5),min=low-padding,max=high+padding

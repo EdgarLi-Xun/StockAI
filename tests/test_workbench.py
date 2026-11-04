@@ -209,7 +209,18 @@ def test_assistant_success_idempotence_reconnect_and_owner(cloud):
     resources.delete(store,uid,'chat_session',session['id']);assert not store.one('SELECT id FROM assistant_requests')
 
 
-# 验证助手拒绝编造数值、脚本或未验证的引用内容。
+# 验证持仓卖点可以写出价格和卖出判断，且不强制引用资料。
+def test_assistant_allows_price_and_sell_timing_without_citations(cloud):
+    store,keys,_,_,_,uid=cloud;profile(cloud);session=resources.save(store,uid,'chat_session',{'title':'卖点'})
+    row=assistant.submit(store,keys,uid,session['id'],assistant.MessageInput(client_key=uuid.uuid4().hex,question='000911 持仓价 4.85 持仓价格 4.85，什么时候适合抛出去'))
+    assert row['status']=='queued'
+    answer='持仓成本 4.85 元。若后续价格明显高于成本且没有继续持有的证据，可以卖出。'
+    jobs.run(store,keys,jobs.claim(store,'sell-timing'),lambda *a:(json_text({'answer':answer,'citations':[]}),{},''))
+    final=assistant.request_detail(store,uid,row['id'])
+    assert final['status']=='success' and final['reply']['answer']==answer and final['reply']['citations']==[]
+
+
+# 验证助手拒绝保证收益、脚本或未验证的引用内容。
 @pytest.mark.parametrize('raw',[{'answer':'价格123必涨','citations':['help:models']},{'answer':'请看说明','citations':['report:fake']},{'answer':'<script>alert()</script>','citations':['help:models']}])
 def test_assistant_rejects_fabrication_and_scripts(cloud,raw):
     store,keys,_,_,_,uid=cloud;profile(cloud);session=resources.save(store,uid,'chat_session',{'title':'校验'})

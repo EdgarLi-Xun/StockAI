@@ -6,9 +6,10 @@ import json
 import re
 import math
 from datetime import datetime,timedelta
+from decimal import Decimal,ROUND_HALF_UP
 
 from backend import analytics
-from backend.budget import budget_check
+from backend.budget import budget_check,dec,money
 from backend.config import now,timestamp
 from backend.collectors import fresh_reasons
 from backend.instruments import InstrumentInput,Rules,official_url
@@ -84,7 +85,7 @@ def add_watch(store,uid,value:InstrumentInput):
         # 用户导入的名称只用于个人输入，不能覆盖共享证券的权威名称。
         rules=Rules(price_tick="0.001" if value.asset_class=="etf" else "0.01")
         c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(ident,value.symbol,value.market,"名称待核验",value.asset_class,rules.model_dump_json()))
-        c.execute("INSERT INTO user_watchlist VALUES(?,?,?,0,?) ON CONFLICT(user_id,instrument_id) DO UPDATE SET group_name=excluded.group_name",(uid,ident,value.group_name,stamp()))
+        c.execute("INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,0,?) ON CONFLICT(user_id,instrument_id) DO UPDATE SET group_name=excluded.group_name",(uid,ident,value.group_name,stamp()))
         queue_names(store,c=c)
     return {**instrument(store,ident),"group_name":value.group_name,"pinned":False}
 
@@ -109,7 +110,7 @@ def import_watch(store,uid,rows):
         for ident,(v,pinned) in validated.items():
             rules=Rules(price_tick="0.001" if v.asset_class=="etf" else "0.01")
             c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(ident,v.symbol,v.market,"名称待核验",v.asset_class,rules.model_dump_json()))
-            c.execute("INSERT INTO user_watchlist VALUES(?,?,?,?,?) ON CONFLICT(user_id,instrument_id) DO UPDATE SET group_name=excluded.group_name,pinned=excluded.pinned",(uid,ident,v.group_name,int(pinned),stamp()))
+            c.execute("INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,instrument_id) DO UPDATE SET group_name=excluded.group_name,pinned=excluded.pinned",(uid,ident,v.group_name,int(pinned),stamp()))
         queue_names(store,c=c)
     return {"imported":len(validated),"duplicates":len(rows)-len(validated)}
 
@@ -164,12 +165,46 @@ def detail(store,uid,ident,timeframe="1d",prefs=None):
     return item
 
 
+# 校验本人声明的持仓价和数量。两者同时为空表示未记录持仓，只填一项则拒绝。
+def normalize_holding(cost,quantity):
+    if cost is None and quantity is None:return None,None
+    if cost is None or quantity is None or isinstance(quantity,bool) or type(quantity) is not int:
+        raise ValueError("持仓价和持仓数量须同时填写")
+    price=dec(cost);scale=price.as_tuple().exponent
+    if not price.is_finite() or price<=0 or price>Decimal("1000000") or scale<-4:
+        raise ValueError("持仓价须大于0、不超过1000000，且最多四位小数")
+    if not 1<=quantity<=100_000_000:raise ValueError("持仓数量须为1至100000000的整数")
+    return format(price,"f"),quantity
+
+
+def _points(current,base):
+    if current is None or base is None or base==0:return None
+    return float((((current/base)-1)*Decimal(100)).quantize(Decimal("0.0001"),rounding=ROUND_HALF_UP))
+
+
+# 用已存日K现算持仓金额和收益，不写行情，也不把缺失价格补成零。
+def holding_view(cost_price,quantity,bars):
+    cost,qty=None,None
+    if cost_price not in (None,"") and isinstance(quantity,int) and not isinstance(quantity,bool) and quantity>0:
+        cost,qty=dec(cost_price),quantity
+    last=dec(bars[-1]["close"]) if bars else None
+    previous=dec(bars[-2]["close"]) if len(bars)>1 else None
+    change=_points(last,previous)
+    return {"cost_price":format(cost,"f") if cost is not None else None,"quantity":qty,
+            "market_price":float(last) if last is not None else None,"prev_close":float(previous) if previous is not None else None,
+            "change_pct":change,"market_value":float(money(last*qty)) if last is not None and qty else None,
+            "daily_pnl":float(money((last-previous)*qty)) if last is not None and previous is not None and qty else None,
+            "daily_return_pct":change if change is not None and qty else None,
+            "total_pnl":float(money((last-cost)*qty)) if last is not None and cost is not None and qty else None,
+            "total_return_pct":_points(last,cost) if cost is not None else None}
+
+
 # 将本人自选与共享报价、预算及风险状态组合为列表视图。
 def watch_rows(store,uid):
     prefs=get_preferences(store,uid);out=[]
     for r in store.query("SELECT * FROM user_watchlist WHERE user_id=? ORDER BY pinned DESC,group_name,instrument_id",(uid,)):
         item=detail(store,uid,r["instrument_id"],prefs=prefs)
-        item.pop("bars");out.append({**item,"group_name":r["group_name"],"pinned":bool(r["pinned"])})
+        bars=item.pop("bars");out.append({**item,"group_name":r["group_name"],"pinned":bool(r["pinned"]),"position":holding_view(r["cost_price"],r["quantity"],bars)})
     return out
 
 
