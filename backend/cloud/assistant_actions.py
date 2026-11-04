@@ -28,7 +28,7 @@ LABELS = {'budget': '单只证券预算（元）', 'min_daily_amount': '最低�
           'fees.etf_commission': 'ETF 佣金率', 'fees.etf_minimum': 'ETF 最低佣金（元）',
           'fees.stock_transfer': '股票过户费率', 'fees.stock_stamp_sell': '股票卖出印花税率',
           'fees.slippage_bps': '模拟滑点（基点）'}
-ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|开启|关闭|启用|停用|持仓价|持仓价格|持仓数量')
+ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|加到|加进|加一下|放入|放进|放到|记入|记到|录入|开启|关闭|启用|停用|持仓价|持仓价格|持仓数量')
 
 
 class SettingChange(BaseModel):
@@ -79,7 +79,13 @@ def changed_preferences(before, changes):
 
 
 def stock_input(action):
-    value = InstrumentInput(market=action['market'], symbol=action['symbol'], group_name=action['group_name'])
+    market, symbol = action['market'], str(action['symbol']).strip()
+    if re.fullmatch(r'\d{6}', symbol):
+        if symbol.startswith('6'):
+            market = 'SH'
+        elif symbol.startswith(('0', '3')):
+            market = 'SZ'
+    value = InstrumentInput(market=market, symbol=symbol, group_name=action['group_name'])
     if value.market in {'SH', 'SZ'} and not re.fullmatch(r'\d{6}', value.symbol):
         raise ValueError('境内股票代码须为六位数字')
     return value

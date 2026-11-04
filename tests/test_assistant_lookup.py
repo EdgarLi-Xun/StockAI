@@ -460,6 +460,22 @@ def test_holding_inputs_must_be_a_valid_pair(cloud, proposal):
         assistant_actions.prepare(store, uid, [{'kind': 'add_stock', 'market': 'SH', 'symbol': '600519', 'group_name': '我的自选', **proposal}])
 
 
+def test_colloquial_add_to_watchlist_enables_stock_action(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    question = '帮我加到自选的持仓里面吧'
+    assert assistant_actions.ACTION_INTENT.search(question)
+    assert assistant.classify(question, []) == 'project'
+    assert not assistant_actions.ACTION_INTENT.search('我的持仓收益怎么算')
+    message = submit(store, keys, uid, session(store, uid), question)
+    row = store.one('SELECT * FROM assistant_requests WHERE id=?', (message['id'],))
+    proto, *_ = assistant.protocol(store, uid, row, {})
+    assert 'add_stock' in proto['messages'][0]['content']
+    assert '不要说无法添加' in proto['messages'][0]['content']
+    prepared = assistant_actions.prepare(store, uid, [{'kind': 'add_stock', 'market': 'SH', 'symbol': '000911', 'group_name': '我的自选'}])
+    assert prepared[0]['instrument_id'] == 'SZ:000911' and prepared[0]['market'] == 'SZ'
+
+
 def test_position_price_can_be_proposed_without_opening_trade_edits():
     assert assistant.classify('添加600519，持仓价4.85，持仓数量100', []) == 'project'
     assert assistant.classify('把持仓价改成9', []) == 'project'

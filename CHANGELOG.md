@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.1] - 2026-11-04
+
+- 助手识别「加到自选」「放入持仓」等说法，并准备添加股票方案，不再回复无法添加。
+- 六位 A 股代码按首位校正市场：6 为上交所，0 或 3 为深交所。
+- 窄屏助手对话里，提问气泡不再被左侧空白挤窄。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.1-Windows.exe`、同版 Public / Hub ZIP、各自 SHA256 和 EXE 构建元数据。
+- 此版本进入稳定通道。不覆盖 3.2.0，也不自动把 Web / Hub 部署到服务器。
+
 ## [3.2.0] - 2026-11-04
 
 正式版。包含本地预览 preview.4 至 preview.7 的界面、登录和助手改动，并补上主题颜色、自选持仓记录，以及助手按来源说明数值和买卖时点。
@@ -99,6 +110,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.1]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.1
 [3.2.0]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0
 [3.2.0-preview.3]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0-preview.3
 [2.0.0]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v2.0.0
