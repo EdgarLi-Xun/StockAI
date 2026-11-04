@@ -2,6 +2,7 @@
 import http.client
 import io
 import json
+import socket
 import pytest
 from backend.sync.protocol import digest
 from backend.upgrades.download import Fetcher
@@ -21,6 +22,39 @@ class Stream(Fetcher):
         raw=('HTTP/1.1 '+str(status)+' OK\r\n'+''.join(k+': '+v+'\r\n' for k,v in fields.items())+'\r\n').encode()+body
         response=http.client.HTTPResponse(Socket(raw));response.begin();return self,response
     def close(self):self.closed+=1
+
+
+def test_metadata_forwards_public_api_headers_without_credentials():
+    fetch=Stream((200,b'[]',{}));headers={'Accept':'application/vnd.github+json','User-Agent':'StockAI/test'}
+    assert fetch.metadata('https://api.github.com/repos/owner/repo/releases',headers)==[]
+    assert fetch.requests[0][1]==headers and fetch.closed==1
+
+
+def test_fixed_github_list_endpoint_keeps_tls_hostname_verification_with_fake_ip_dns(monkeypatch):
+    calls=[]
+    def connection(host,port,*,context,timeout):
+        calls.append((host,port,context,timeout));return object()
+    def no_dns_probe(*args,**kwargs):pytest.fail('固定 GitHub HTTPS 主机应由 TLS 连接器处理代理 DNS')
+    monkeypatch.setattr(http.client,'HTTPSConnection',connection)
+    monkeypatch.setattr(socket,'getaddrinfo',no_dns_probe)
+    conn,path=Fetcher().connection('https://api.github.com/repos/owner/repo/releases?per_page=100&page=1')
+    assert path=='/repos/owner/repo/releases?per_page=100&page=1'
+    assert calls[0][0:2]==('api.github.com',443) and calls[0][2].check_hostname
+    assert calls[0][2].verify_mode.name=='CERT_REQUIRED'
+
+
+@pytest.mark.parametrize('url',['https://releases.example.test/index.json','https://api.github.com/internal','https://api.github.com:444/repos/owner/repo/releases','https://api.github.com.evil.test/repos/owner/repo/releases'])
+def test_other_update_urls_still_reject_private_or_fake_ip_targets(monkeypatch,url):
+    monkeypatch.setattr(socket,'getaddrinfo',lambda *args,**kwargs:[(socket.AF_INET,socket.SOCK_STREAM,6,'',('198.18.25.114',443))])
+    with pytest.raises(UpgradeError) as error:Fetcher().connection(url)
+    assert error.value.code=='TARGET'
+
+
+@pytest.mark.parametrize('status,headers',[(429,{}),(403,{'X-RateLimit-Remaining':'0'})])
+def test_rate_limits_are_reported_and_the_response_is_closed(status,headers):
+    fetch=Stream((status,b'{}',headers))
+    with pytest.raises(UpgradeError) as error:fetch.metadata('https://api.github.com/repos/owner/repo/releases')
+    assert error.value.code=='RATE_LIMITED' and fetch.closed==1
 
 
 def release(data,url='https://releases.example.test/fixture.exe'):

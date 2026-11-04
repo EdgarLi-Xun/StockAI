@@ -4,6 +4,7 @@ import http.client
 import ipaddress
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import ssl
@@ -18,6 +19,10 @@ class Fetcher:
     def connection(self,url):
         parsed=urlsplit(url)
         if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:raise UpgradeError('TARGET','更新地址必须为可信 HTTPS')
+        # Only the fixed public GitHub list endpoint may use VPN/fake-IP DNS.
+        # TLS still verifies api.github.com; arbitrary feeds and packages remain IP-pinned.
+        if parsed.hostname=='api.github.com' and parsed.port in (None,443) and re.fullmatch(r'/repos/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*/releases/?',parsed.path):
+            return http.client.HTTPSConnection('api.github.com',443,context=ssl.create_default_context(),timeout=self.timeout),parsed.path+('?' +parsed.query if parsed.query else '')
         try:addresses=list(dict.fromkeys(r[4][0] for r in socket.getaddrinfo(parsed.hostname,parsed.port or 443,type=socket.SOCK_STREAM)))
         except OSError:raise UpgradeError('NETWORK','更新源暂不可达') from None
         if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):raise UpgradeError('TARGET','更新源不允许指向内网或元数据服务')
@@ -41,13 +46,15 @@ class Fetcher:
             return conn,response
         raise UpgradeError('NETWORK','更新源重定向过多')
 
-    def metadata(self,url):
-        conn,response=self.response(url,{'Accept':'application/json'})
+    def metadata(self,url,headers=None):
+        conn,response=self.response(url,{'Accept':'application/json',**(headers or {})})
         try:
+            if response.status==429 or response.status==403 and response.getheader('X-RateLimit-Remaining')=='0':raise UpgradeError('RATE_LIMITED','更新请求已被限流，请稍后再试')
             if response.status!=200:raise UpgradeError('NETWORK','无法读取发布清单，HTTP '+str(response.status))
             raw=response.read(1024*1024+1)
             if len(raw)>1024*1024:raise UpgradeError('UNTRUSTED')
             return json.loads(raw)
+        except (OSError,http.client.HTTPException):raise UpgradeError('NETWORK','发布清单读取未完成') from None
         finally:conn.close()
 
     def download(self,release,destination,progress=None,cancel=None):

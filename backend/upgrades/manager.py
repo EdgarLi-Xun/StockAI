@@ -15,6 +15,7 @@ from .versions import Version
 from .trust import Trust,UpgradeError
 from .state import State
 from .download import Fetcher
+from .github import DEFAULT_SOURCE,repository,latest as github_latest
 from .checkpoint import Checkpoints,file_hash,database_health
 from .cache import Cache
 
@@ -25,7 +26,7 @@ class Manager(Cache):
     def __init__(self,cfg,keys,*,component='web',version=VERSION,form='source',root_file=None,source='',store=None,fetcher=None,identity=None):
         self.cfg,self.keys,self.component,self.version,self.form=cfg,keys,component,version,form;self.store=store
         self.folder=cfg.erasures/'upgrades';self.state=State(self.folder,keys.keys[min(keys.keys)])
-        self.root_file=root_file;self.source=source;self.fetcher=fetcher or Fetcher();self.checkpoints=Checkpoints(cfg,component,identity)
+        self.root_file=root_file;self.source=source or DEFAULT_SOURCE;self.fetcher=fetcher or Fetcher();self.checkpoints=Checkpoints(cfg,component,identity)
         self.target={'component':component,'version':version,'platform':'windows' if component=='desktop' else 'linux','architecture':'x64' if platform.machine().lower() in ('amd64','x86_64') else platform.machine().lower(),'form':form,'capabilities':{'api':1,'sync':1,'schema':3}}
         if not self.state.get('settings'):self.state.put('settings',{'channel':'preview' if Version(version).pre else 'stable','automatic_check':True,'automatic_download':False})
 
@@ -35,7 +36,10 @@ class Manager(Cache):
         ident=self.state.get('active')
         return self.state.get('transaction:'+ident) if ident else None
     def status(self):
-        return {'component':self.component,'current_version':self.version,'form':self.form,'settings':self.state.get('settings'),'check':self.state.get('check',{'status':'never_checked'}),'transaction':self.current(),'history':self.state.get('history',[])[-30:],'cache_cleanup':self.state.get('cache-cleanup'),'capabilities':self.target['capabilities'],'executor':self.component=='desktop'}
+        repo=repository(self.source);kind='github' if repo else 'signed' if self.source else 'unconfigured'
+        settings=self.state.get('settings');check=self.state.get('check',{'status':'never_checked'})
+        if check.get('source_id')!=digest({'source':self.source,'channel':settings['channel'],'target':self.target}):check={'status':'never_checked'}
+        return {'component':self.component,'current_version':self.version,'form':self.form,'source_configured':bool(self.source),'source_kind':kind,'release_page':f'https://github.com/{repo}/releases' if repo else None,'settings':settings,'check':check,'transaction':self.current(),'history':self.state.get('history',[])[-30:],'cache_cleanup':self.state.get('cache-cleanup'),'capabilities':self.target['capabilities'],'executor':self.component=='desktop'}
     def update(self,tx,status,**values):
         tx={**tx,**values,'status':status,'updated_at':datetime.now(timezone.utc).isoformat()};self.state.put('transaction:'+tx['id'],tx);return tx
 
@@ -56,15 +60,24 @@ class Manager(Cache):
     def check(self,automatic=False):
         settings=self.state.get('settings');before=self.state.get('check',{})
         now=datetime.now(timezone.utc)
+        source_id=digest({'source':self.source,'channel':settings['channel'],'target':self.target})
+        if before.get('source_id')!=source_id:before={}
         if automatic:
             if not settings['automatic_check']:return before
             if before.get('status')=='check_failed':
                 if before.get('next_retry') and now<datetime.fromisoformat(before['next_retry']):return before
             elif before.get('last_attempt') and now<datetime.fromisoformat(before['last_attempt'])+timedelta(hours=24):return before
-        record={**before,'status':'checking','last_attempt':now.isoformat()};self.state.put('check',record)
+        record={**before,'status':'checking','last_attempt':now.isoformat(),'source_id':source_id,'release':None};self.state.put('check',record)
         try:
             if not self.source:raise UpgradeError('SOURCE_UNCONFIGURED','尚未配置可信更新源，可导入离线签名清单')
-            envelope=self.fetcher.metadata(self.source);trust=self.trust();trust.rotate(envelope.get('roots',[]))
+            repo=repository(self.source)
+            if repo:
+                selected=github_latest(self.fetcher,repo,self.target,settings['channel'])
+                record.update(status='download_available' if selected and Version(selected['version'])>Version(self.version) else 'download_current' if selected else 'download_unavailable',last_success=now.isoformat(),error=None,next_retry=None,release=selected)
+                self.state.put('check',record);return record
+            envelope=self.fetcher.metadata(self.source)
+            if not isinstance(envelope,dict):raise UpgradeError('UNTRUSTED')
+            trust=self.trust();trust.rotate(envelope.get('roots',[]))
             selected=self.select_release(trust,envelope.get('releases',[]),settings['channel'])
             if selected:
                 try:trust.release(selected,self.target)

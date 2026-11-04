@@ -31,7 +31,7 @@ def release(private,**changes):
 @pytest.fixture
 def manager(cloud,tmp_path):
     store,keys,*_=cloud;private=Ed25519PrivateKey.generate();path=tmp_path/'root.json';path.write_bytes(canonical(sign(root(private),[private])))
-    m=Manager(store.cfg,keys,store=store,root_file=path);return m,private
+    m=Manager(store.cfg,keys,store=store,root_file=path);m.source='';return m,private
 
 
 def test_semver_and_dynamic_order():
@@ -155,6 +155,21 @@ def test_wrong_target_and_malformed_package(manager,changes):
 def test_state_rollback_is_detected(tmp_path):
     s=State(tmp_path/'state',b'x'*32);s.put('slot',1);old=s.path.read_bytes();s.put('slot',2);s.path.write_bytes(old)
     with pytest.raises(RuntimeError,match='回退'):s.get('slot')
+
+
+@pytest.mark.parametrize('source,configured',[('',False),('https://releases.example.test/index.json',True)])
+def test_status_reports_current_source_configuration_without_running_check(manager,monkeypatch,source,configured):
+    m,key=manager;m.source=source
+    def unexpected_fetch(url):pytest.fail('读取配置状态不应访问更新源')
+    monkeypatch.setattr(m.fetcher,'metadata',unexpected_fetch)
+    status=m.status()
+    assert status['source_configured'] is configured
+    assert status['check']['status']=='never_checked'
+    assert m.state.get('check') is None
+    m.state.put('check',{'status':'check_failed','error':'SOURCE_UNCONFIGURED'})
+    assert m.status()['source_configured'] is configured
+    m.source='' if configured else 'https://releases.example.test/index.json'
+    assert m.status()['source_configured'] is not configured
 
 
 def test_no_executor_is_waiting_and_check_failure_not_latest(manager):

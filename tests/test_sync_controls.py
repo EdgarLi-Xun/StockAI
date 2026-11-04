@@ -65,7 +65,11 @@ def test_backend_migration_keeps_identifiers_usage_and_tombstones(peers):
     with pytest.raises(SyncError):b.heads(b.binding(v)).read()
 
 
-def test_system_api_scopes_and_upgrade_operator_plan_only(cloud):
+def test_system_api_scopes_and_upgrade_operator_plan_only(cloud,monkeypatch):
+    from backend.upgrades.download import Fetcher
+    from backend.upgrades.trust import UpgradeError
+    def offline(*args):raise UpgradeError('NETWORK')
+    monkeypatch.setattr(Fetcher,'metadata',offline)
     store,keys,_,_,admin,uid=cloud
     with TestClient(create_app(store.cfg)) as c:
         login(c);assert c.get('/api/me/sync').json()['status']=='unconfigured'
