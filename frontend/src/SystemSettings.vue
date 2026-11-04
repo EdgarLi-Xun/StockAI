@@ -37,8 +37,18 @@ const checkErrors:Record<string,string>={SOURCE_UNCONFIGURED:'尚未配置可信
 const tx=computed(()=>upgrade.value?.transaction)
 const configured=computed(()=>sync.value.status!=='unconfigured'&&sync.value.status!=='loading')
 const date=(value:string)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—'
-async function act(fn:()=>Promise<any>,message='') {if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const value=await fn();if(message)notice.value=message;return value}catch(e:any){error.value=e.message}finally{busy.value=false}}
-async function load(){sync.value=await api('/me/sync');if(props.user.role==='admin')upgrade.value=await api('/admin/upgrades')}
+async function act(fn:()=>Promise<any>,message='') {if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const value=await fn();if(message)notice.value=message;return value}catch(e:any){notice.value='';error.value=e.message}finally{busy.value=false}}
+let upgradeClosed=false,upgradeRead=0,upgradeDownloadTimer:ReturnType<typeof setInterval>|undefined
+async function loadUpgrade(){
+  if(upgradeClosed)return
+  const read=++upgradeRead,value=await api('/admin/upgrades')
+  if(!upgradeClosed&&read===upgradeRead){
+    if(upgrade.value?.transaction?.confirmation!==value.transaction?.confirmation)confirmation.value=''
+    upgrade.value=value
+  }
+}
+function stopUpgradeFlow(){upgradeClosed=true;++upgradeRead;clearInterval(upgradeDownloadTimer);upgradeDownloadTimer=undefined}
+async function load(){sync.value=await api('/me/sync');if(props.user.role==='admin')await loadUpgrade()}
 async function loadSetup(){setup.value=await api('/me/workspace-setup');if(!source.value&&setup.value.source)source.value=setup.value.source}
 function changeSource(value:DataSource){source.value=value;recoveryRead++;form.value.password='';form.value.token='';form.value.grant='';form.value.recovery='';recoveryFile.value='';preview.value=null;error.value='';notice.value=''}
 async function startIndependent(){await act(async()=>{setup.value=await post('/me/workspace-setup',{source:'independent'});emit('ready')})}
@@ -54,7 +64,48 @@ async function details(){const value=await Promise.all([api('/me/sync/devices'),
 async function recoveryExport(){await act(async()=>{try{recovery.value=JSON.stringify(await post('/me/sync/recovery',{password:password.value}),null,2)}finally{password.value=''}},'请单独保管恢复材料；其中包含同步解密密钥。')}
 function saveRecovery(){const blob=URL.createObjectURL(new Blob([recovery.value],{type:'application/json'}));const a=document.createElement('a');a.href=blob;a.download='StockAI-同步恢复材料.json';a.click();setTimeout(()=>URL.revokeObjectURL(blob),1000)}
 async function prepare(){await act(async()=>{await post('/admin/upgrades/plan',manifest.value?{envelope:JSON.parse(manifest.value)}:{});manifest.value='';await load()},'已准备具体升级计划。')}
-async function prepareLocal(){await act(async()=>{await post('/admin/upgrades/plan',{local:true});await load()},'已准备本机安装计划。请下载或导入同名安装包，核对通过后仍需确认才会退出并安装。')}
+async function downloadLocalPlan(plan:any){
+  let current=plan
+  try{
+    if(['planned','download_failed','download_paused'].includes(current.status)){
+      notice.value='正在下载更新并校验安装包，可以继续查看下载进度。'
+      let progressPending=false
+      upgradeDownloadTimer=setInterval(()=>{
+        if(progressPending||upgradeClosed)return
+        progressPending=true
+        void loadUpgrade().catch(()=>{}).finally(()=>{progressPending=false})
+      },1000)
+      current=await post('/admin/upgrades/'+plan.id+'/download')
+      if(upgradeClosed)return
+    }
+    if(['verified','preflight_blocked','waiting_confirmation'].includes(current.status)){
+      notice.value='安装包已校验，正在检查安装条件。'
+      current=await post('/admin/upgrades/'+plan.id+'/preflight')
+      if(upgradeClosed)return
+    }
+  }catch(e){if(!upgradeClosed)await loadUpgrade().catch(()=>{});throw e}
+  finally{clearInterval(upgradeDownloadTimer);upgradeDownloadTimer=undefined}
+  if(upgradeClosed)return
+  await loadUpgrade()
+  notice.value=current.status==='waiting_confirmation'?'更新已下载、校验并完成预检。请在下方确认安装，程序随后退出并重启。':current.status==='preflight_blocked'?'安装条件尚未全部满足，请处理下方提示后重新预检。':current.status==='downloading'?'安装包正在下载，请等待当前下载完成。':'当前计划尚未就绪，请查看下方状态。'
+}
+async function prepareLocal(){await act(async()=>{
+  const expected=upgrade.value?.check?.release?.version
+  if(!props.desktop||upgrade.value?.form!=='exe'||!expected)throw new Error('请在本机桌面检查可用更新后再下载。')
+  confirmation.value=''
+  const plan=await post('/admin/upgrades/plan',{local:true})
+  if(upgradeClosed)return
+  await loadUpgrade()
+  if(upgradeClosed)return
+  if(!plan.id||plan.trust!=='github-sha256'||plan.component!=='desktop'||plan.target_version!==expected)throw new Error('已有另一个升级计划，请先完成或取消该计划，再安装此版本。')
+  await downloadLocalPlan(plan)
+})}
+async function downloadUpgrade(){await act(async()=>{
+  const plan=tx.value;if(!plan)return
+  if(props.desktop&&upgrade.value?.form==='exe'&&plan.trust==='github-sha256'){
+    confirmation.value='';await downloadLocalPlan(plan)
+  }else{await post('/admin/upgrades/'+plan.id+'/download');await load()}
+})}
 async function cleanup(){const value=await act(()=>post('/admin/upgrades/cleanup',{confirmation:'清理已过期的升级缓存'}));if(value){await load();notice.value=value.status==='waiting'?value.reason:'已清理 '+value.files.length+' 处过期升级缓存，释放 '+(value.bytes/1024/1024).toFixed(1)+' MB。'}}
 async function upload(event:Event){const file=(event.target as HTMLInputElement).files?.[0];if(!file||!tx.value)return;await act(async()=>{for(let offset=0;offset<file.size;offset+=3*1024*1024){const bytes=new Uint8Array(await file.slice(offset,offset+3*1024*1024).arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));await post('/admin/upgrades/'+tx.value.id+'/upload',{offset,data:btoa(binary)})}await load()},'离线包已导入并完成长度和摘要验证。')}
 const client=crypto.randomUUID();let timer:ReturnType<typeof setInterval>
@@ -62,7 +113,7 @@ const dirty=computed(()=>!!(form.value.password||form.value.token||form.value.gr
 defineExpose({guard,dirty})
 function beforeUnload(e:BeforeUnloadEvent){if(dirty.value){e.preventDefault();e.returnValue=''}}
 onMounted(()=>{void act(()=>Promise.all([load(),loadSetup()]));window.addEventListener('beforeunload',beforeUnload);timer=setInterval(()=>{void load().catch(()=>{});void post('/me/client-state',{id:client,dirty:dirty.value}).catch(()=>{})},10000)})
-onBeforeUnmount(()=>{recoveryRead++;clearInterval(timer);window.removeEventListener('beforeunload',beforeUnload);void post('/me/client-state',{id:client,dirty:false}).catch(()=>{});recovery.value='';form.value.password='';form.value.recovery='';form.value.grant='';password.value='';settle(false)})
+onBeforeUnmount(()=>{stopUpgradeFlow();recoveryRead++;clearInterval(timer);window.removeEventListener('beforeunload',beforeUnload);void post('/me/client-state',{id:client,dirty:false}).catch(()=>{});recovery.value='';form.value.password='';form.value.recovery='';form.value.grant='';password.value='';settle(false)})
 </script>
 
 <template>
@@ -115,16 +166,32 @@ onBeforeUnmount(()=>{recoveryRead++;clearInterval(timer);window.removeEventListe
           <p v-if="upgrade.check.last_attempt" class="personal-note">最近检查 {{ date(upgrade.check.last_attempt) }} · 最近成功 {{ date(upgrade.check.last_success) }}</p>
           <label>更新通道<select :value="upgrade.settings.channel" @change="act(async()=>{await api('/admin/upgrades/settings',{method:'PUT',body:JSON.stringify({channel:($event.target as HTMLSelectElement).value})});await load()})"><option value="stable">稳定版</option><option value="preview">预览版</option></select></label>
           <label class="check-label"><input type="checkbox" :disabled="busy||!updateSourceConfigured" :checked="upgrade.settings.automatic_check" @change="act(async()=>{await api('/admin/upgrades/settings',{method:'PUT',body:JSON.stringify({automatic_check:($event.target as HTMLInputElement).checked})});await load()})" />启动时和每 24 小时检查更新</label>
-          <label class="check-label"><input type="checkbox" :disabled="busy||!updateSourceConfigured||githubUpdates" :checked="upgrade.settings.automatic_download" @change="act(async()=>{await api('/admin/upgrades/settings',{method:'PUT',body:JSON.stringify({automatic_download:($event.target as HTMLInputElement).checked})});await load()})" />自动下载已验签的可用更新，安装仍需确认</label>
+          <label v-if="!githubUpdates" class="check-label"><input type="checkbox" :disabled="busy||!updateSourceConfigured" :checked="upgrade.settings.automatic_download" @change="act(async()=>{await api('/admin/upgrades/settings',{method:'PUT',body:JSON.stringify({automatic_download:($event.target as HTMLInputElement).checked})});await load()})" />自动下载已验签的可用更新，安装仍需确认</label>
+          <p v-else-if="desktop&&upgrade.form==='exe'" class="personal-note">点击“下载并准备安装”后，程序自动下载、校验并检查安装条件，最后由你确认退出安装。</p>
           <p>安装前需明确确认计划。服务器无执行器时仅准备计划，等待运维执行。</p>
           <p v-if="upgrade.check.release">{{ githubUpdates?'GitHub 发行版本':'可用版本' }} {{ upgrade.check.release.version }} · {{ upgrade.check.release.component }}</p>
-          <div v-if="upgrade.check.status==='download_available'" class="button-row"><button v-if="desktop&&upgrade.form==='exe'" class="primary" :disabled="busy" @click="prepareLocal">准备本机下载安装</button><a class="text-button" :href="upgrade.check.release.download_url" rel="noopener noreferrer"><Download :size="15" />在浏览器中下载 {{ upgrade.check.release.asset_name }}</a><a class="text-button" :href="upgrade.check.release.release_url" rel="noopener noreferrer">查看发布说明</a></div>
+          <div v-if="upgrade.check.status==='download_available'" class="button-row"><button v-if="desktop&&upgrade.form==='exe'" class="primary" :disabled="busy" @click="prepareLocal"><Download :size="15" />下载并准备安装</button><a class="text-button" :href="upgrade.check.release.download_url" rel="noopener noreferrer"><Download :size="15" />在浏览器中下载 {{ upgrade.check.release.asset_name }}</a><a class="text-button" :href="upgrade.check.release.release_url" rel="noopener noreferrer">查看发布说明</a></div>
           <p v-if="githubUpdates&&upgrade.check.status==='download_unavailable'&&upgrade.settings.channel==='stable'" class="personal-note">稳定通道尚无适用的发行包，可切换预览通道查看预览版本。</p>
           <button v-if="upgrade.check.status==='available'" class="primary" :disabled="busy" @click="prepare">查看升级计划</button>
           <details class="system-subsection"><summary>导入离线签名清单</summary><p>离线升级同样需要已安装的可信发布根和对应组件的签名清单。安装包摘要校验不能代替发布者签名。</p><textarea v-model="manifest" rows="5" placeholder="粘贴签名清单 JSON" spellcheck="false" /><button class="secondary" :disabled="busy||!manifest" @click="prepare">验证签名并准备计划</button></details>
         </template>
       </section>
-      <section v-if="tx" class="panel personal-form"><h2>{{ upgradeStates[tx.status]||tx.status }}</h2><p>{{ tx.component }} · {{ tx.from_version }} → {{ tx.target_version }} · {{ upgrade.form }}</p><p>计划所属工作区：{{ tx.workspace }}</p><p v-if="tx.trust==='github-sha256'">安装包只从 GitHub 发布页下载。也可导入已经下载的同名 Setup.exe，程序按发布页 SHA-256 核对；确认前不会替换正在运行的程序。</p><p>安装包 {{ (tx.release.package.size/1024/1024).toFixed(1) }} MB · 数据迁移 {{ tx.release.migration||(tx.trust==='github-sha256'?'沿用桌面工作区，由新程序打开':'依签名计划检查') }}</p><button v-if="tx.status==='downloading'" class="secondary" @click="post('/admin/upgrades/'+tx.id+'/cancel').then(()=>notice='下载暂停请求已提交。').catch(e=>error=e.message)">暂停下载</button><progress v-if="tx.total" :value="tx.downloaded" :max="tx.total" /><p v-if="tx.error" role="alert">{{ tx.error }}</p><ul v-if="tx.blockers?.length"><li v-for="blocker in tx.blockers" :key="blocker">{{ blocker }}</li></ul><div class="button-row"><button v-if="['planned','download_failed','download_paused'].includes(tx.status)" class="primary" :disabled="busy" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/download');await load()})"><Download :size="15" />下载并验证</button><label v-if="['planned','uploading'].includes(tx.status)" class="secondary">导入对应离线安装包<input type="file" :disabled="busy" @change="upload" /></label><button v-if="['verified','awaiting_operator','preflight_blocked','waiting_confirmation'].includes(tx.status)" class="secondary" :disabled="busy" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/preflight');await load()})">运行安装预检</button><button v-if="['planned','verified','awaiting_operator','preflight_blocked','waiting_confirmation','download_failed','download_paused'].includes(tx.status)" class="text-button" :disabled="busy" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/cancel');await load()})">取消此计划</button></div><p v-if="tx.operator_command">等待运维在服务所在机器停服后执行：<code>{{ tx.operator_command }}</code></p><template v-if="desktop&&tx.status==='waiting_confirmation'&&!tx.blockers?.length"><label class="check-label"><input type="checkbox" v-model="confirmation" true-value="确认安装并重启" false-value="" />我已保存编辑并确认安装 {{ tx.target_version }}，允许退出桌面后重启</label><button class="primary" :disabled="busy||confirmation!=='确认安装并重启'" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/execute',{confirmation:tx.confirmation});await load()})">确认安装并重启桌面</button></template></section>
+      <section v-if="tx" class="panel personal-form">
+        <h2>{{ upgradeStates[tx.status]||tx.status }}</h2><p>{{ tx.component }} · {{ tx.from_version }} → {{ tx.target_version }} · {{ upgrade.form }}</p><p>计划所属工作区：{{ tx.workspace }}</p>
+        <p v-if="tx.trust==='github-sha256'">安装包自动从 GitHub 下载并核对 SHA-256。也可导入已经下载的同名 Setup.exe；完成安装预检后，请在下方确认退出安装。</p>
+        <p>安装包 {{ (tx.release.package.size/1024/1024).toFixed(1) }} MB · 数据迁移 {{ tx.release.migration||(tx.trust==='github-sha256'?'沿用桌面工作区，由新程序打开':'依签名计划检查') }}</p>
+        <template v-if="tx.status==='downloading'||tx.total"><progress :value="tx.downloaded||0" :max="tx.total||tx.release.package.size" aria-label="安装包下载进度" /><p role="status">已下载 {{ ((tx.downloaded||0)/1024/1024).toFixed(1) }} / {{ ((tx.total||tx.release.package.size)/1024/1024).toFixed(1) }} MB</p></template>
+        <button v-if="tx.status==='downloading'" class="secondary" @click="post('/admin/upgrades/'+tx.id+'/cancel').then(()=>notice='下载暂停请求已提交。').catch(e=>error=e.message)">暂停下载</button>
+        <p v-if="tx.error" role="alert">{{ tx.error }}</p><ul v-if="tx.blockers?.length"><li v-for="blocker in tx.blockers" :key="blocker">{{ blocker }}</li></ul>
+        <div class="button-row">
+          <button v-if="['planned','download_failed','download_paused'].includes(tx.status)" class="primary" :disabled="busy" @click="downloadUpgrade"><Download :size="15" />{{ tx.status==='planned'?'下载并验证':'继续下载并验证' }}</button>
+          <label v-if="['planned','uploading'].includes(tx.status)" class="secondary">导入对应离线安装包<input type="file" :disabled="busy" @change="upload" /></label>
+          <button v-if="['verified','awaiting_operator','preflight_blocked','waiting_confirmation'].includes(tx.status)" class="secondary" :disabled="busy" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/preflight');await load()})">重新检查安装条件</button>
+          <button v-if="['planned','verified','awaiting_operator','preflight_blocked','waiting_confirmation','download_failed','download_paused'].includes(tx.status)" class="text-button" :disabled="busy" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/cancel');await load()})">取消此计划</button>
+        </div>
+        <p v-if="tx.operator_command">等待运维在服务所在机器停服后执行：<code>{{ tx.operator_command }}</code></p>
+        <template v-if="desktop&&tx.status==='waiting_confirmation'&&!tx.blockers?.length"><label class="check-label"><input type="checkbox" :disabled="busy" v-model="confirmation" true-value="确认安装并重启" false-value="" />我已保存编辑并确认安装 {{ tx.target_version }}，允许退出桌面后重启</label><button class="primary" :disabled="busy||confirmation!=='确认安装并重启'" @click="act(async()=>{await post('/admin/upgrades/'+tx.id+'/execute',{confirmation:tx.confirmation});await load()})">确认安装并重启桌面</button></template>
+      </section>
       <section v-if="upgrade" class="panel personal-form"><h2>安装缓存与恢复点</h2><p>清理已结束且超过 30 天的安装缓存和数据检查点，保留当前程序及可用旧代码。检查点过期后会标明不能据此恢复。未完成事务、个人资料和待同步记录继续保留。</p><button class="secondary" :disabled="busy" @click="cleanup">清理已过期的升级缓存</button><p v-if="upgrade.cache_cleanup">最近检查 {{ date(upgrade.cache_cleanup.checked_at) }} · 已释放 {{ (upgrade.cache_cleanup.bytes/1024/1024).toFixed(1) }} MB</p></section>
       <section v-if="upgrade?.history?.length" class="panel personal-list"><h2>升级与恢复记录</h2><div v-for="entry in upgrade.history" :key="entry.id" class="personal-list-row"><span>{{ entry.from_version }} → {{ entry.target_version }}</span><span>{{ upgradeStates[entry.status]||entry.status }}<small v-if="entry.recovery_available===false">检查点已过期，不能据此恢复</small></span><span>{{ date(entry.updated_at) }}</span></div></section>
     </template>
