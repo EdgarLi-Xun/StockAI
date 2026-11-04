@@ -64,7 +64,7 @@ def main():
             raise SystemExit("ZIP 完整性核验失败")
     pending.replace(output)
     checksum=hashlib.sha256(output.read_bytes()).hexdigest()
-    output.with_suffix(".zip.sha256").write_text(checksum+"  "+output.name+"\n",encoding="ascii")
+    output.with_suffix(".zip.sha256").write_text(checksum+"  "+output.name+"\n",encoding="ascii",newline="\n")
     print(output);print(f"FILES={len(files)} BYTES={output.stat().st_size} SHA256={checksum}")
 
 

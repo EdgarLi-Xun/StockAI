@@ -22,7 +22,7 @@ def main():
     target=ROOT/'dist'/('StockAI-'+VERSION+'-Hub.zip');target.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as z:
         for name,data in sorted(files.items()):z.writestr(name,data)
-    sha=hashlib.sha256(target.read_bytes()).hexdigest();target.with_suffix('.zip.sha256').write_text(sha+'  '+target.name+'\n',encoding='ascii');print(str(target));print(sha)
+    sha=hashlib.sha256(target.read_bytes()).hexdigest();target.with_suffix('.zip.sha256').write_text(sha+'  '+target.name+'\n',encoding='ascii',newline='\n');print(str(target));print(sha)
 
 
 if __name__=='__main__':main()

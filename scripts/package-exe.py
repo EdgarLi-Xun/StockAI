@@ -143,7 +143,7 @@ def main():
     setup=ROOT/'dist'/(setup_name+'.exe')
     if not setup.is_file():raise SystemExit('安装包没有生成')
     digest=hashlib.sha256(setup.read_bytes()).hexdigest()
-    setup.with_suffix('.exe.sha256').write_text(digest+'  '+setup.name+'\n',encoding='ascii')
+    setup.with_suffix('.exe.sha256').write_text(digest+'  '+setup.name+'\n',encoding='ascii',newline='\n')
     sources={p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for folder in ('backend','desktop') for p in (ROOT/folder).rglob('*.py')}
     manifest={'version':VERSION,'platform':'Windows x64','single_file':False,'installer':True,'install_dir':'%LOCALAPPDATA%\\Programs\\StockAI','sha256':digest,'bytes':setup.stat().st_size,'slimmed':slim,'python':sys.version.split()[0],'pyside6':metadata.version('PySide6'),'entry':'stockai_desktop.py','source_sha256':hashlib.sha256(json.dumps(sources,sort_keys=True).encode()).hexdigest(),'frontend_sha256':hashlib.sha256((ROOT/'frontend/dist-public/index.html').read_bytes()).hexdigest(),'personal_data_included':False,'requires_python_installation':False,'requires_node_installation':False}
     setup.with_suffix('.exe.build.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
