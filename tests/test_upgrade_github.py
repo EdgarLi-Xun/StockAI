@@ -1,7 +1,8 @@
-"""GitHub discovery stays separate from signed package acceptance and execution."""
+"""GitHub discovery stays separate from signed acceptance. Desktop EXE may install a checksum-matched asset."""
 from datetime import datetime,timedelta,timezone
+import hashlib
 import pytest
-from backend.upgrades.github import DEFAULT_SOURCE,repository,latest
+from backend.upgrades.github import ASSET_HOSTS,DEFAULT_SOURCE,asset_url,parse_checksum,repository,latest
 from backend.upgrades.manager import Manager
 from backend.upgrades.trust import UpgradeError
 from test_cloud import cloud
@@ -12,8 +13,8 @@ def target(component='desktop',form='exe'):
     return {'component':component,'form':form,'architecture':'x64'}
 
 
-def release(version='3.3.0-preview.1',*,suffix='Windows.exe',**changes):
-    value={'tag_name':'v'+version,'draft':False,'prerelease':'-' in version,'published_at':'2026-11-04T00:00:00Z','assets':[{'name':f'StockAI-{version}-{suffix}','state':'uploaded','size':1234,'browser_download_url':'https://unrelated.example.test/do-not-use.exe'}]}
+def release(version='3.3.0-preview.1',*,suffix='Windows.exe',size=1234,**changes):
+    value={'tag_name':'v'+version,'draft':False,'prerelease':'-' in version,'published_at':'2026-11-04T00:00:00Z','assets':[{'name':f'StockAI-{version}-{suffix}','state':'uploaded','size':size,'browser_download_url':'https://unrelated.example.test/do-not-use.exe'}]}
     value.update(changes);return value
 
 
@@ -78,6 +79,7 @@ def test_incomplete_pagination_is_an_error_instead_of_a_current_version_result()
 def test_default_source_checks_github_but_cannot_prepare_unsigned_installation(manager):
     m,key=manager
     m=Manager(m.cfg,m.keys,component='desktop',form='exe',version='3.2.0-preview.3',fetcher=Pages([release()]))
+    m.state.put('settings',{**m.state.get('settings'),'channel':'preview'})
     assert m.source==DEFAULT_SOURCE and m.status()['source_kind']=='github'
     checked=m.check()
     assert checked['status']=='download_available' and checked['release']['signature_verified'] is False
@@ -91,6 +93,7 @@ def test_changing_source_or_channel_discards_old_failure_backoff_and_display(man
     m,key=manager;m.source=DEFAULT_SOURCE;m.target.update(component='desktop',form='exe')
     now=datetime.now(timezone.utc)
     m.state.put('check',{'status':'check_failed','error':'SOURCE_UNCONFIGURED','last_attempt':now.isoformat(),'next_retry':(now+timedelta(minutes=30)).isoformat()})
+    m.state.put('settings',{**m.state.get('settings'),'channel':'preview'})
     m.fetcher=Pages([release()],[release('4.0.0')])
     assert m.status()['check']['status']=='never_checked'
     assert m.check(automatic=True)['status']=='download_available'
@@ -109,9 +112,88 @@ def test_disabled_automatic_checks_do_not_return_available_results_from_an_old_s
 
 @pytest.mark.parametrize('data,status,error',[([release('3.2.0-preview.3')],'download_current',None),([],'download_unavailable',None),({},'check_failed','GITHUB_METADATA')])
 def test_github_current_missing_and_failed_results_are_distinct(manager,data,status,error):
-    m,key=manager;m.source=DEFAULT_SOURCE;m.version='3.2.0-preview.3';m.target.update(component='desktop',form='exe');m.fetcher=Pages(data)
+    m,key=manager;m.source=DEFAULT_SOURCE;m.version='3.2.0-preview.3';m.target.update(component='desktop',form='exe');m.state.put('settings',{**m.state.get('settings'),'channel':'preview'});m.fetcher=Pages(data)
     check=m.check()
     assert check['status']==status and check['error']==error
     if error:
         assert check['next_retry'] and m.check(automatic=True)==check
     assert m.current() is None
+
+
+class Checksum(Pages):
+    def __init__(self,*pages,checksum=b''):
+        super().__init__(*pages);self.checksum=checksum;self.reads=[]
+    def fetch_bytes(self,url,limit,hosts):
+        self.reads.append((url,limit,hosts));return self.checksum
+
+
+def desktop(manager,fetcher):
+    current,key=manager
+    return Manager(current.cfg,current.keys,component='desktop',form='exe',version='3.2.1',fetcher=fetcher,store=current.store)
+
+
+def published(payload,version='3.3.0'):
+    name=f'StockAI-{version}-Windows.exe'
+    return name,payload,(hashlib.sha256(payload).hexdigest()+'  '+name+'\n').encode()
+
+
+def test_checksum_line_must_name_the_same_asset_in_lowercase():
+    name='StockAI-3.3.0-Windows.exe';digest='ab'*32
+    assert parse_checksum((digest+'  '+name+'\n').encode(),name)==digest
+    for raw in ((digest+'  other.exe\n').encode(),(digest+' *'+name+'\n').encode(),(digest.upper()+'  '+name+'\n').encode(),(digest+'  '+name+'\n\n').encode(),'not-ascii-\xff'.encode()):
+        with pytest.raises(UpgradeError) as error:parse_checksum(raw,name)
+        assert error.value.code=='PACKAGE'
+
+
+def test_checked_github_release_still_cannot_prepare_a_signed_plan(manager):
+    name,payload,checksum=published(b'local-desktop-exe')
+    m=desktop(manager,Checksum([release('3.3.0',size=len(payload))],checksum=checksum))
+    assert m.check()['status']=='download_available'
+    with pytest.raises(UpgradeError) as error:m.prepare()
+    assert error.value.code=='UNTRUSTED' and m.current() is None
+
+
+def test_desktop_downloads_the_official_asset(manager):
+    from test_upgrade_download import Stream
+    payload=b'local-desktop-exe';name,_,checksum=published(payload)
+    class Feed(Stream):
+        def __init__(self):
+            super().__init__((200,payload,{'ETag':'"pkg"'}));self.page=[release('3.3.0',size=len(payload))];self.checksum=checksum;self.reads=[]
+        def metadata(self,url,headers=None):
+            self.requests.append((url,headers));return self.page
+        def fetch_bytes(self,url,limit,hosts):
+            self.reads.append((url,limit,hosts));return self.checksum
+    m=desktop(manager,Feed());m.check();tx=m.prepare_local()
+    assert tx['trust']=='github-sha256' and tx['status']=='planned'
+    assert tx['release']['package']['url']==asset_url('EdgarLi-Xun/StockAI','3.3.0',name)
+    assert m.fetcher.reads[0][0].endswith(name+'.sha256') and m.fetcher.reads[0][2]==ASSET_HOSTS
+    assert m.download(tx['id'])['status']=='verified' and m.package_path(m.current()).read_bytes()==payload
+    assert m.fetcher.requests[-1][0].endswith('/'+name) and m.fetcher.requests[-1][2]==ASSET_HOSTS
+
+
+def test_imported_local_exe_matches_the_published_checksum_without_a_release_root(manager,monkeypatch):
+    payload=b'local-desktop-exe';_,_,checksum=published(payload)
+    m=desktop(manager,Checksum([release('3.3.0',size=len(payload))],checksum=checksum));assert m.check()['status']=='download_available';imported=m.prepare_local()
+    monkeypatch.setattr(m,'trust',lambda:(_ for _ in ()).throw(AssertionError('发布根不应参与 GitHub 安装')))
+    assert m.upload(imported['id'],0,payload)['status']=='verified'
+    checked=m.preflight(imported['id'])
+    assert '升级包尚未完整验证' not in checked.get('blockers',[]) and checked['status'] in ('waiting_confirmation','preflight_blocked')
+
+
+@pytest.mark.parametrize('change',['web','source','client'])
+def test_github_install_stays_on_the_local_desktop_executable(manager,change):
+    name,payload,checksum=published(b'local-desktop-exe')
+    m=desktop(manager,Checksum([release('3.3.0',size=len(payload))],checksum=checksum));assert m.check()['status']=='download_available'
+    if change=='web':m.component='web'
+    elif change=='source':m.form='source'
+    else:m.client_only=True
+    with pytest.raises(UpgradeError) as error:m.prepare_local()
+    assert error.value.code=='TARGET' and m.current() is None
+
+
+def test_tampered_download_address_is_not_installed(manager):
+    name,payload,checksum=published(b'local-desktop-exe')
+    m=desktop(manager,Checksum([release('3.3.0',size=len(payload))],checksum=checksum));assert m.check()['status']=='download_available'
+    record=m.state.get('check');record['release']['download_url']+='.evil';m.state.put('check',record)
+    with pytest.raises(UpgradeError) as error:m.prepare_local()
+    assert error.value.code=='TARGET' and m.current() is None and not m.fetcher.reads

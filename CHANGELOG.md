@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.2] - 2026-11-04
+
+- 已安装的 Windows 桌面版可在「关于与升级」下载新版 EXE，或导入已经下载的同名文件。
+- 程序只接受 GitHub 发布地址，并用发布页上的同名 SHA-256 核对文件；确认后退出并重启，工作区保持不变。
+- 该核对只证明文件与发布页一致，不是发布者签名。Web 和 Hub 仍不会从 GitHub 自动替换服务。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.2-Windows.exe`、同版 Public / Hub ZIP、各自 SHA256 和 EXE 构建元数据。
+- 此版本进入稳定通道。不覆盖 3.2.1，也不自动把 Web / Hub 部署到服务器。
+
 ## [3.2.1] - 2026-11-04
 
 - 助手识别「加到自选」「放入持仓」等说法，并准备添加股票方案，不再回复无法添加。
@@ -110,6 +121,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.2]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.2
 [3.2.1]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.1
 [3.2.0]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0
 [3.2.0-preview.3]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.0-preview.3

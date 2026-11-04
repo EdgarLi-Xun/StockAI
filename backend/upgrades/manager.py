@@ -15,7 +15,7 @@ from .versions import Version
 from .trust import Trust,UpgradeError
 from .state import State
 from .download import Fetcher
-from .github import DEFAULT_SOURCE,repository,latest as github_latest
+from .github import ASSET_HOSTS,DEFAULT_SOURCE,asset_url,parse_checksum,repository,latest as github_latest
 from .checkpoint import Checkpoints,file_hash,database_health
 from .cache import Cache
 
@@ -111,6 +111,47 @@ class Manager(Cache):
             self.state.put('active',ident);self.state.put('transaction:'+ident,tx);self.state.put('envelope:'+ident,envelope)
             return tx
 
+    def prepare_local(self):
+        """仅本机桌面 EXE：把已检查的 GitHub 发行包绑定到发布页 SHA-256。这不是发布者签名。"""
+        with self.lock():
+            old=self.current()
+            if old and old['status'] not in TERMINAL:return old
+            if getattr(self,'client_only',False) or self.component!='desktop' or self.form!='exe':raise UpgradeError('TARGET','只有本机桌面程序可以从 GitHub 下载安装')
+            repo=repository(self.source)
+            if not repo or self.target['architecture']!='x64':raise UpgradeError('TARGET')
+            check=self.state.get('check') or {}
+            found=check.get('release') or {}
+            if check.get('status')!='download_available' or found.get('signature_verified') is not False:raise UpgradeError('UNTRUSTED','当前没有可安装的 GitHub 发行包')
+            version,name,size=found.get('version'),found.get('asset_name'),found.get('size')
+            if found.get('component')!='desktop' or found.get('channel')!=self.state.get('settings')['channel']:raise UpgradeError('TARGET')
+            if not isinstance(version,str) or name!=f'StockAI-{version}-Windows.exe' or type(size) is not int or not 0<size<=2*1024*1024*1024:raise UpgradeError('TARGET')
+            try:newer=Version(version)>Version(self.version)
+            except (TypeError,ValueError):raise UpgradeError('TARGET') from None
+            if not newer:raise UpgradeError('DOWNGRADE')
+            url=asset_url(repo,version,name)
+            if found.get('download_url')!=url:raise UpgradeError('TARGET')
+            checksum=parse_checksum(self.fetcher.fetch_bytes(asset_url(repo,version,name+'.sha256'),256,ASSET_HOSTS),name)
+            release={'component':'desktop','version':version,'channel':found['channel'],'platform':'windows','architecture':'x64','form':'exe','asset_name':name,'provides':dict(self.target['capabilities']),'package':{'size':size,'sha256':checksum,'url':url}}
+            ident=uuid.uuid4().hex
+            tx={'id':ident,'component':self.component,'from_version':self.version,'target_version':version,'release':release,'release_hash':digest(release),'trust':'github-sha256','checksum':checksum,'status':'planned','created_at':datetime.now(timezone.utc).isoformat(),'writes_opened':False,'actor':None,'checkpoint':None,'error':None}
+            tx.update(workspace=str(self.cfg.data.resolve()),control=str(self.cfg.erasures.resolve()))
+            tx['confirmation']=digest({k:tx[k] for k in ('id','component','from_version','target_version','release_hash','workspace','control')})
+            self.state.put('active',ident);self.state.put('transaction:'+ident,tx)
+            return tx
+
+    def bind_github(self,tx):
+        repo=repository(self.source);release=tx.get('release') or {};package=release.get('package') or {}
+        version,name=release.get('version'),release.get('asset_name')
+        if getattr(self,'client_only',False) or self.component!='desktop' or self.form!='exe' or not repo:raise UpgradeError('TARGET')
+        if tx.get('trust')!='github-sha256' or release.get('component')!='desktop' or release.get('form')!='exe':raise UpgradeError('UNTRUSTED')
+        if not isinstance(version,str) or name!=f'StockAI-{version}-Windows.exe':raise UpgradeError('TARGET')
+        try:newer=Version(version)>Version(self.version)
+        except (TypeError,ValueError):raise UpgradeError('TARGET') from None
+        if not newer:raise UpgradeError('DOWNGRADE')
+        sha=package.get('sha256')
+        if package.get('url')!=asset_url(repo,version,name) or sha!=tx.get('checksum') or not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha):raise UpgradeError('PACKAGE')
+        if type(package.get('size')) is not int or not 0<package['size']<=2*1024*1024*1024:raise UpgradeError('PACKAGE')
+
     def package_path(self,tx):return self.folder/'downloads'/tx['id']/('payload.exe' if self.form=='exe' else 'payload.zip')
 
     def download(self,ident,cancel=None):
@@ -120,7 +161,7 @@ class Manager(Cache):
             tx=self.update(tx,'downloading',downloaded=0)
             self.state.put('cancel:'+ident,False)
             try:
-                self.fetcher.download(tx['release'],self.package_path(tx),lambda count,total:self.update(tx,'downloading',downloaded=count,total=total),cancel or (lambda:self.state.get('cancel:'+ident,False)))
+                self.fetcher.download(tx['release'],self.package_path(tx),lambda count,total:self.update(tx,'downloading',downloaded=count,total=total),cancel or (lambda:self.state.get('cancel:'+ident,False)),ASSET_HOSTS if tx.get('trust')=='github-sha256' else None)
                 return self.update(tx,'verified',downloaded=tx['release']['package']['size'])
             except UpgradeError as exc:self.update(tx,'download_paused' if exc.code=='CANCELLED' else 'download_failed',error=exc.code,next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise
 
@@ -142,7 +183,8 @@ class Manager(Cache):
         if tx['status'] in TERMINAL:return tx
         blockers=[];package=self.package_path(tx);release=tx['release']
         if tx.get('workspace')!=str(self.cfg.data.resolve()) or tx.get('control')!=str(self.cfg.erasures.resolve()):raise UpgradeError('RECOVERY','计划所属工作区与当前目录不同，拒绝执行')
-        self.trust().release(self.state.get('envelope:'+ident),self.target)
+        if tx.get('trust')=='github-sha256':self.bind_github(tx)
+        else:self.trust().release(self.state.get('envelope:'+ident),self.target)
         if not package.is_file() or package.stat().st_size!=release['package']['size'] or file_hash(package)!=release['package']['sha256']:blockers.append('升级包尚未完整验证')
         data_bytes=sum(p.stat().st_size for p in self.cfg.data.rglob('*') if p.is_file() and not p.is_symlink())
         expanded=0

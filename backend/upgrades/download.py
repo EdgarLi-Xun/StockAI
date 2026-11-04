@@ -11,14 +11,21 @@ import ssl
 from urllib.parse import urlsplit,urljoin
 from backend.cloud.crypto import atomic_private
 from backend.sync.protocol import canonical,digest
+from .github import ASSET_HOSTS,github_asset
 from .trust import UpgradeError
 
 
 class Fetcher:
     def __init__(self,timeout=20):self.timeout=timeout
-    def connection(self,url):
+    def connection(self,url,hosts=None):
         parsed=urlsplit(url)
         if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:raise UpgradeError('TARGET','更新地址必须为可信 HTTPS')
+        # Release assets stay on GitHub's certificate. Callers must pass ASSET_HOSTS;
+        # every other package URL remains IP-pinned so a redirect cannot enter a private network.
+        if hosts is not None:
+            if hosts!=ASSET_HOSTS or not github_asset(parsed):raise UpgradeError('TARGET','安装包地址不在 GitHub 发行下载范围内')
+            path=(parsed.path or '/')+('?'+parsed.query if parsed.query else '')
+            return http.client.HTTPSConnection(parsed.hostname,443,context=ssl.create_default_context(),timeout=self.timeout),path
         # Only the fixed public GitHub list endpoint may use VPN/fake-IP DNS.
         # TLS still verifies api.github.com; arbitrary feeds and packages remain IP-pinned.
         if parsed.hostname=='api.github.com' and parsed.port in (None,443) and re.fullmatch(r'/repos/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*/releases/?',parsed.path):
@@ -33,10 +40,11 @@ class Fetcher:
             except BaseException:raw.close();raise
         conn.connect=connect;return conn,(parsed.path or '/')+('?' +parsed.query if parsed.query else '')
 
-    def response(self,url,headers=None):
-        # Each redirect is independently pinned and no credentials are sent.
+    def response(self,url,headers=None,hosts=None):
+        # Each redirect is checked again. GitHub asset downloads cannot leave ASSET_HOSTS.
         for _ in range(4):
-            conn,path=self.connection(url)
+            if hosts is not None and urlsplit(url).hostname not in hosts:raise UpgradeError('TARGET','安装包地址不在 GitHub 发行下载范围内')
+            conn,path=self.connection(url,hosts)
             try:conn.request('GET',path,headers=headers or {});response=conn.getresponse()
             except (OSError,http.client.HTTPException):conn.close();raise UpgradeError('NETWORK','更新请求未完成') from None
             if response.status in (301,302,303,307,308):
@@ -57,7 +65,18 @@ class Fetcher:
         except (OSError,http.client.HTTPException):raise UpgradeError('NETWORK','发布清单读取未完成') from None
         finally:conn.close()
 
-    def download(self,release,destination,progress=None,cancel=None):
+    def fetch_bytes(self,url,limit,hosts):
+        conn,response=self.response(url,{'Accept':'application/octet-stream','Accept-Encoding':'identity'},hosts)
+        try:
+            if response.status==429 or response.status==403 and response.getheader('X-RateLimit-Remaining')=='0':raise UpgradeError('RATE_LIMITED','更新请求已被限流，请稍后再试')
+            if response.status!=200:raise UpgradeError('NETWORK','无法读取发行校验，HTTP '+str(response.status))
+            raw=response.read(limit+1)
+            if len(raw)>limit:raise UpgradeError('PACKAGE')
+            return raw
+        except (OSError,http.client.HTTPException):raise UpgradeError('NETWORK','发行校验读取未完成') from None
+        finally:conn.close()
+
+    def download(self,release,destination,progress=None,cancel=None,hosts=None):
         package=release['package'];path=Path(destination);part=path.with_suffix('.part');sidecar=path.with_suffix('.resume.json');identity=digest(package)
         start=0;tag=None
         if part.exists() and sidecar.exists():
@@ -83,7 +102,7 @@ class Fetcher:
         if start>package['size']:start=0
         headers={'Accept-Encoding':'identity'}
         if start:headers.update(Range=f'bytes={start}-',**{'If-Range':tag})
-        conn,response=self.response(package['url'],headers)
+        conn,response=self.response(package['url'],headers,hosts)
         try:
             current=response.getheader('ETag','')
             if response.status==200:start=0

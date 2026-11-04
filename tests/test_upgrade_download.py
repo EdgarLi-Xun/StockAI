@@ -16,8 +16,8 @@ class Socket:
 
 class Stream(Fetcher):
     def __init__(self,*responses):self.responses=list(responses);self.requests=[];self.closed=0
-    def response(self,url,headers=None):
-        self.requests.append((url,headers));status,body,values=self.responses.pop(0)
+    def response(self,url,headers=None,hosts=None):
+        self.requests.append((url,headers,hosts));status,body,values=self.responses.pop(0)
         fields={'Content-Length':str(len(body)),**values}
         raw=('HTTP/1.1 '+str(status)+' OK\r\n'+''.join(k+': '+v+'\r\n' for k,v in fields.items())+'\r\n').encode()+body
         response=http.client.HTTPResponse(Socket(raw));response.begin();return self,response
@@ -43,7 +43,7 @@ def test_fixed_github_list_endpoint_keeps_tls_hostname_verification_with_fake_ip
     assert calls[0][2].verify_mode.name=='CERT_REQUIRED'
 
 
-@pytest.mark.parametrize('url',['https://releases.example.test/index.json','https://api.github.com/internal','https://api.github.com:444/repos/owner/repo/releases','https://api.github.com.evil.test/repos/owner/repo/releases'])
+@pytest.mark.parametrize('url',['https://releases.example.test/index.json','https://api.github.com/internal','https://api.github.com:444/repos/owner/repo/releases','https://api.github.com.evil.test/repos/owner/repo/releases','https://github.com/EdgarLi-Xun/StockAI/releases/download/v3.3.0/StockAI-3.3.0-Windows.exe'])
 def test_other_update_urls_still_reject_private_or_fake_ip_targets(monkeypatch,url):
     monkeypatch.setattr(socket,'getaddrinfo',lambda *args,**kwargs:[(socket.AF_INET,socket.SOCK_STREAM,6,'',('198.18.25.114',443))])
     with pytest.raises(UpgradeError) as error:Fetcher().connection(url)
@@ -95,6 +95,52 @@ def test_server_changes_etag_during_resume_keeps_current_program(tmp_path):
     fetch=Stream((206,data[3:],{'ETag':'"new"','Content-Range':f'bytes 3-{len(data)-1}/{len(data)}'}))
     with pytest.raises(UpgradeError) as error:fetch.download(release(data),path)
     assert error.value.code=='PACKAGE' and not path.exists() and path.with_suffix('.part').read_bytes()==data[:3]
+
+
+class Conn:
+    def __init__(self,raw):self.raw=raw
+    def request(self,method,path,body=None,headers=None):self.path=path
+    def getresponse(self):
+        response=http.client.HTTPResponse(Socket(self.raw));response.begin();return response
+    def close(self):pass
+
+
+def test_official_github_asset_uses_certificate_verification_without_ip_pinning(monkeypatch):
+    from backend.upgrades.github import ASSET_HOSTS
+    calls=[]
+    def connection(host,port,*,context,timeout):
+        calls.append((host,context.check_hostname,context.verify_mode.name));return object()
+    monkeypatch.setattr(http.client,'HTTPSConnection',connection)
+    monkeypatch.setattr(socket,'getaddrinfo',lambda *args,**kwargs:pytest.fail('发行包主机不应改走内网地址探测'))
+    conn,path=Fetcher().connection('https://github.com/EdgarLi-Xun/StockAI/releases/download/v3.3.0/StockAI-3.3.0-Windows.exe.sha256',ASSET_HOSTS)
+    assert calls==[('github.com',True,'CERT_REQUIRED')] and path.endswith('/StockAI-3.3.0-Windows.exe.sha256')
+    with pytest.raises(UpgradeError) as error:Fetcher().connection('https://github.com/EdgarLi-Xun/StockAI/archive/refs/tags/v3.3.0.tar.gz',ASSET_HOSTS)
+    assert error.value.code=='TARGET'
+
+
+def test_github_asset_redirect_cannot_leave_release_hosts():
+    from backend.upgrades.github import ASSET_HOSTS
+    fetch=Fetcher();seen=[]
+    def connection(url,hosts=None):
+        seen.append(url)
+        raw=b'HTTP/1.1 302 Found\r\nLocation: https://evil.example/payload.exe\r\nContent-Length: 0\r\n\r\n'
+        return Conn(raw),'/'
+    fetch.connection=connection
+    with pytest.raises(UpgradeError) as error:fetch.response('https://github.com/EdgarLi-Xun/StockAI/releases/download/v3.3.0/StockAI-3.3.0-Windows.exe',hosts=ASSET_HOSTS)
+    assert error.value.code=='TARGET' and seen==['https://github.com/EdgarLi-Xun/StockAI/releases/download/v3.3.0/StockAI-3.3.0-Windows.exe']
+
+
+def test_github_asset_may_follow_its_own_download_cdn():
+    from backend.upgrades.github import ASSET_HOSTS
+    fetch=Fetcher();seen=[]
+    def connection(url,hosts=None):
+        seen.append(url)
+        if len(seen)==1:raw=b'HTTP/1.1 302 Found\r\nLocation: https://objects.githubusercontent.com/releases/file?id=1\r\nContent-Length: 0\r\n\r\n'
+        else:raw=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK'
+        return Conn(raw),'/'
+    fetch.connection=connection
+    conn,response=fetch.response('https://github.com/EdgarLi-Xun/StockAI/releases/download/v3.3.0/StockAI-3.3.0-Windows.exe',hosts=ASSET_HOSTS)
+    assert response.status==200 and seen[1].startswith('https://objects.githubusercontent.com/releases/file?id=1')
 
 
 def test_corrupt_complete_package_can_be_downloaded_again(tmp_path):

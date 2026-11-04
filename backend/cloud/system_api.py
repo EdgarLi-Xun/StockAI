@@ -137,7 +137,11 @@ def install(app,rt,user,admin):
         manager.state.put('settings',{**current,**value});return manager.status()
 
     @app.post('/api/admin/upgrades/plan')
-    def plan(value:dict,request:Request,a=Depends(admin)):return rt(request).upgrades.prepare(value.get('envelope'))
+    def plan(value:dict,request:Request,a=Depends(admin)):
+        if value.get('local') is True:
+            if 'envelope' in value:raise UpgradeError('TARGET')
+            return rt(request).upgrades.prepare_local()
+        return rt(request).upgrades.prepare(value.get('envelope'))
 
     @app.post('/api/admin/upgrades/{ident}/download')
     def download(ident:str,request:Request,a=Depends(admin)):return rt(request).upgrades.download(ident)
