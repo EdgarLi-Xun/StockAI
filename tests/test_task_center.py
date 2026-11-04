@@ -17,7 +17,7 @@ from backend.public_app import create_app
 def test_task_help_describes_available_entries_without_model_calls():
     from backend.cloud.assistant import help_document, relevant_help
     entry = help_document('jobs')
-    assert entry['version'] == 'research-workbench/2'
+    assert entry['version'] == 'research-workbench/3'
     assert '任务中心' in entry['text'] and '不确定发送不直接重发' in entry['text']
     assert relevant_help('任务中心怎么看失败原因')[0]['id'] == 'jobs'
 

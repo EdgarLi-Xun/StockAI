@@ -1,5 +1,9 @@
 # StockAI
 
+## 2026-11-04 助手查询、聊天与手动应用
+
+用户明确无需携带分析结果，助手可以自行查资料；允许普通聊天、项目配置与添加股票，不允许删除或项目外操作，已有业务数据修改和删除由本人手动进行。配置方案明确选择“先展示配置变更，手动应用”。backend/cloud/assistant_lookup.py 提供限定类型的 search/read/latest；assistant_actions.py 只准备白名单配置与添加股票提案，推理协议没有写入工具，实际应用只通过界面按钮的独立确认接口。每消息最多三轮查询加回答，每次模型调用独立计数、核权和取消；动态来源标识与授权敏感标记随会话同步，历史重发检查删除和撤权，助手账户估值使用 persist=False 不写估值历史。帮助 research-workbench/3，回答 assistant-answer/3。用户已明确本轮完成后 commit + push；不部署或覆盖运行数据。
+
 ## 2026-11-03 页面整理
 
 个人空间导航由 PublicApp + components/WorkspaceNav.vue + workspaceNavigation.ts 统一持有，navigation.css 在 workspace.css 后加载。App.vue 自有侧栏/顶栏仅用于原源码本地模式；PublicApp 中的 ResearchWorkbench 和助手独立页传 embedded，避免重新出现第二套导航。悬浮助手保持持续挂载，不能在切页时销毁。手机抽屉需处理 CSS 过渡后的焦点、Esc、Tab 循环与变宽后关闭，否则 inert 会阻止页面交互。旧构建副本可能通过 Junction 指向实际 frontend/node_modules，清理时只能先非递归移除链接本身，不能沿链接删除依赖。详情见 docs/修复记录-统一导航与构建清理.md；preview.4 为本地构建，未发布。

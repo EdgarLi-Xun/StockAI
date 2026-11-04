@@ -28,3 +28,7 @@
 .assistant-help-index{padding:12px 22px;border-bottom:1px solid #e9eee9;color:var(--muted);font-size:13px}.assistant-help-index summary{cursor:pointer}.assistant-help-links{display:flex;flex-wrap:wrap;gap:13px;padding:14px 0 5px}.assistant-help-links button{font-size:13px}.readiness-abilities{font-size:14px;color:var(--muted);margin-top:20px}.readiness-abilities summary{cursor:pointer;margin-bottom:15px}
 
 .modal-scrim:has(.confirm-card){z-index:180}.modal-scrim:has(.research-leave){z-index:190}
+.assistant-optional-context{margin-bottom:10px;font-size:12px;color:var(--muted)}
+.assistant-optional-context>summary{cursor:pointer;padding:5px 0}
+.assistant-optional-context .assistant-context-picker{margin-top:8px;margin-bottom:0}
+.assistant-query-note{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 8px}

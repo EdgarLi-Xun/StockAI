@@ -80,8 +80,8 @@ class Adapter:
         if table=='research_experiments':value['job_id']=None
         if table=='assistant_requests':
             payload=json.loads(value.get('payload_json') or '{}')
-            value['payload_json']=json_text({'contexts':payload.get('contexts',[])})
-            value['job_id']=None;value['sensitivity_json']='[]'
+            value['payload_json']=json_text({k:payload[k] for k in ('contexts','retrieved_contexts','lookup_contexts','lookup_sensitivity','read_preferences') if k in payload})
+            value['job_id']=None
         if table in ('assistant_requests','research_experiments') and value.get('status') in ('queued','running','validating'):
             value['status']='interrupted';value['error_code']='SYNC_RECEIVED_INTERRUPTED'
         for key in list(value):

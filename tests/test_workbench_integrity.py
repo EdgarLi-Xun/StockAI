@@ -33,7 +33,7 @@ def test_same_facts_two_reports_safe_budget_and_deleted_context(cloud):
     assert refs[-1]['facts']['kind']=='explanation_change'
     assert refs[0]['data_time'] and refs[1]['data_time'] and refs[0]['version']!=refs[1]['version']
     with pytest.raises(AuthError):assistant.context_refs(store,admin,contexts,fixed)
-    assert assistant.classify('和上次报告比较一下',[])=='clarify'
+    assert assistant.classify('和上次报告比较一下',[])=='project'
     fake={'snapshot_id':'a','candidates':[{'instrument_id':'SH:1','budget':{'total':1000,'fee_note':'SECRET-NOTE','fees':{'total':5}}}]}
     fake2=json.loads(json_text(fake));fake2['candidates'][0]['budget']['total']=900
     assert 'SECRET-NOTE' not in json_text(assistant.compare_reports(fake,fake2))

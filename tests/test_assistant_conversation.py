@@ -68,7 +68,7 @@ def test_followup_without_model_stays_on_static_help_topic(cloud):
 
 def test_missing_object_and_unrelated_requests_still_stop_before_model(cloud):
     store,keys,*_,uid=cloud;profile(cloud);sid=session(store,uid)
-    for question,state in [('分析一下','clarification'),('继续','clarification'),('你好，帮我写旅游攻略','refused')]:
+    for question,state in [('分析一下','clarification'),('继续','clarification'),('删除最近的报告','refused')]:
         row=submit(store,keys,uid,sid,question);assert row['status']==state and not row['job_id']
     assert not store.one('SELECT id FROM model_calls')
 

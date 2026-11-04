@@ -249,7 +249,7 @@ def valid_valuation_segments(curve):
 
 
 # 计算本人现金、持仓与行业集中度，保存估值证据并保留数据缺口。
-def portfolio_risk(store,uid,account_id):
+def portfolio_risk(store,uid,account_id,*,persist=True):
     account=workspace.owned(store,'sim_accounts',uid,account_id);cash=dec(account['cash']);positions=[];market_value=Decimal(0);known=Decimal(0);sectors={};gaps=[];ctx=market.calendar(store)
     for p in store.query('SELECT instrument_id,SUM(quantity) quantity FROM sim_lots WHERE user_id=? AND account_id=? AND quantity>0 GROUP BY instrument_id',(uid,account_id)):
         item=market.instrument(store,p['instrument_id']);bars=market.bars_for(store,item['id'],limit=1);bar=bars[-1] if bars else None;reasons=fresh_reasons(bar,ctx)
@@ -266,12 +266,16 @@ def portfolio_risk(store,uid,account_id):
     known_sectors=[(k,v) for k,v in sectors.items() if k not in {'未知行业','未穿透 ETF'}];top=max(known_sectors,key=lambda r:r[1]) if known_sectors else None
     result={'account_id':account_id,'name':account['name'],'currency':'CNY','cash':float(cash),'reserved_cash':float(reserved),'available_cash':float(cash-reserved),'market_value':float(market_value) if not gaps else None,'equity':float(equity) if not gaps else None,'book_reference_equity':float(equity),'position_pct':float(market_value/equity*100) if trusted else None,'cash_pct':float(cash/equity*100) if trusted else None,'industry_concentration_pct':float(top[1]/market_value*100) if trusted and top and market_value else None,'industry_equity_pct':float(top[1]/equity*100) if trusted and top else None,'classification_coverage_pct':float(known/market_value*100) if trusted and market_value else None,'top_industry':top[0] if top else None,'industry_distribution':[{'industry':k,'value':float(v),'position_pct':float(v/market_value*100) if trusted and market_value else None} for k,v in sectors.items()],'positions':positions,'gaps':gaps,'quality':'verified' if trusted else 'incomplete','rule_version':RULE_VERSION}
     hashed=fingerprint(result)
-    with store.user_lock(uid),store.tx(immediate=True) as c:
-        if store.active(uid,c=c) and c.execute('SELECT id FROM sim_accounts WHERE id=? AND user_id=?',(account_id,uid)).fetchone():
-            previous=c.execute('SELECT revision,data_hash FROM portfolio_valuation_history WHERE user_id=? AND account_id=? ORDER BY revision DESC LIMIT 1',(uid,account_id)).fetchone()
-            if not previous or previous['data_hash']!=hashed:
-                c.execute('INSERT INTO portfolio_valuation_history VALUES(?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,uid,account_id,previous['revision']+1 if previous else 1,stamp(),hashed,json_text(result),'live'))
-    history=store.query('SELECT revision,created_at,payload_json,origin FROM portfolio_valuation_history WHERE user_id=? AND account_id=? ORDER BY revision',(uid,account_id));sequence=[dec(account['initial_cash'])]
+    if persist:
+        with store.user_lock(uid),store.tx(immediate=True) as c:
+            if store.active(uid,c=c) and c.execute('SELECT id FROM sim_accounts WHERE id=? AND user_id=?',(account_id,uid)).fetchone():
+                previous=c.execute('SELECT revision,data_hash FROM portfolio_valuation_history WHERE user_id=? AND account_id=? ORDER BY revision DESC LIMIT 1',(uid,account_id)).fetchone()
+                if not previous or previous['data_hash']!=hashed:
+                    c.execute('INSERT INTO portfolio_valuation_history VALUES(?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,uid,account_id,previous['revision']+1 if previous else 1,stamp(),hashed,json_text(result),'live'))
+    history=store.query('SELECT revision,created_at,payload_json,origin,data_hash FROM portfolio_valuation_history WHERE user_id=? AND account_id=? ORDER BY revision',(uid,account_id));sequence=[dec(account['initial_cash'])]
+    # 助手只读查询在内存中计算当前点，不追加或更改账户估值历史。
+    if not persist and (not history or history[-1]['data_hash']!=hashed):
+        history.append({'revision':None,'created_at':stamp(),'payload_json':json_text(result),'origin':'read_only'})
     curve=[{'ts':account['created_at'],'equity':float(account['initial_cash']),'quality':'verified','source':'虚拟初始资金'}]
     for r in history:
         point=json.loads(r['payload_json']);sequence.append(point['equity'] if point['quality']=='verified' else None);curve.append({'ts':r['created_at'],'equity':point['equity'],'quality':point['quality'],'revision':r['revision'],'origin':r['origin']})

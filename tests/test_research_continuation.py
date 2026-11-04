@@ -180,8 +180,8 @@ def test_instrument_context_marks_missing_or_unverified_quotes(research_data,clo
 
 
 @pytest.mark.parametrize('question',['我的账户回撤为什么变化？','当前账户资金为什么少了？','最近报告有哪些变化？'])
-def test_personal_fact_question_requires_selected_context(question):
-    assert assistant.classify(question,[])=='clarify'
+def test_personal_fact_question_can_query_without_selected_context(question):
+    assert assistant.classify(question,[])=='project'
 
 
 def test_operating_help_does_not_require_personal_account_selection():
@@ -218,8 +218,8 @@ def test_legacy_usage_batch_interruption_restarts_without_partial_or_duplicate_c
     ctl.import_legacy_usage();assert summary(store,uid)['daily']['sent']==20
 
 
-def test_selected_context_must_match_the_personal_object_in_question():
-    assert assistant.classify('我的账户回撤为什么变化？',[{'kind':'report','id':'r'}])=='clarify'
-    assert assistant.classify('比较两份报告的变化',[{'kind':'report','id':'r'}])=='clarify'
-    assert assistant.classify('我的回测为什么失败？',[{'kind':'instrument','id':'i'}])=='clarify'
+def test_missing_context_types_can_be_queried_alongside_selected_context():
+    assert assistant.classify('我的账户回撤为什么变化？',[{'kind':'report','id':'r'}])=='project'
+    assert assistant.classify('比较两份报告的变化',[{'kind':'report','id':'r'}])=='project'
+    assert assistant.classify('我的回测为什么失败？',[{'kind':'instrument','id':'i'}])=='project'
     assistant.validate_answer_text('我不推荐买入，应先核验资料。',True)

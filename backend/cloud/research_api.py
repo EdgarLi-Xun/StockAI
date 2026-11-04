@@ -10,6 +10,7 @@ from pydantic import BaseModel,ConfigDict,Field,StrictInt
 from backend.instruments import official_url
 from backend.config import now
 from . import alerts,assistant,experiments,market,research,resources
+from . import assistant_actions
 from .auth import Actor,AuthError
 from .research_control import summary,limits,control
 from .store import json_text,stamp
@@ -260,6 +261,11 @@ def install(app,rt,user,admin):
     @app.post('/api/me/assistant/requests/{ident}/stop')
     def stop_request(ident:str,request:Request,a:Actor=Depends(user)):
         return assistant.stop(rt(request).store,a.id,ident)
+
+    # 仅由界面中的手动应用按钮调用，推理协议不暴露此写入口。
+    @app.post('/api/me/assistant/requests/{ident}/actions/{index}/apply')
+    def apply_assistant_action(ident:str,index:int,value:assistant_actions.ApplyInput,request:Request,a:Actor=Depends(user)):
+        return assistant_actions.apply(rt(request).store,a.id,ident,index)
 
     # 仅允许管理员凭官方来源更新证券行业分类，并拒绝未来日期。
     @app.put('/api/admin/market/industry/{ident}')
