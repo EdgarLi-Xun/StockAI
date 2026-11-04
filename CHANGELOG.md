@@ -1,5 +1,18 @@
 # 更新记录
 
+## [3.2.5] - 2026-11-05
+
+- 桌面升级点击「下载并准备安装」后，自动下载、核对 SHA-256 并运行安装预检，最后再确认退出安装。
+- 下载时显示进度与已下载大小，保留暂停和续传；已验证的安装包直接预检，避免重复下载。
+- 下载或校验失败、暂停和离开页面时不继续后续步骤；其他目标的已有计划会明确提示处理。
+- 修正慢网络下下载进度轮询可能堆积的问题，旧响应不会覆盖最终安装状态。
+- 三种发行包的校验文件固定使用 LF，兼容已安装的旧版升级器。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.5-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 旧版界面若仍将下载、预检分成单独按钮，本次需继续完成这两个步骤；安装本版后使用新的自动准备流程。
+
 ## [3.2.4] - 2026-11-04
 
 - 工作台采用更紧凑的总览、指标带和导航，常用入口归为 9 项；手机增加底部导航，原有页面地址继续可用。
@@ -147,6 +160,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.5]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.5
 [3.2.4]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.4
 [3.2.3]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.3
 [3.2.2]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.2
