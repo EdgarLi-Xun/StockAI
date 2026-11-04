@@ -34,6 +34,13 @@ def manager(cloud,tmp_path):
     m=Manager(store.cfg,keys,store=store,root_file=path);m.source='';return m,private
 
 
+@pytest.fixture
+def preview_manager(manager):
+    m,key=manager
+    m.state.put('settings',{**m.state.get('settings'),'channel':'preview'})
+    return m,key
+
+
 def test_semver_and_dynamic_order():
     assert Version('1.0.0-preview.9')<Version('1.0.0-preview.10')<Version('1.0.0')
     assert Version('2.0.0')>Version('1.99.99')
@@ -58,8 +65,8 @@ def test_signatures_expiry_replay_and_rotating_root(manager):
 
 
 @pytest.mark.parametrize('order',[(2,1,0),(0,1,2),(1,2,0)])
-def test_release_lists_are_order_independent_and_repeatable(manager,monkeypatch,order):
-    m,key=manager
+def test_release_lists_are_order_independent_and_repeatable(preview_manager,monkeypatch,order):
+    m,key=preview_manager
     candidates=[release(key,version=f'3.3.0-preview.{i}',sequence=i) for i in (1,2,3)]
     feed={'releases':[candidates[i] for i in order]}
     m.source='https://releases.example.test/index.json'
@@ -72,15 +79,15 @@ def test_release_lists_are_order_independent_and_repeatable(manager,monkeypatch,
 
 
 @pytest.mark.parametrize('order',[(2,1,0),(0,1,2),(1,2,0)])
-def test_prepare_release_lists_without_prior_check(manager,order):
-    m,key=manager
+def test_prepare_release_lists_without_prior_check(preview_manager,order):
+    m,key=preview_manager
     candidates=[release(key,version=f'3.3.0-preview.{i}',sequence=i) for i in (1,2,3)]
     assert m.prepare({'releases':[candidates[i] for i in order]})['target_version']=='3.3.0-preview.3'
     assert m.state.get('release-floor:web:preview')['sequence']==3
 
 
-def test_candidate_validation_and_other_channels_do_not_advance_floor(manager,monkeypatch):
-    m,key=manager;selected=release(key,sequence=2)
+def test_candidate_validation_and_other_channels_do_not_advance_floor(preview_manager,monkeypatch):
+    m,key=preview_manager;selected=release(key,sequence=2)
     assert m.trust().candidate(selected,m.target)==selected['signed']
     assert m.state.get('release-floor:web:preview') is None
     feed={'releases':[release(key,channel='stable',version='4.0.0',sequence=99),selected,release(key,version='3.3.0-preview.0')]}
@@ -93,8 +100,8 @@ def test_candidate_validation_and_other_channels_do_not_advance_floor(manager,mo
 
 @pytest.mark.parametrize('action',['check','prepare','release'])
 @pytest.mark.parametrize('changes',[{'sequence':2,'version':'3.3.0-preview.2'},{'sequence':3,'version':'3.3.0-preview.4'}])
-def test_selected_release_still_rejects_replay(manager,monkeypatch,action,changes):
-    m,key=manager;accepted=release(key,sequence=3,version='3.3.0-preview.3')
+def test_selected_release_still_rejects_replay(preview_manager,monkeypatch,action,changes):
+    m,key=preview_manager;accepted=release(key,sequence=3,version='3.3.0-preview.3')
     m.trust().release(accepted,m.target);stale=release(key,**changes)
     if action=='check':
         m.source='https://releases.example.test/index.json'
@@ -110,8 +117,8 @@ def test_selected_release_still_rejects_replay(manager,monkeypatch,action,change
 
 @pytest.mark.parametrize('action',['check','prepare'])
 @pytest.mark.parametrize('invalid',['expired','revoked_signer','equivocation'])
-def test_rejected_candidate_list_never_advances_floor(manager,monkeypatch,action,invalid):
-    m,key=manager;valid=release(key)
+def test_rejected_candidate_list_never_advances_floor(preview_manager,monkeypatch,action,invalid):
+    m,key=preview_manager;valid=release(key)
     if invalid=='expired':bad=release(key,sequence=2,expires='2020-01-01T00:00:00+00:00');code='EXPIRED'
     elif invalid=='revoked_signer':bad=release(Ed25519PrivateKey.generate(),sequence=2);code='UNTRUSTED'
     else:bad=release(key,version='3.3.0-preview.2');code='REPLAY'
@@ -133,8 +140,8 @@ def test_prepare_current_version_does_not_advance_floor(manager):
     assert m.state.get('release-floor:web:preview') is None
 
 
-def test_old_version_feed_does_not_hide_known_replay(manager,monkeypatch):
-    m,key=manager;old=release(key,version='2.0.0',sequence=1)
+def test_old_version_feed_does_not_hide_known_replay(preview_manager,monkeypatch):
+    m,key=preview_manager;old=release(key,version='2.0.0',sequence=1)
     m.source='https://releases.example.test/index.json'
     monkeypatch.setattr(m.fetcher,'metadata',lambda source:{'releases':[old]})
     assert m.check()['status']=='up_to_date'
