@@ -51,3 +51,8 @@ test('a failed manual application keeps the proposal visible and never retries a
   assert.equal(c.message.reply.actions[0].applied_at, undefined)
   assert.equal(c.state.busy.value, false)
 })
+
+test('research action labels are available on the proposal card', () => {
+  const vue = readFileSync(new URL('../frontend/src/components/AssistantAction.vue', import.meta.url), 'utf8')
+  for (const label of ['添加提醒', '保存判断', '创建课题', '加入实验队列']) assert.match(vue, new RegExp(label))
+})

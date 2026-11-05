@@ -27,7 +27,7 @@ from .cloud import VERSION as PUBLIC_VERSION
 from backend.instruments import InstrumentInput
 from backend.research import resample_weekly
 from backend.simulation import OrderInput
-from .cloud import backups,collector,jobs,market,models,simulation,workspace
+from .cloud import backups,collector,jobs,market,models,simulation,smtp_settings,workspace
 from .cloud.auth import Actor,AuthError,SESSION_TTL,session_lifetime
 from .cloud.config import CloudConfig
 from .cloud.crypto import digest
@@ -469,11 +469,19 @@ def create_app(cfg=None):
     @app.get("/api/admin/users")
     def users(request:Request,a:Actor=Depends(admin)):
         return rt(request).store.query("SELECT id,email,role,status,verified_at,created_at FROM users ORDER BY created_at")
+    # 读取站点发信配置。授权码不以明文返回。
+    @app.get("/api/admin/mail")
+    def mail_settings(request:Request,a:Actor=Depends(admin)):
+        return smtp_settings.view(rt(request).store)
+    # 保存站点发信配置。留空授权码沿用已保存的密文。
+    @app.put("/api/admin/mail")
+    def save_mail_settings(payload:dict,request:Request,a:Actor=Depends(admin)):
+        return smtp_settings.save(rt(request).store,rt(request).keys,a.id,payload)
     # 汇总站点共享数据、队列与维护状态供管理员查看。
     @app.get("/api/admin/status")
     def admin_status(request:Request,a:Actor=Depends(admin)):
         store=rt(request).store
-        return {"smtp_configured":bool(cfg.smtp_host and cfg.smtp_from),"backup_configured":cfg.age_recipient.startswith("age1"),"ollama_enabled":cfg.ollama_enabled,"sqlite":sqlite3.sqlite_version,"mail_pending":store.one("SELECT COUNT(*) n FROM mail_outbox WHERE state IN('queued','retry','sending')")["n"],"mail_failed":store.one("SELECT COUNT(*) n FROM mail_outbox WHERE state='failed'")["n"]}
+        return {"smtp_configured":smtp_settings.configured(store),"backup_configured":cfg.age_recipient.startswith("age1"),"ollama_enabled":cfg.ollama_enabled,"sqlite":sqlite3.sqlite_version,"mail_pending":store.one("SELECT COUNT(*) n FROM mail_outbox WHERE state IN('queued','retry','sending')")["n"],"mail_failed":store.one("SELECT COUNT(*) n FROM mail_outbox WHERE state='failed'")["n"]}
     # 允许管理员停用或恢复目标账号，同时处理相关会话和任务。
     @app.post("/api/admin/users/{ident}/status")
     def user_status(ident:str,payload:dict,request:Request,a:Actor=Depends(admin)):

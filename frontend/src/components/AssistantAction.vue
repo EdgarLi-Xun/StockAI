@@ -5,6 +5,7 @@ const value = (v: any) => typeof v === 'boolean' ? (v ? '开启' : '关闭') : v
 const money = (v: any) => v === null || v === undefined ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const pct = (v: any) => v === null || v === undefined ? '—' : (Number(v) > 0 ? '+' : '') + Number(v).toFixed(2) + '%'
 const holding = (action: any) => action.quantity != null
+const applyLabel = (action: any) => action.kind === 'preferences' ? '应用配置' : action.kind === 'add_alert' ? '添加提醒' : action.kind === 'add_journal' ? '保存判断' : action.kind === 'add_topic' ? '创建课题' : action.kind === 'add_experiment' ? '加入实验队列' : action.already_exists && !holding(action) ? '已在自选中' : action.already_exists ? '更新持仓' : '添加到自选'
 </script>
 
 <template>
@@ -32,11 +33,57 @@ const holding = (action: any) => action.quantity != null
       <small v-if="holding(action) && action.position?.market_price == null">暂无已存行情，持仓金额和收益会在行情就绪后显示。</small>
       <small v-if="action.already_exists">该股票已在自选中，保留现有分组和置顶设置。</small>
     </template>
+    <template v-else-if="action.kind === 'add_alert'">
+      <p>{{ action.instrument_name }} · {{ action.instrument_id }}</p>
+      <dl class="assistant-action-changes">
+        <dt>名称</dt><dd>{{ action.name }}</dd>
+        <dt>条件</dt><dd>{{ action.condition_label }}</dd>
+        <template v-if="action.threshold != null"><dt>阈值</dt><dd>{{ action.threshold }}</dd></template>
+        <template v-if="action.report_id"><dt>来源报告</dt><dd>{{ action.report_id }}</dd></template>
+        <dt>冷却</dt><dd>{{ action.cooldown_minutes }} 分钟</dd>
+        <dt>有效期</dt><dd>{{ action.expires_label }}</dd>
+        <dt>免打扰</dt><dd>{{ action.dnd_start && action.dnd_end ? action.dnd_start + ' – ' + action.dnd_end : '关闭' }}</dd>
+        <dt>本规则邮件</dt><dd>{{ action.email ? '开启' : '关闭' }}</dd>
+        <dt>规则</dt><dd>{{ action.enabled ? '启用' : '停用' }}</dd>
+      </dl>
+      <small v-if="action.reference_close != null">涨跌幅将冻结参考收盘 {{ action.reference_close }}。</small>
+      <small v-if="action.email">邮件还需本人开启通知，且站点邮箱已配置。未配置时这条提醒仍会发站内通知。</small>
+    </template>
+    <template v-else-if="action.kind === 'add_journal'">
+      <p>{{ action.instrument_name }} · {{ action.instrument_id }}</p>
+      <dl class="assistant-action-changes">
+        <dt>判断依据</dt><dd>{{ action.rationale }}</dd>
+        <template v-if="action.counterargument"><dt>反方观点</dt><dd>{{ action.counterargument }}</dd></template>
+        <template v-if="action.invalidation"><dt>失效条件</dt><dd>{{ action.invalidation }}</dd></template>
+        <template v-if="action.note"><dt>私人备注</dt><dd>{{ action.note }}</dd></template>
+        <template v-if="action.report_id"><dt>来源报告</dt><dd>{{ action.report_id }}</dd></template>
+      </dl>
+    </template>
+    <template v-else-if="action.kind === 'add_topic'">
+      <dl class="assistant-action-changes">
+        <dt>课题名称</dt><dd>{{ action.name }}</dd>
+        <dt>研究问题</dt><dd>{{ action.question || '—' }}</dd>
+      </dl>
+    </template>
+    <template v-else-if="action.kind === 'add_experiment'">
+      <p>{{ action.instrument_name }} · {{ action.parameters.instrument_id }}</p>
+      <dl class="assistant-action-changes">
+        <dt>课题</dt><dd>{{ action.topic_name }}</dd>
+        <dt>初始资金</dt><dd>{{ money(action.parameters.initial_cash) }}</dd>
+        <dt>快线 / 慢线</dt><dd>{{ action.parameters.fast }} / {{ action.parameters.slow }}</dd>
+        <dt>样本内占比</dt><dd>{{ pct(action.parameters.train_ratio * 100) }}</dd>
+        <dt>止损</dt><dd>{{ pct(action.parameters.stop_loss_pct * 100) }}</dd>
+        <dt>严格核验</dt><dd>{{ action.parameters.strict ? '开启' : '关闭' }}</dd>
+        <template v-if="action.index_id"><dt>指数基准</dt><dd>{{ action.index_id }}</dd></template>
+        <template v-if="action.parameters.start_date || action.parameters.end_date"><dt>日期</dt><dd>{{ action.parameters.start_date || '不限' }} – {{ action.parameters.end_date || '不限' }}</dd></template>
+      </dl>
+      <small>应用后进入实验队列，和其他研究任务共用等待名额。</small>
+    </template>
     <p v-if="action.changes?.some((c: any) => c.field === 'automatic_ai' && c.after)" class="warning-text">开启后，已启用的研究计划可能消耗个人模型额度。</p>
     <small v-if="action.applied_at" role="status">已由你手动应用</small>
     <template v-else>
       <small>方案尚未执行。核对后点击按钮应用。</small>
-      <button class="secondary small" type="button" :disabled="disabled || (action.already_exists && !holding(action))" @click="$emit('apply')">{{ action.kind === 'preferences' ? '应用配置' : action.already_exists && !holding(action) ? '已在自选中' : action.already_exists ? '更新持仓' : '添加到自选' }}</button>
+      <button class="secondary small" type="button" :disabled="disabled || (action.already_exists && !holding(action))" @click="$emit('apply')">{{ applyLabel(action) }}</button>
     </template>
   </section>
 </template>

@@ -96,6 +96,8 @@ def facts(store,uid,mode,prefs=None):
     if mode=="full":
         value["deep_context"]=[{**{k:r[k] for k in ("id","category","instrument_id","source","source_url","as_of","fetched_at")},"data":json.loads(r["payload_json"])} for r in store.query("SELECT * FROM research_context ORDER BY category,instrument_id")]
         value["announcements"]=store.query("SELECT instrument_id,title,source_url,verified_at,severity FROM risk_events WHERE event_type='announcement' ORDER BY verified_at DESC LIMIT 40")
+    from backend.idea_flow import attach_cloud
+    attach_cloud(store,uid,value)
     value["snapshot_id"]=hashlib.sha256(json_text(value).encode()).hexdigest()
     from .research import readiness
     value['readiness']=readiness(store,uid,size=50,persist=False)

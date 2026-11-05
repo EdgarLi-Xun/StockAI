@@ -15,6 +15,7 @@ from backend.collectors import fresh_reasons
 from backend.budget import budget_check
 from . import market,resources,workspace
 from .auth import AuthError
+from .smtp_settings import configured as mail_configured, effective as mail_account
 from .preferences import get_preferences
 from .research import fingerprint,RULE_VERSION
 from .store import json_text,stamp
@@ -234,7 +235,7 @@ def deliver_pending(store,uid,at=None):
         settings=store.one("SELECT payload_json FROM research_objects WHERE user_id=? AND kind='notification_settings'",(uid,));email_enabled=bool(settings and json.loads(settings['payload_json']).get('email_enabled'))
         email_events=[e for e,d in valid if d['email']]
         if email_events:
-            mid=uuid.uuid4().hex;mail_state='queued' if email_enabled and store.cfg.smtp_host and store.cfg.smtp_from else 'not_configured' if email_enabled else 'not_enabled'
+            mid=uuid.uuid4().hex;mail_state='queued' if email_enabled and mail_configured(store) else 'not_configured' if email_enabled else 'not_enabled'
             c.execute("INSERT INTO alert_deliveries(id,user_id,event_ids_json,channel,state,next_at,created_at) VALUES(?,?,?,'email',?,?,?)",(mid,uid,json_text([e['id'] for e in email_events]),mail_state,stamp(),stamp()))
             for e in email_events:c.execute('INSERT OR IGNORE INTO alert_delivery_events VALUES(?,?,?)',(e['id'],'email',mid))
 
@@ -261,7 +262,8 @@ def send_mail(store,keys,sender=None):
             receipt_key=payload.setdefault('sync_receipt_key',digest(sorted(e['event_key'] for e in events)))
             r['payload_json']=json_text(payload)
         c.execute("UPDATE alert_deliveries SET state='sending',attempts=attempts+1,payload_json=? WHERE id=?",(r['payload_json'],r['id']))
-    message=EmailMessage();message['Subject']='StockAI 个人条件提醒';message['To']=user['email'];message['From']=store.cfg.smtp_from or 'no-reply@stockai.test';message.set_content('\n\n'.join(event_text(e) for e in events))
+    account=None if sender else mail_account(store,keys)
+    message=EmailMessage();message['Subject']='StockAI 个人条件提醒';message['To']=user['email'];message['From']=(account.sender if account else store.cfg.smtp_from) or 'no-reply@stockai.test';message.set_content('\n\n'.join(event_text(e) for e in events))
     sent=False;accepted=False
     # 真正发送前复核账号、邮件开关和每个事件对应的提醒版本仍然有效。
     def still_enabled():
@@ -277,12 +279,15 @@ def send_mail(store,keys,sender=None):
             if not still_enabled():store.execute("UPDATE alert_deliveries SET state='cancelled' WHERE id=?",(r['id'],));return True
             sent=True;sender(message);accepted=True
         else:
-            cls=smtplib.SMTP if store.cfg.smtp_starttls else smtplib.SMTP_SSL
+            if account is None:
+                store.execute("UPDATE alert_deliveries SET state='failed',error_code='SMTP_NOT_CONFIGURED' WHERE id=? AND state='sending'",(r['id'],))
+                return True
+            cls=smtplib.SMTP if account.starttls else smtplib.SMTP_SSL
             kwargs={'timeout':10}
-            if not store.cfg.smtp_starttls:kwargs['context']=ssl.create_default_context()
-            with cls(store.cfg.smtp_host,store.cfg.smtp_port,**kwargs) as server:
-                if store.cfg.smtp_starttls:server.starttls(context=ssl.create_default_context())
-                if store.cfg.smtp_user:server.login(store.cfg.smtp_user,store.cfg.smtp_password)
+            if not account.starttls:kwargs['context']=ssl.create_default_context()
+            with cls(account.host,account.port,**kwargs) as server:
+                if account.starttls:server.starttls(context=ssl.create_default_context())
+                if account.username:server.login(account.username,account.password)
                 if not still_enabled():store.execute("UPDATE alert_deliveries SET state='cancelled' WHERE id=?",(r['id'],));return True
                 sent=True;refused=server.send_message(message)
                 if refused:raise smtplib.SMTPRecipientsRefused(refused)

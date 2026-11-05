@@ -12,6 +12,7 @@ from backend.config import now
 from . import alerts,assistant,experiments,market,research,resources
 from . import assistant_actions
 from .auth import Actor,AuthError
+from .smtp_settings import configured as mail_configured
 from .research_control import summary,limits,control
 from .store import json_text,stamp
 
@@ -120,7 +121,8 @@ def install(app,rt,user,admin):
     @app.get('/api/me/alerts/settings')
     def notification_settings(request:Request,a:Actor=Depends(user)):
         row=rt(request).store.one("SELECT * FROM research_objects WHERE user_id=? AND kind='notification_settings'",(a.id,))
-        return {'email_enabled':False,'version':0,'smtp_configured':bool(rt(request).store.cfg.smtp_host)} if not row else {**json.loads(row['payload_json']),'version':row['version'],'smtp_configured':bool(rt(request).store.cfg.smtp_host)}
+        ready=mail_configured(rt(request).store)
+        return {'email_enabled':False,'version':0,'smtp_configured':ready} if not row else {**json.loads(row['payload_json']),'version':row['version'],'smtp_configured':ready}
 
     # 校验布尔开关和设置版本后保存本人通知偏好。
     @app.put('/api/me/alerts/settings')
@@ -130,6 +132,23 @@ def install(app,rt,user,admin):
         if payload.get('version')!=old['version']:raise AuthError('VERSION_CONFLICT','通知设置已改变，请刷新',409)
         resources.save(store,a.id,'notification_settings',{'email_enabled':payload['email_enabled']},ident='notifications:'+a.id,version=old['version'] if old['version'] else None)
         return notification_settings(request,a)
+
+    # 列出本人想法池，字段与本地入口一致。
+    @app.get('/api/me/ideas')
+    def list_ideas(request:Request,a:Actor=Depends(user)):
+        from backend.idea_flow import cloud_list
+        return cloud_list(rt(request).store,a.id)
+
+    # 校验证券和文字后写入本人想法。
+    @app.post('/api/me/ideas')
+    def create_idea(payload:dict,request:Request,a:Actor=Depends(user)):
+        from backend.idea_flow import cloud_create
+        return cloud_create(rt(request).store,a.id,payload,client_key(payload) if payload.get('client_key') else None)
+
+    # 删除本人的一条想法。
+    @app.delete('/api/me/ideas/{ident}')
+    def delete_idea(ident:str,request:Request,a:Actor=Depends(user)):
+        return resources.delete(rt(request).store,a.id,'idea',ident)
 
     # 按状态、搜索词和分页读取本人的研究判断。
     @app.get('/api/me/journals')

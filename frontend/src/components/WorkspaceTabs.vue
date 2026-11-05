@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { workspaceGroup, workspaceTabs } from '../workspaceNavigation'
-const props = defineProps<{ current: string }>()
+const props = defineProps<{ current: string, admin?: boolean }>()
 const emit = defineEmits<{ navigate: [route: string] }>()
-const tabs = computed(() => workspaceTabs(props.current))
+const tabs = computed(() => workspaceTabs(props.current).filter(tab => !tab.admin || props.admin))
 </script>
 
 <template>

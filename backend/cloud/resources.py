@@ -7,7 +7,7 @@ from .auth import AuthError
 from .store import stamp,json_text
 from .research_control import control
 
-KINDS={'alert','journal','topic','chat_session','usage_settings','notification_settings','readiness'}
+KINDS={'alert','journal','topic','chat_session','usage_settings','notification_settings','readiness','idea','context_snapshot'}
 
 
 def replay(store,uid,kind,client_key,request_fingerprint):

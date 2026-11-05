@@ -578,6 +578,119 @@ def test_colloquial_add_to_watchlist_enables_stock_action(cloud):
     assert prepared[0]['instrument_id'] == 'SZ:000911' and prepared[0]['market'] == 'SZ'
 
 
+def watch(store, uid, ident):
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,0,?)',
+                  (uid, ident, '我的自选', stamp()))
+
+
+def test_alert_without_threshold_or_watchlist_is_not_created(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    ident = listed_stock(store)
+    watch(store, uid, ident)
+    sid = session(store, uid)
+    missing = submit(store, keys, uid, sid, '持仓跌了就提醒我')
+    result = run(cloud, missing, lambda *args: response('已设好提醒。', actions=[
+        {'kind': 'add_alert', 'instrument_id': ident, 'condition': 'price_below'}]))
+    assert result['status'] == 'success', result
+    assert result['reply']['actions'] == [] and '阈值' in result['reply']['answer']
+    other = listed_stock(store, '600000', '浦发银行')
+    blocked = submit(store, keys, uid, sid, '600000跌到8元提醒我')
+    result = run(cloud, blocked, lambda *args: response('请核对提醒。', actions=[
+        {'kind': 'add_alert', 'instrument_id': other, 'condition': 'price_below', 'threshold': 8}]))
+    assert result['reply']['actions'] == [] and '自选' in result['reply']['answer']
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE kind='alert'")['n'] == 0
+
+
+def test_alert_preview_applies_once_and_keeps_the_given_threshold(cloud):
+    store, keys, _, _, admin, uid = cloud
+    profile(cloud)
+    ident = listed_stock(store)
+    watch(store, uid, ident)
+    sid = session(store, uid)
+    message = submit(store, keys, uid, sid, '600519跌到1500元时邮件提醒我')
+    row = store.one('SELECT * FROM assistant_requests WHERE id=?', (message['id'],))
+    proto, *_ = assistant.protocol(store, uid, row, {})
+    assert 'add_alert' in proto['messages'][0]['content'] and '不要编造' in proto['messages'][0]['content']
+    result = run(cloud, message, lambda *args: response('请核对提醒后添加。', actions=[{
+        'kind': 'add_alert', 'instrument_id': '600519', 'condition': 'price_below', 'threshold': 1500,
+        'cooldown_minutes': 30, 'email': True}]))
+    assert result['status'] == 'success', result
+    action = result['reply']['actions'][0]
+    assert action['instrument_id'] == ident and action['threshold'] == 1500 and action['email'] is True
+    assert action['cooldown_minutes'] == 30 and action['dnd_start'] is None and action['expires_label'] != '持续有效'
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='alert'", (uid,))['n'] == 0
+    with pytest.raises(AuthError):
+        assistant_actions.apply(store, admin, message['id'], 0)
+    assert not assistant_actions.apply(store, uid, message['id'], 0)['reused']
+    payload = json.loads(store.one("SELECT payload_json FROM research_objects WHERE user_id=? AND kind='alert'", (uid,))['payload_json'])
+    assert payload['threshold'] == 1500 and payload['email'] is True and payload['cooldown_minutes'] == 30
+    assert assistant_actions.apply(store, uid, message['id'], 0)['reused']
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='alert'", (uid,))['n'] == 1
+    continuous = assistant_actions.prepare(store, uid, [{'kind': 'add_alert', 'instrument_id': ident, 'condition': 'risk_changed', 'continuous': True}])
+    assert continuous[0]['expires_label'] == '持续有效' and continuous[0]['threshold'] is None
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='alert'", (uid,))['n'] == 1
+
+
+def test_journal_without_rationale_is_not_created_and_a_complete_one_applies_once(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    ident = listed_stock(store)
+    watch(store, uid, ident)
+    sid = session(store, uid)
+    missing = submit(store, keys, uid, sid, '帮我记下这只股票的研究判断')
+    result = run(cloud, missing, lambda *args: response('已记下。', actions=[{'kind': 'add_journal', 'instrument_id': ident}]))
+    assert result['status'] == 'success' and result['reply']['actions'] == [] and '判断依据' in result['reply']['answer']
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE kind='journal'")['n'] == 0
+    message = submit(store, keys, uid, sid, '记下600519的研究判断：需求仍在，失效条件是连续两个季度收入下滑')
+    result = run(cloud, message, lambda *args: response('请核对判断后保存。', actions=[{
+        'kind': 'add_journal', 'instrument_id': ident, 'rationale': '需求仍在', 'invalidation': '连续两个季度收入下滑', 'note': '只给自己看'}]))
+    assert result['reply']['actions'][0]['rationale'] == '需求仍在'
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='journal'", (uid,))['n'] == 0
+    assert not assistant_actions.apply(store, uid, message['id'], 0)['reused']
+    saved = json.loads(store.one("SELECT payload_json FROM research_objects WHERE user_id=? AND kind='journal'", (uid,))['payload_json'])
+    assert saved['rationale'] == '需求仍在' and saved['note'] == '只给自己看' and saved['instrument_id'] == ident
+    assert assistant_actions.apply(store, uid, message['id'], 0)['reused']
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='journal'", (uid,))['n'] == 1
+
+
+def test_topic_and_experiment_are_proposed_then_applied_once(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud)
+    ident = listed_stock(store)
+    watch(store, uid, ident)
+    sid = session(store, uid)
+    invented = submit(store, keys, uid, sid, '给600519做个实验')
+    blocked = run(cloud, invented, lambda *args: response('实验已开始。', actions=[{
+        'kind': 'add_experiment', 'topic_id': 'missing-topic', 'parameters': {'instrument_id': ident, 'initial_cash': 10000}}]))
+    assert blocked['status'] == 'success' and blocked['reply']['actions'] == [] and '课题' in blocked['reply']['answer']
+    assert store.one('SELECT COUNT(*) n FROM research_experiments')['n'] == 0
+    topic_message = submit(store, keys, uid, sid, '创建一个均线回撤课题，研究快慢线对回撤的影响')
+    topic_result = run(cloud, topic_message, lambda *args: response('请核对课题后创建。', actions=[{
+        'kind': 'add_topic', 'name': '均线回撤', 'question': '快慢线对回撤的影响'}]))
+    assert topic_result['reply']['actions'][0]['name'] == '均线回撤'
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='topic'", (uid,))['n'] == 0
+    assert not assistant_actions.apply(store, uid, topic_message['id'], 0)['reused']
+    topic_id = store.one("SELECT id FROM research_objects WHERE user_id=? AND kind='topic'", (uid,))['id']
+    assert assistant_actions.apply(store, uid, topic_message['id'], 0)['reused']
+    assert store.one("SELECT COUNT(*) n FROM research_objects WHERE user_id=? AND kind='topic'", (uid,))['n'] == 1
+    experiment_message = submit(store, keys, uid, sid, '用这个课题给600519做实验')
+    row = store.one('SELECT * FROM assistant_requests WHERE id=?', (experiment_message['id'],))
+    proto, *_ = assistant.protocol(store, uid, row, {})
+    assert proto['messages'][-1]['content'].find(topic_id) > 0
+    result = run(cloud, experiment_message, lambda *args: response('请核对实验后加入队列。', actions=[{
+        'kind': 'add_experiment', 'topic_id': topic_id, 'parameters': {'instrument_id': '600519', 'initial_cash': 10000, 'fast': 5, 'slow': 20}}]))
+    assert result['status'] == 'success', result
+    assert result['reply']['actions'][0]['parameters']['instrument_id'] == ident
+    assert result['reply']['actions'][0]['topic_name'] == '均线回撤'
+    assert store.one('SELECT COUNT(*) n FROM research_experiments')['n'] == 0
+    assert not assistant_actions.apply(store, uid, experiment_message['id'], 0)['reused']
+    assert store.one('SELECT COUNT(*) n FROM research_experiments WHERE user_id=?', (uid,))['n'] == 1
+    assert assistant_actions.apply(store, uid, experiment_message['id'], 0)['reused']
+    assert store.one('SELECT COUNT(*) n FROM research_experiments WHERE user_id=?', (uid,))['n'] == 1
+
+
+
 def test_position_price_can_be_proposed_without_opening_trade_edits():
     assert assistant.classify('添加600519，持仓价4.85，持仓数量100', []) == 'project'
     assert assistant.classify('把持仓价改成9', []) == 'project'

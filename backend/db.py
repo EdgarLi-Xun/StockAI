@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS backtest_runs(
 CREATE TABLE IF NOT EXISTS notifications(
  id INTEGER PRIMARY KEY, ts TEXT NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_bars_time ON bars(instrument_id,timeframe,ts DESC);
+CREATE TABLE IF NOT EXISTS ideas(
+ id TEXT PRIMARY KEY, instrument_id TEXT NOT NULL, sentence TEXT NOT NULL,
+ entry TEXT NOT NULL, exit_rule TEXT NOT NULL, wrong TEXT NOT NULL,
+ counterparty TEXT NOT NULL, parameters_json TEXT NOT NULL, max_risk TEXT NOT NULL,
+ sensitive_to TEXT NOT NULL DEFAULT '', source_url TEXT NOT NULL DEFAULT '',
+ source_time TEXT NOT NULL DEFAULT '', source_text TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS context_snapshots(
+ day TEXT PRIMARY KEY, payload_json TEXT NOT NULL, fetched_at TEXT NOT NULL);
 """
 
 

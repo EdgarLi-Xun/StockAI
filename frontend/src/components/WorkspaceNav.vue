@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X } from 'lucide-vue-next'
+import { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, NotebookPen, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X } from 'lucide-vue-next'
 import { workspaceGroup, workspaceSections } from '../workspaceNavigation'
 
 const props = defineProps<{ current: string, open: boolean, admin: boolean }>()
@@ -8,7 +8,7 @@ const emit = defineEmits<{ navigate: [route: string], close: [], open: [] }>()
 const navigation = ref<HTMLElement|null>(null)
 const active = computed(() => workspaceGroup(props.current)?.id)
 const version = __STOCKAI_VERSION__
-const icons = { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X }
+const icons = { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, NotebookPen, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X }
 const icon = (name: string) => (icons as any)[name]
 const narrowViewport = window.matchMedia('(max-width: 760px)')
 function viewportChanged() { if (!narrowViewport.matches && props.open) emit('close') }

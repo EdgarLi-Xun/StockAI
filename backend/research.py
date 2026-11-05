@@ -93,6 +93,8 @@ def build_facts(mode="standard") -> dict:
         facts["simulation"]={"accounts":db.query("SELECT id,name,initial_cash,cash FROM accounts"),"recent_fills":db.query("SELECT instrument_id,side,quantity,fill_price,fees,filled_at FROM orders WHERE status='filled' ORDER BY filled_at DESC LIMIT 30")}
         if not facts["backtests"]:
             facts["missing_data"].append("未运行历史回测，策略表现未验证")
+    from .idea_flow import attach_local
+    attach_local(facts)
     return facts
 
 
@@ -139,6 +141,9 @@ def markdown_report(facts):
     lines += ["", "## 原始证据"]
     for s in facts["sources"]:
         lines.append(f"- [{s['id']}] {s['source']} | 报价 {s['quote_time']} | 采集 {s['collected_at']} | {s['url']}")
+    from .ideas import render_lines
+    if facts.get("idea_review"):
+        lines += render_lines(facts["idea_review"])
     lines += ["", "本系统仅供信息研究与模拟交易，不接入真实账户，不保证收益。"]
     return "\n\n".join(lines)
 

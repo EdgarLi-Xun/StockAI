@@ -288,6 +288,27 @@ def metals():
     return result
 
 
+# 列出想法池。池子为空时，早报只复述任务，不开始评审。
+@app.get("/api/ideas")
+def idea_list():
+    from .idea_flow import list_ideas
+    return list_ideas()
+
+
+# 保存一条想法。比特币和以太坊不接受。
+@app.post("/api/ideas")
+def idea_create(payload:dict):
+    from .idea_flow import create_idea
+    return create_idea(payload)
+
+
+# 删除一条想法。
+@app.delete("/api/ideas/{ident}")
+def idea_delete(ident:str):
+    from .idea_flow import delete_idea
+    return delete_idea(ident)
+
+
 # 按模式和搜索条件查询报告索引，限制返回条数。
 @app.get("/api/reports")
 def reports(mode:str="",q:str=""):

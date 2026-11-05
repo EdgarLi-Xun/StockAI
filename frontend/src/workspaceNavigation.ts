@@ -1,4 +1,4 @@
-export interface WorkspaceTab { id: string, label: string }
+export interface WorkspaceTab { id: string, label: string, admin?: boolean }
 export interface WorkspaceItem extends WorkspaceTab { icon: string, tabs?: WorkspaceTab[] }
 
 // 一级导航按研究任务组织；子页面继续使用原地址和离开保护。
@@ -9,6 +9,7 @@ export const workspaceSections: { label: string, items: WorkspaceItem[] }[] = [
       { id: 'watchlist', label: '自选证券' }, { id: 'market', label: '市场行情' }, { id: 'metals', label: '黄金与白银' },
     ] },
     { id: 'candidates', label: '候选研究', icon: 'Sparkles' },
+    { id: 'ideas', label: '想法池', icon: 'NotebookPen' },
     { id: 'reports', label: '研究档案', icon: 'FileText', tabs: [
       { id: 'reports', label: '研究报告' }, { id: 'journals', label: '研究日志' }, { id: 'review', label: '周度复盘' },
     ] },
@@ -25,7 +26,7 @@ export const workspaceSections: { label: string, items: WorkspaceItem[] }[] = [
   { label: '工具与设置', items: [
     { id: 'jobs', label: '任务中心', icon: 'Clock3' },
     { id: 'preferences', label: '设置', icon: 'Settings2', tabs: [
-      { id: 'preferences', label: '外观与偏好' }, { id: 'models', label: '模型配置' },
+      { id: 'preferences', label: '外观与偏好' }, { id: 'models', label: '模型配置' }, { id: 'mail', label: '邮件发送', admin: true },
       { id: 'usage', label: '模型用量' }, { id: 'readiness', label: '数据与来源' }, { id: 'system', label: '同步与版本' },
     ] },
   ] },
