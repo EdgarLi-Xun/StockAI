@@ -10,7 +10,7 @@ import { workspaceTitle } from './workspaceNavigation'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import AppearanceSettings from './components/AppearanceSettings.vue'
 import MailSettings from './components/MailSettings.vue'
-import { api, post, download, setCsrfCookieName, clearPrivateRequests } from './api'
+import { api, post, download, setCsrfCookieName, setClientVersion, clearPrivateRequests } from './api'
 import { loginCredentialSupport, loadLoginCredentials, saveLoginCredentials, forgetLoginCredentials } from './loginCredentials'
 import './public.css'
 // 按需加载研究增强界面，保持普通工作台首次加载轻量。
@@ -26,7 +26,7 @@ const workbenchViews = new Set(['readiness','usage','alerts','journals','portfol
 // 保存公开账号状态；会话过期或退出时同步清理私密页面缓存。
 const user = ref<any>(null), booting = ref(true), busy = ref(false), error = ref(''), notice = ref('')
 const draftClient=crypto.randomUUID(),preferencesBaseline=ref('')
-const desktopMode=ref(false),needsSetup=ref(false)
+const desktopMode=ref(false),needsSetup=ref(false),appVersion=ref('')
 const rememberLogin=ref(true)
 const rememberCredentials=ref(false),savedCredentials=ref(false),credentialSupport=ref<'native'|'browser'|null>(null)
 // 从哈希读取认证或管理页面，同时去除验证链接中的查询参数。
@@ -152,7 +152,7 @@ async function eraseAccount() { await action(async () => { const r = await post(
 const hasDrafts=computed(()=>!!editor.value || (view.value==='preferences'&&JSON.stringify(preferences.value)!==preferencesBaseline.value) || !!mailSettings.value?.dirty || !!core.value?.dirty || !!workbench.value?.dirty || !!systemSettings.value?.dirty || !!assistantDock.value?.dirty)
 watch(hasDrafts,value=>{if(user.value?.verified)void post('/me/client-state',{id:draftClient,dirty:value}).catch(()=>{})})
 // 挂载时建立 CSRF 与账号状态；用户编辑期间暂停管理数据轮询。
-onMounted(async () => { window.addEventListener('hashchange', hashChanged); try { const health=await fetch('/api/health',{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error('本机或站点服务暂不可用');return r.json()});desktopMode.value=health.desktop===true;needsSetup.value=desktopMode.value&&!health.initialized;setCsrfCookieName(health.csrf_cookie||'');if(desktopMode.value)providerNames.ollama='本机 Ollama';await api('/auth/csrf'); if(!needsSetup.value)await refreshUser();credentialSupport.value=await loginCredentialSupport();if(!user.value&&!needsSetup.value)await restoreSavedLogin();if(user.value?.verified&&['dashboard','login','register'].includes(route.value)){route.value=await initialWorkspaceRoute();history.replaceState(null,'','#'+route.value)} await loadView() } catch (e: any) { error.value = e.message } finally { booting.value = false }; timer = setInterval(() => { if(user.value?.verified)void post('/me/client-state',{id:draftClient,dirty:hasDrafts.value}).catch(()=>{}); if (user.value && !busy.value && !editor.value && !document.hidden && ['models', 'admin'].includes(view.value)) void loadView() }, 6000) })
+onMounted(async () => { window.addEventListener('hashchange', hashChanged); try { const health=await fetch('/api/health',{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error('本机或站点服务暂不可用');return r.json()});desktopMode.value=health.desktop===true;needsSetup.value=desktopMode.value&&!health.initialized;appVersion.value=typeof health.version==='string'?health.version:'';setClientVersion(appVersion.value);setCsrfCookieName(health.csrf_cookie||'');if(desktopMode.value)providerNames.ollama='本机 Ollama';await api('/auth/csrf'); if(!needsSetup.value)await refreshUser();credentialSupport.value=await loginCredentialSupport();if(!user.value&&!needsSetup.value)await restoreSavedLogin();if(user.value?.verified&&['dashboard','login','register'].includes(route.value)){route.value=await initialWorkspaceRoute();history.replaceState(null,'','#'+route.value)} await loadView() } catch (e: any) { error.value = e.message } finally { booting.value = false }; timer = setInterval(() => { if(user.value?.verified)void post('/me/client-state',{id:draftClient,dirty:hasDrafts.value}).catch(()=>{}); if (user.value && !busy.value && !editor.value && !document.hidden && ['models', 'admin'].includes(view.value)) void loadView() }, 6000) })
 // 集中响应 API 层报告的会话失效事件。
 onMounted(() => window.addEventListener('stockai-auth-required', sessionExpired))
 // 卸载时解除事件与轮询，并结束等待中的确认。
@@ -178,7 +178,7 @@ onBeforeUnmount(() => { window.removeEventListener('hashchange', hashChanged); w
   </div>
   <div v-else-if="!user.verified" class="pending-verification"><div class="public-auth-card panel"><ShieldCheck :size="34" /><h1>还差一步，验证邮箱</h1><p>已登录 {{ user.email }}。请通过验证邮件开启研究、自选与模型功能。</p><div v-if="error" class="public-message error">{{ error }}</div><div v-if="notice" class="public-message">{{ notice }}</div><div class="button-row"><button class="primary" :disabled="busy" @click="action(async () => { const r = await post('/auth/resend-verification', { email: user.email }); notice = r.message })">重发验证邮件</button><button class="secondary" @click="action(refreshUser)">我已完成验证</button><button class="text-button" @click="logout">退出登录</button></div></div></div>
   <div v-else class="public-workspace" :class="{'has-docked-assistant':assistantDocked,'has-security-workbench':!!currentSecurity}">
-    <WorkspaceNav :current="route" :open="navigationOpen" :admin="user.role==='admin'" @navigate="go" @close="closeNavigation" @open="navigationOpen=true" />
+    <WorkspaceNav :current="route" :open="navigationOpen" :admin="user.role==='admin'" :version="appVersion" @navigate="go" @close="closeNavigation" @open="navigationOpen=true" />
     <header class="public-userbar" :inert="navigationOpen">
       <div class="workspace-location"><button ref="navigationToggle" class="icon-button workspace-menu-toggle" aria-label="打开导航" :aria-expanded="navigationOpen" aria-controls="primary-workspace-navigation" @click="navigationOpen=!navigationOpen"><Menu :size="21"/></button><span class="workspace-location-root">个人研究</span><ChevronRight :size="14"/><strong>{{ currentTitle }}</strong></div>
       <div class="public-user-actions"><form class="workspace-search" role="search" @submit.prevent="searchSecurities"><Search :size="15"/><input v-model="workspaceSearch" aria-label="搜索自选证券" placeholder="搜索自选名称、代码…" type="search"/></form><button class="icon-button" :aria-label="resolvedTheme==='dark'?'切换浅色主题':'切换深色主题'" @click="toggleTheme"><SunMoon :size="18"/></button><button class="user-chip" :aria-label="'账号管理 · '+user.email" :aria-current="route==='account'?'page':undefined" @click="go('account')"><UserRound :size="16"/><span>{{ user.email }}</span></button><button class="icon-button" aria-label="退出登录" :disabled="busy" @click="logout"><LogOut :size="18"/></button></div>

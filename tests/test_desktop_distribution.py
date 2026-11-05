@@ -177,6 +177,38 @@ def test_busy_port_is_not_reused_or_stopped():
     pytest.skip('No adjacent IPv4 test ports are available')
 
 
+def test_desktop_page_cache_is_cleared_without_touching_login_storage(tmp_path):
+    from desktop.host import prepare_page_cache
+    cache=tmp_path/'desktop-cache'
+    stale=cache/'Cache'/'old.js'
+    stale.parent.mkdir(parents=True)
+    stale.write_text('v3.2.5',encoding='utf-8')
+    profile_dir=tmp_path/'desktop-profile'
+    profile_dir.mkdir()
+    (profile_dir/'Cookies').write_text('keep',encoding='utf-8')
+    class Profile:
+        class HttpCacheType:
+            NoCache='nocache'
+        def __init__(self):
+            self.path=None
+            self.kind=None
+        def setCachePath(self,path):self.path=path
+        def setHttpCacheType(self,kind):self.kind=kind
+    profile=Profile()
+    prepare_page_cache(profile,cache)
+    assert not stale.exists() and cache.is_dir() and not any(cache.rglob('*'))
+    assert (profile_dir/'Cookies').read_text(encoding='utf-8')=='keep'
+    assert profile.path==str(cache) and profile.kind=='nocache'
+
+
+def test_shell_document_is_not_cached(cloud):
+    store,*_=cloud
+    with TestClient(create_app(store.cfg)) as c:
+        page=c.get('/')
+        if page.status_code==404:pytest.skip('frontend build unavailable')
+        assert page.status_code==200 and page.headers['cache-control']=='no-store'
+
+
 def test_inherited_windows_code_page_is_normalized_for_worker_json(monkeypatch):
     import io,json
     from desktop.application import worker_stdio

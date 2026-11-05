@@ -26,7 +26,6 @@ export default defineConfig(({ mode }) => ({
       writeFileSync(join(folder,'version.json'),JSON.stringify({version,files}))
     }},
   }],
-  define: {__STOCKAI_VERSION__:JSON.stringify(version)},
   // 开发时将 API 请求转发给本地共享后端。
   server: { port: 5173, proxy: { '/api': 'http://127.0.0.1:8765' } },
   // 两个构建模式使用不同输出目录，ES2022 支持入口中的顶层异步导入。

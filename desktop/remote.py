@@ -43,8 +43,9 @@ def launch(home,args):
     window=QMainWindow();window.resize(1440,940);window.setWindowTitle('StockAI '+VERSION+' · 远程 '+url)
     icon=QIcon(str(ROOT/'frontend/dist-public/favicon.svg'));window.setWindowIcon(icon)
     view=QWebEngineView(window);window.setCentralWidget(view)
+    from desktop.host import prepare_page_cache
     profile=QWebEngineProfile('StockAI-Remote-'+ident,window)
-    profile.setPersistentStoragePath(str(home/'remote-profiles'/ident/'storage'));profile.setCachePath(str(home/'remote-profiles'/ident/'cache'))
+    profile.setPersistentStoragePath(str(home/'remote-profiles'/ident/'storage'));prepare_page_cache(profile,home/'remote-profiles'/ident/'cache')
     class Page(QWebEnginePage):
         def acceptNavigationRequest(self,destination,kind,main_frame):
             try:

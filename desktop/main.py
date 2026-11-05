@@ -52,9 +52,10 @@ def launch(smoke_test=False):
     window.setWindowTitle("StockAI · 个人研究终端")
     window.resize(1440,940)
     window.setMinimumSize(960,650)
+    from desktop.host import prepare_page_cache
     profile=QWebEngineProfile("StockAI",window)
     profile.setPersistentStoragePath(str(DATA/"desktop-profile"))
-    profile.setCachePath(str(DATA/"desktop-cache"))
+    prepare_page_cache(profile, DATA/"desktop-cache")
     view=QWebEngineView(window)
     page=Page(profile,view)
     view.setPage(page)

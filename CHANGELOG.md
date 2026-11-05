@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.8] - 2026-11-05
+
+- 桌面启动时清掉上一轮页面 HTTP 缓存，并停止把页面壳写入磁盘缓存；登录存储不受影响。
+- 首页与 `index.html` 不再被浏览器或桌面内核缓存，避免升级后仍看到旧界面。
+- 导航栏版本号改为读取当前后台的健康检查结果，不再写进前端构建产物。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.8-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.7] - 2026-11-05
 
 - 已记录持仓的自选排在仅置顶的收藏之前。同时有持仓和置顶的在最前，其次是仅持仓，再次是仅置顶，其余保持原来的分组和代码顺序。
@@ -183,6 +194,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.8]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.8
 [3.2.7]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.7
 [3.2.6]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.6
 [3.2.5]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.5

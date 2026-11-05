@@ -108,7 +108,7 @@ def launch(home,args):
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from backend.config import ROOT
     from backend.cloud import VERSION
-    from desktop.host import Host,instance_id
+    from desktop.host import Host,instance_id,prepare_page_cache
     app=QApplication(sys.argv[:1]);app.setApplicationName('StockAI');app.setOrganizationName('StockAI')
     app.setQuitOnLastWindowClosed(False)
     icon=QIcon(str(ROOT/'frontend/dist-public/favicon.svg'));app.setWindowIcon(icon)
@@ -121,7 +121,7 @@ def launch(home,args):
     window=QMainWindow();window.setWindowTitle('StockAI '+VERSION+' · 个人研究终端');window.resize(1440,940);window.setMinimumSize(960,650)
     view=QWebEngineView(window);window.setCentralWidget(view)
     profile=QWebEngineProfile('StockAI-Desktop',window)
-    profile.setPersistentStoragePath(str(home/'desktop-profile'));profile.setCachePath(str(home/'desktop-cache'))
+    profile.setPersistentStoragePath(str(home/'desktop-profile'));prepare_page_cache(profile,home/'desktop-cache')
     host=Host(home,args.port,background=not args.smoke_test)
     class Page(QWebEnginePage):
         def acceptNavigationRequest(self,url,kind,main_frame):

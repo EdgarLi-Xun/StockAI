@@ -6,12 +6,32 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
 import time
 import urllib.request
+
+
+def discard_http_cache(cache: Path) -> None:
+    """删除桌面页面的 HTTP 缓存。不触碰登录存储，也不把版本号写进缓存文件。"""
+    if not cache.exists():
+        return
+    def unlock(function, path, _error):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    shutil.rmtree(cache, onexc=unlock)
+
+
+def prepare_page_cache(profile, cache: Path) -> None:
+    """启动前清掉上一轮页面缓存，并停止把页面壳再写入磁盘缓存。"""
+    discard_http_cache(cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    profile.setCachePath(str(cache))
+    profile.setHttpCacheType(type(profile).HttpCacheType.NoCache)
 
 
 def workspace_path(explicit=None):

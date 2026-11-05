@@ -3,7 +3,9 @@
 export const PUBLIC = import.meta.env.MODE === 'public'
 let token = PUBLIC ? '' : sessionStorage.getItem('stockai-token') || ''
 let csrfCookieName = ''
+let clientVersion = ''
 let privateEpoch = 0
+export function setClientVersion(value: string) { clientVersion = value.length > 0 && value.length <= 40 && !/[\r\n]/.test(value) ? value : '' }
 export function clearPrivateRequests() { privateEpoch++ }
 function checkSession(epoch:number) { if(PUBLIC&&epoch!==privateEpoch)throw Object.assign(new Error('原账号请求已结束'),{code:'STALE_SESSION'}) }
 export function setCsrfCookieName(value: string) { csrfCookieName = /^[A-Za-z0-9_-]+$/.test(value) ? value : '' }
@@ -20,7 +22,7 @@ function url(path: string, method = 'GET') {
 // 合并 JSON 请求头及鉴权信息，公网写请求使用会话对应的 CSRF Cookie。
 function headers(options: RequestInit = {}) {
   const csrf = PUBLIC ? document.cookie.split('; ').find(s => csrfCookieName ? s.startsWith(csrfCookieName + '=') : /^(?:__Host-stockai_csrf|stockai_dev_csrf)=/.test(s))?.split('=')[1] : ''
-  return { 'Content-Type': 'application/json', ...(PUBLIC ? { 'X-StockAI-Client-Version':__STOCKAI_VERSION__, ...(csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf) } : {}) } : token ? { Authorization: 'Bearer ' + token } : {}), ...options.headers }
+  return { 'Content-Type': 'application/json', ...(PUBLIC ? { ...(clientVersion ? { 'X-StockAI-Client-Version': clientVersion } : {}), ...(csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf) } : {}) } : token ? { Authorization: 'Bearer ' + token } : {}), ...options.headers }
 }
 
 // 统一发起同源请求，解析业务错误并在公网会话失效时通知入口组件。

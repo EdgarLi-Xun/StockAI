@@ -3,11 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, NotebookPen, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X } from 'lucide-vue-next'
 import { workspaceGroup, workspaceSections } from '../workspaceNavigation'
 
-const props = defineProps<{ current: string, open: boolean, admin: boolean }>()
+const props = defineProps<{ current: string, open: boolean, admin: boolean, version: string }>()
 const emit = defineEmits<{ navigate: [route: string], close: [], open: [] }>()
 const navigation = ref<HTMLElement|null>(null)
 const active = computed(() => workspaceGroup(props.current)?.id)
-const version = __STOCKAI_VERSION__
 const icons = { Activity, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Clock3, FileText, FlaskConical, Globe2, LayoutDashboard, LockKeyhole, NotebookPen, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Wallet, X }
 const icon = (name: string) => (icons as any)[name]
 const narrowViewport = window.matchMedia('(max-width: 760px)')
@@ -48,7 +47,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', keyboard); narrowV
       </section>
       <section v-if="admin" class="workspace-nav-section workspace-nav-admin"><button :class="{ active: current === 'admin' }" :aria-current="current === 'admin' ? 'page' : undefined" @click="emit('navigate', 'admin')"><icons.LockKeyhole :size="17"/><span>站点管理</span></button></section>
     </nav>
-    <footer class="workspace-nav-footer"><icons.LockKeyhole :size="13"/><span>个人资料独立保存</span><small>v{{ version }}</small></footer>
+    <footer class="workspace-nav-footer"><icons.LockKeyhole :size="13"/><span>个人资料独立保存</span><small v-if="version">v{{ version }}</small></footer>
   </aside>
   <nav v-if="!open" class="workspace-mobile-nav" aria-label="常用导航">
     <button type="button" :aria-current="active==='dashboard'?'page':undefined" @click="emit('navigate','dashboard')"><icons.LayoutDashboard :size="19"/><span>总览</span></button>
