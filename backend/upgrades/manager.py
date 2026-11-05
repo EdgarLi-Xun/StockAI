@@ -6,6 +6,7 @@ from pathlib import Path
 import platform
 import shutil
 import sqlite3
+import threading
 import uuid
 from backend.cloud.lifecycle import ProcessLock
 from backend.cloud.crypto import atomic_private
@@ -26,6 +27,7 @@ class Manager(Cache):
     def __init__(self,cfg,keys,*,component='web',version=VERSION,form='source',root_file=None,source='',store=None,fetcher=None,identity=None):
         self.cfg,self.keys,self.component,self.version,self.form=cfg,keys,component,version,form;self.store=store
         self.folder=cfg.erasures/'upgrades';self.state=State(self.folder,keys.keys[min(keys.keys)])
+        self._download_guard=threading.Lock();self._download_cancel={};self._download_conn={}
         self.root_file=root_file;self.source=source or DEFAULT_SOURCE;self.fetcher=fetcher or Fetcher();self.checkpoints=Checkpoints(cfg,component,identity)
         self.target={'component':component,'version':version,'platform':'windows' if component=='desktop' else 'linux','architecture':'x64' if platform.machine().lower() in ('amd64','x86_64') else platform.machine().lower(),'form':form,'capabilities':{'api':1,'sync':1,'schema':3}}
         if not self.state.get('settings'):self.state.put('settings',{'channel':'preview' if Version(version).pre else 'stable','automatic_check':True,'automatic_download':False})
@@ -154,18 +156,45 @@ class Manager(Cache):
 
     def package_path(self,tx):return self.folder/'downloads'/tx['id']/('payload.exe' if self.form=='exe' else 'payload.zip')
 
+    def request_cancel(self,ident):
+        with self._download_guard:
+            event=self._download_cancel.get(ident);conn=self._download_conn.get(ident)
+            if event:event.set()
+        self.state.put('cancel:'+ident,True)
+        if conn:
+            try:conn.close()
+            except Exception:pass
+        if event is None:
+            with self.lock():
+                tx=self.state.get('transaction:'+ident)
+                if tx and tx['status']=='downloading':
+                    return self.update(tx,'download_paused',error='CANCELLED',next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat())
+        return None
+
+    def _bind_download(self,ident,conn):
+        with self._download_guard:self._download_conn[ident]=conn
+
     def download(self,ident,cancel=None):
-        with self.lock():
-            tx=self.state.get('transaction:'+ident)
-            if not tx or tx['status'] not in ('planned','downloading','download_paused','download_failed'):raise UpgradeError('BUSY')
-            tx=self.update(tx,'downloading',downloaded=0,total=tx['release']['package']['size'],error=None,next_retry=None)
-            self.state.put('cancel:'+ident,False)
-            try:
-                self.fetcher.download(tx['release'],self.package_path(tx),lambda count,total:self.update(tx,'downloading',downloaded=count,total=total),cancel or (lambda:self.state.get('cancel:'+ident,False)),ASSET_HOSTS if tx.get('trust')=='github-sha256' else None)
-                return self.update(tx,'verified',downloaded=tx['release']['package']['size'])
-            except UpgradeError as exc:
-                current=self.state.get('transaction:'+ident) or tx
-                self.update(current,'download_paused' if exc.code=='CANCELLED' else 'download_failed',error=exc.code,next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise
+        event=threading.Event()
+        with self._download_guard:self._download_cancel[ident]=event
+        try:
+            with self.lock():
+                tx=self.state.get('transaction:'+ident)
+                if not tx or tx['status'] not in ('planned','downloading','download_paused','download_failed'):raise UpgradeError('BUSY')
+                tx=self.update(tx,'downloading',downloaded=0,total=tx['release']['package']['size'],error=None,next_retry=None)
+                if event.is_set() or self.state.get('cancel:'+ident,False):
+                    self.update(tx,'download_paused',error='CANCELLED',next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise UpgradeError('CANCELLED','下载已暂停')
+                self.state.put('cancel:'+ident,False)
+                def stopped():return event.is_set() or bool(cancel and cancel()) or bool(self.state.get('cancel:'+ident,False))
+                try:
+                    self.fetcher.download(tx['release'],self.package_path(tx),lambda count,total:self.update(tx,'downloading',downloaded=count,total=total),stopped,ASSET_HOSTS if tx.get('trust')=='github-sha256' else None,lambda conn:self._bind_download(ident,conn))
+                    return self.update(tx,'verified',downloaded=tx['release']['package']['size'])
+                except UpgradeError as exc:
+                    current=self.state.get('transaction:'+ident) or tx
+                    self.update(current,'download_paused' if exc.code=='CANCELLED' else 'download_failed',error=exc.code,next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise
+        finally:
+            with self._download_guard:
+                self._download_cancel.pop(ident,None);self._download_conn.pop(ident,None)
 
     def upload(self,ident,offset,data):
         with self.lock():

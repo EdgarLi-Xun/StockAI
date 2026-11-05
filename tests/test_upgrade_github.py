@@ -179,6 +179,39 @@ def test_desktop_downloads_the_official_asset(manager):
     assert m.fetcher.requests[-1][0].endswith('/'+name) and m.fetcher.requests[-1][2]==ASSET_HOSTS
 
 
+def test_request_cancel_stops_an_in_flight_download_without_waiting_for_the_next_chunk(manager):
+    import threading,time
+    started=threading.Event();name,payload,checksum=published(b'x'*1024)
+    class Stall(Checksum):
+        def download(self,*args,**kwargs):
+            started.set();cancel=kwargs.get('cancel') if kwargs.get('cancel') is not None else (args[3] if len(args)>3 else None)
+            deadline=time.monotonic()+3
+            while time.monotonic()<deadline:
+                if cancel and cancel():raise UpgradeError('CANCELLED','下载已暂停')
+                time.sleep(0.02)
+            raise TimeoutError('pause did not stop the download')
+    m=desktop(manager,Stall([release('3.3.0',size=len(payload))],checksum=checksum));m.check();tx=m.prepare_local()
+    error={}
+    def run():
+        try:m.download(tx['id'])
+        except Exception as exc:error['exc']=exc
+    thread=threading.Thread(target=run);thread.start()
+    assert started.wait(2)
+    m.request_cancel(tx['id']);thread.join(2)
+    assert not thread.is_alive()
+    assert isinstance(error.get('exc'),UpgradeError) and error['exc'].code=='CANCELLED'
+    assert m.current()['status']=='download_paused' and m.current()['error']=='CANCELLED'
+
+
+def test_request_cancel_pauses_a_stale_downloading_transaction_without_an_active_fetch(manager):
+    _,payload,checksum=published(b'stale-partial')
+    m=desktop(manager,Checksum([release('3.3.0',size=len(payload))],checksum=checksum));m.check();tx=m.prepare_local()
+    m.update(tx,'downloading',downloaded=12,total=len(payload))
+    paused=m.request_cancel(tx['id'])
+    assert paused['status']=='download_paused' and paused['error']=='CANCELLED' and paused['downloaded']==12
+    assert m.current()['id']==tx['id'] and m.state.get('cancel:'+tx['id']) is True
+
+
 @pytest.mark.parametrize('interruption', ['CANCELLED', 'NETWORK'])
 def test_desktop_resume_preserves_progress_and_clears_previous_download_error(manager, interruption):
     from test_upgrade_download import Stream

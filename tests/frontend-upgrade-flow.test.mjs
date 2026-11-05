@@ -8,7 +8,7 @@ const require=createRequire(new URL('../frontend/package.json',import.meta.url))
 const ts=require('typescript')
 const source=readFileSync(new URL('../frontend/src/SystemSettings.vue',import.meta.url),'utf8').split('</script>')[0]
 const parsed=ts.createSourceFile('settings.ts',source.slice(source.indexOf('>')+1),ts.ScriptTarget.Latest,true)
-const names=['act','load','loadUpgrade','prepareLocal','downloadLocalPlan','downloadUpgrade','stopUpgradeFlow']
+const names=['act','load','loadUpgrade','prepareLocal','downloadLocalPlan','downloadUpgrade','pauseDownload','stopUpgradeFlow']
 const functions=parsed.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.includes(node.name?.text)).map(node=>node.getText(parsed)).join('\n')
 const code=ts.transpileModule(functions,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText
 const plan=changes=>({id:'update-one',component:'desktop',trust:'github-sha256',status:'planned',from_version:'3.2.4',target_version:'3.2.5',confirmation:'bound-to-update-one',release:{package:{size:100}},...changes})
@@ -18,7 +18,7 @@ function client(options={}){
   let current=options.plan||null,timerId=0
   const base={form:'exe',check:{status:'download_available',release:{version:'3.2.5'}}}
   const state={props:{desktop:true,user:{role:'admin'}},sync:ref({}),upgrade:ref({...base,transaction:current}),busy:ref(false),notice:ref(''),error:ref(''),confirmation:ref('old-consent'),upgradeClosed:false,upgradeRead:0,upgradeDownloadTimer:undefined,
-    setInterval:fn=>{intervals.set(++timerId,fn);return timerId},clearInterval:id=>intervals.delete(id),
+    setInterval:fn=>{intervals.set(++timerId,fn);return timerId},clearInterval:id=>intervals.delete(id),setTimeout:(fn,ms)=>setTimeout(fn,ms),Promise,
     api:async path=>path==='/admin/upgrades'?(options.readUpgrade?options.readUpgrade({...base,transaction:current}):{...base,transaction:current}):{},
     post:async(path,body)=>{
       requests.push({path,body})
@@ -30,10 +30,11 @@ function client(options={}){
         current={...current,status:'verified',downloaded:100};return current
       }
       if(path.endsWith('/preflight')){current={...current,status:options.blockers?'preflight_blocked':'waiting_confirmation',blockers:options.blockers||[]};return current}
+      if(path.endsWith('/cancel')){current={...current,status:current.status==='downloading'?'download_paused':'cancelled'};return {status:current.status==='download_paused'?'cancel_requested':'cancelled'}}
       throw new Error('Unexpected action: '+path)
     }}
   Object.defineProperty(state,'tx',{get:()=>({value:state.upgrade.value.transaction})})
-  vm.runInNewContext(code+'\nglobalThis.prepare=prepareLocal;globalThis.download=()=>downloadUpgrade();globalThis.dispose=()=>{if(typeof stopUpgradeFlow===\'function\')stopUpgradeFlow()};',state)
+  vm.runInNewContext(code+'\nglobalThis.prepare=prepareLocal;globalThis.download=()=>downloadUpgrade();globalThis.pause=pauseDownload;globalThis.dispose=()=>{if(typeof stopUpgradeFlow===\'function\')stopUpgradeFlow()};',state)
   return {state,requests,intervals,tick:async()=>{for(const fn of intervals.values())await fn();await new Promise(setImmediate)}}
 }
 
@@ -71,8 +72,23 @@ test('a failed checksum leaves a retryable download and never preflights or inst
 test('pausing a download does not continue to preflight',async()=>{
   const c=client({fail:Object.assign(new Error('下载已暂停'),{code:'CANCELLED'})});await c.state.prepare()
   assert.equal(c.state.upgrade.value.transaction.status,'download_paused')
+  assert.equal(c.state.error.value,'')
+  assert.match(c.state.notice.value,/暂停/)
   assert.equal(c.requests.some(r=>r.path.endsWith('/preflight')),false)
   assert.equal(c.intervals.size,0)
+})
+
+test('pause during an in-flight download stops waiting for the installer plan',async()=>{
+  let finish
+  const c=client({download:()=>new Promise(resolve=>{finish=resolve}),plan:plan({status:'downloading'})})
+  c.state.upgrade.value.transaction={...c.state.upgrade.value.transaction,status:'downloading'}
+  const pending=c.state.pause();await new Promise(setImmediate)
+  await pending
+  assert.equal(c.requests.some(r=>r.path.endsWith('/cancel')),true)
+  assert.equal(c.state.upgrade.value.transaction.status,'download_paused')
+  assert.match(c.state.notice.value,/暂停/)
+  assert.equal(c.state.error.value,'')
+  finish?.()
 })
 
 test('a late progress response cannot hide the completed preflight',async()=>{

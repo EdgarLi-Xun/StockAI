@@ -83,7 +83,12 @@ async function downloadLocalPlan(plan:any){
       current=await post('/admin/upgrades/'+plan.id+'/preflight')
       if(upgradeClosed)return
     }
-  }catch(e){if(!upgradeClosed)await loadUpgrade().catch(()=>{});throw e}
+  }catch(e:any){
+    if(!upgradeClosed)await loadUpgrade().catch(()=>{})
+    if(upgradeClosed)return
+    if(e?.code==='CANCELLED'||tx.value?.status==='download_paused'){notice.value='下载已暂停，可继续或取消此计划。';return}
+    throw e
+  }
   finally{clearInterval(upgradeDownloadTimer);upgradeDownloadTimer=undefined}
   if(upgradeClosed)return
   await loadUpgrade()
@@ -106,6 +111,21 @@ async function downloadUpgrade(){await act(async()=>{
     confirmation.value='';await downloadLocalPlan(plan)
   }else{await post('/admin/upgrades/'+plan.id+'/download');await load()}
 })}
+async function pauseDownload(){
+  const plan=tx.value
+  if(!plan||plan.status!=='downloading')return
+  try{
+    await post('/admin/upgrades/'+plan.id+'/cancel')
+    if(upgradeClosed)return
+    notice.value='正在暂停下载。';error.value=''
+    await loadUpgrade()
+    for(let i=0;i<40&&!upgradeClosed&&tx.value?.status==='downloading';i++){
+      await new Promise(resolve=>setTimeout(resolve,250))
+      await loadUpgrade()
+    }
+    if(tx.value?.status==='download_paused')notice.value='下载已暂停，可继续或取消此计划。'
+  }catch(e:any){if(!upgradeClosed)error.value=e.message}
+}
 async function cleanup(){const value=await act(()=>post('/admin/upgrades/cleanup',{confirmation:'清理已过期的升级缓存'}));if(value){await load();notice.value=value.status==='waiting'?value.reason:'已清理 '+value.files.length+' 处过期升级缓存，释放 '+(value.bytes/1024/1024).toFixed(1)+' MB。'}}
 async function upload(event:Event){const file=(event.target as HTMLInputElement).files?.[0];if(!file||!tx.value)return;await act(async()=>{for(let offset=0;offset<file.size;offset+=3*1024*1024){const bytes=new Uint8Array(await file.slice(offset,offset+3*1024*1024).arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));await post('/admin/upgrades/'+tx.value.id+'/upload',{offset,data:btoa(binary)})}await load()},'离线包已导入并完成长度和摘要验证。')}
 const client=crypto.randomUUID();let timer:ReturnType<typeof setInterval>
@@ -181,7 +201,7 @@ onBeforeUnmount(()=>{stopUpgradeFlow();recoveryRead++;clearInterval(timer);windo
         <p v-if="tx.trust==='github-sha256'">安装包自动从 GitHub 下载并核对 SHA-256。也可导入已经下载的同名 Setup.exe；完成安装预检后，请在下方确认退出安装。</p>
         <p>安装包 {{ (tx.release.package.size/1024/1024).toFixed(1) }} MB · 数据迁移 {{ tx.release.migration||(tx.trust==='github-sha256'?'沿用桌面工作区，由新程序打开':'依签名计划检查') }}</p>
         <template v-if="tx.status==='downloading'||tx.total"><progress :value="tx.downloaded||0" :max="tx.total||tx.release.package.size" aria-label="安装包下载进度" /><p role="status">已下载 {{ ((tx.downloaded||0)/1024/1024).toFixed(1) }} / {{ ((tx.total||tx.release.package.size)/1024/1024).toFixed(1) }} MB</p></template>
-        <button v-if="tx.status==='downloading'" class="secondary" @click="post('/admin/upgrades/'+tx.id+'/cancel').then(()=>notice='下载暂停请求已提交。').catch(e=>error=e.message)">暂停下载</button>
+        <button v-if="tx.status==='downloading'" class="secondary" @click="pauseDownload">暂停下载</button>
         <p v-if="tx.error" role="alert">{{ tx.error }}</p><ul v-if="tx.blockers?.length"><li v-for="blocker in tx.blockers" :key="blocker">{{ blocker }}</li></ul>
         <div class="button-row">
           <button v-if="['planned','download_failed','download_paused'].includes(tx.status)" class="primary" :disabled="busy" @click="downloadUpgrade"><Download :size="15" />{{ tx.status==='planned'?'下载并验证':'继续下载并验证' }}</button>

@@ -16,8 +16,9 @@ class Socket:
 
 class Stream(Fetcher):
     def __init__(self,*responses):self.responses=list(responses);self.requests=[];self.closed=0
-    def response(self,url,headers=None,hosts=None):
+    def response(self,url,headers=None,hosts=None,on_connection=None):
         self.requests.append((url,headers,hosts));status,body,values=self.responses.pop(0)
+        if on_connection:on_connection(self)
         fields={'Content-Length':str(len(body)),**values}
         raw=('HTTP/1.1 '+str(status)+' OK\r\n'+''.join(k+': '+v+'\r\n' for k,v in fields.items())+'\r\n').encode()+body
         response=http.client.HTTPResponse(Socket(raw));response.begin();return self,response
@@ -69,6 +70,38 @@ def test_interrupted_stream_resumes_only_same_signed_target_and_strong_etag(tmp_
     fetch.download(release(data),path)
     assert path.read_bytes()==data and fetch.requests[1][1]['Range']=='bytes=1048576-' and fetch.requests[1][1]['If-Range']=='"stable"'
     assert fetch.closed==2
+
+
+def test_closing_the_connection_pauses_a_blocked_read_without_waiting_for_the_chunk(tmp_path):
+    import threading
+    entered,closed=threading.Event(),threading.Event()
+    class Conn:
+        def close(self):closed.set()
+    class Body:
+        status=200
+        def getheader(self,name,default=''):return {'etag':'"stall"','content-length':'10485760'}.get(name.lower(),default)
+        def read(self,n):
+            entered.set()
+            if not closed.wait(2):raise TimeoutError('pause did not close the download connection')
+            raise OSError('connection closed')
+    fetch=Fetcher();held={}
+    def response(url,headers=None,hosts=None,on_connection=None):
+        conn=Conn();held['conn']=conn
+        if on_connection:on_connection(conn)
+        return conn,Body()
+    fetch.response=response
+    package={'size':10*1024*1024,'sha256':'ab'*32,'url':'https://releases.example.test/fixture.exe'}
+    error={}
+    def run():
+        try:fetch.download({'package':package},tmp_path/'payload.exe',cancel=lambda:closed.is_set(),on_connection=lambda conn:held.__setitem__('bound',conn))
+        except Exception as exc:error['exc']=exc
+    thread=threading.Thread(target=run);thread.start()
+    assert entered.wait(2) and held.get('bound') is held.get('conn')
+    held['conn'].close()
+    thread.join(2)
+    assert not thread.is_alive()
+    assert isinstance(error.get('exc'),UpgradeError) and error['exc'].code=='CANCELLED'
+    assert not (tmp_path/'payload.exe').exists()
 
 
 def test_cancel_after_last_block_can_finalize_without_another_request(tmp_path):

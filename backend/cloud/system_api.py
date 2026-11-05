@@ -159,7 +159,7 @@ def install(app,rt,user,admin):
     def cancel(ident:str,request:Request,a=Depends(admin)):
         manager=rt(request).upgrades
         current=manager.state.get('transaction:'+ident)
-        if current and current['status']=='downloading':manager.state.put('cancel:'+ident,True);return {'status':'cancel_requested'}
+        if current and current['status']=='downloading':return manager.request_cancel(ident) or {'status':'cancel_requested'}
         with manager.lock():
             tx=manager.state.get('transaction:'+ident)
             if not tx or tx['status'] not in ('planned','verified','download_paused','download_failed','awaiting_operator','preflight_blocked','waiting_confirmation','uploading'):raise UpgradeError('BUSY','当前阶段不能取消，请等待安全边界')

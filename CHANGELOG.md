@@ -1,5 +1,15 @@
 # 更新记录
 
+## [3.2.9] - 2026-11-05
+
+- 修复「暂停下载」：关闭当前安装包连接，不再卡在等待网络数据块；暂停后可继续或取消该计划。
+- 没有正在进行的下载时，卡住的「正在下载」状态也会改成已暂停，避免旧计划挡住新版本。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.9-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.8] - 2026-11-05
 
 - 桌面启动时清掉上一轮页面 HTTP 缓存，并停止把页面壳写入磁盘缓存；登录存储不受影响。
@@ -194,6 +204,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.9]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.9
 [3.2.8]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.8
 [3.2.7]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.7
 [3.2.6]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.6
