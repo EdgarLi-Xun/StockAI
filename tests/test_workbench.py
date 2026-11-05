@@ -258,6 +258,17 @@ def test_assistant_secrets_context_limit_and_static_help(cloud):
     assert assistant.request_detail(store,uid,row['id'])['error_code']=='CONTEXT_TOO_LARGE'
 
 
+# 验证持仓卖点加邮件提醒的首轮提问能放进默认 16k 窗口，不因固定字节上限失败。
+def test_holding_alert_question_fits_default_window(cloud):
+    store,keys,_,_,_,uid=cloud;profile(cloud);session=resources.save(store,uid,'chat_session',{'title':'持仓提醒'})
+    question='我需要你持续帮我判断一下 现有持仓适合什么时候抛出，合适的时机发邮件通知提醒我一下'
+    row=assistant.submit(store,keys,uid,session['id'],assistant.MessageInput(client_key=uuid.uuid4().hex,question=question))
+    raw=store.one('SELECT * FROM assistant_requests WHERE id=?',(row['id'],));fixed=models.snapshot(store,uid)
+    proto,refs,sensitive,omitted=assistant.protocol(store,uid,raw,fixed)
+    assert row['status']=='queued' and omitted==0
+    assert len(json_text(proto['messages']).encode())<=assistant.context_budget(fixed)
+
+
 # 验证工作台路由的用户归属、请求输入及分页参数校验。
 def test_workbench_api_routes_owner_and_validation(cloud):
     store,keys,_,_,admin,uid=cloud

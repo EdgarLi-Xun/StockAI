@@ -1,5 +1,17 @@
 # 更新记录
 
+## [3.2.10] - 2026-11-05
+
+- 想法池改为卡片展示证券名称、进场、离场和错在哪，并显示写入时间；空池和读取失败有明确提示。
+- 邮件发送页分栏展示服务器和发信身份，并标明当前发信状态；普通账号看到管理员配置说明。
+- 点击自选置顶后立刻更新当前列表，不再等整页总览刷新；置顶星保持金色填充。
+- 助手上下文预算按模型窗口计算，不再卡在固定 8000 字节上限；持仓卖点加邮件提醒这类提问可以进入默认 16k 窗口。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.10-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.9] - 2026-11-05
 
 - 修复「暂停下载」：关闭当前安装包连接，不再卡在等待网络数据块；暂停后可继续或取消该计划。
@@ -204,6 +216,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.10]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.10
 [3.2.9]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.9
 [3.2.8]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.8
 [3.2.7]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.7

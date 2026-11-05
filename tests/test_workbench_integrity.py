@@ -76,7 +76,7 @@ def test_long_history_trim_and_current_turn_protected(cloud):
     row=assistant.submit(store,keys,uid,session['id'],assistant.MessageInput(client_key='history-current',question='当前模型配置如何设置'))
     raw=store.one('SELECT * FROM assistant_requests WHERE id=?',(row['id'],));proto,refs,sensitive,omitted=assistant.protocol(store,uid,raw,models.snapshot(store,uid))
     assert omitted>0 and len(proto['messages'])<=22 and '当前模型配置如何设置' in proto['messages'][-1]['content']
-    assert len(json_text(proto['messages']).encode())<=8000
+    assert len(json_text(proto['messages']).encode())<=assistant.context_budget(models.snapshot(store,uid))
 
 
 # 验证助手任务跨日仍可领取，已发送意图恢复后不重复调用模型。

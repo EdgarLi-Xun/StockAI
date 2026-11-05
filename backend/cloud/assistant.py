@@ -230,6 +230,13 @@ def conversation_topic(store,uid,session_id,fixed):
     return None
 
 
+# 没有分词器时用 UTF-8 字节数作为 token 上界：一个 token 至少占一字节，并留出输出额度。
+def context_budget(fixed):
+    window=fixed.get('context_window',16384)
+    reserve=min(4096,fixed.get('output_limit',4096))
+    return max(1,window-reserve-512)
+
+
 # 合并显式指定和本轮查询的对象，只保存标识及筛选条件，不保存事实副本。
 def research_contexts(payload):
     result=[]
@@ -253,7 +260,6 @@ def protocol(store,uid,request,fixed,lookup_results=None,lookup_round=0):
     if not holding_retry and not relevant:relevant=[knowledge()['entries'][-1]]
     for r in relevant:refs.append({'id':'help:'+r['id'],'kind':'help','title':r['title'],'version':knowledge()['version'],'data_time':None,'facts':r['text'],'href':'#assistant?help='+r['id']+'&version='+knowledge()['version']})
     previous,omitted=history(store,uid,request['session_id'],fixed)
-    # 没有分词器时使用更保守的 UTF-8 字节数上界控制上下文预算。
     can_lookup=lookup_round<MAX_LOOKUP_ROUNDS
     action_allowed=bool(assistant_actions.ACTION_INTENT.search(request['question']) or holding_retry)
     answer_type=ActionAnswer if action_allowed else Answer;step_type=ACTION_STEP if action_allowed else STEP
@@ -273,7 +279,7 @@ def protocol(store,uid,request,fixed,lookup_results=None,lookup_round=0):
     if holding_retry:body['pending_holdings']=assistant_actions.pending_proposals(store,uid,request['session_id'])
     if assistant_actions.RECORD_INTENT.search(request['question']) and not holding_retry:body['topics']=assistant_actions.topic_choices(store,uid)
     current={'role':'user','content':json_text(body)}
-    limit=min(8000,max(1,fixed.get('context_window',16384)-min(4096,fixed.get('output_limit',4096))-512))
+    limit=context_budget(fixed)
     messages=[{'role':'system','content':system},*previous,current]
     while previous and len(json_text(messages).encode())>limit:
         previous=previous[2:];omitted+=1;messages=[{'role':'system','content':system},*previous,current]

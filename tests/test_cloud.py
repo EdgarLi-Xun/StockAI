@@ -570,6 +570,24 @@ def test_production_cookie_and_sqlite_version_gate(cloud):
         assert c.get('/api/me/dashboard').status_code==200
 
 
+# 验证置顶写入后，自选列表和总览立刻读到新状态。
+def test_patch_watch_pin_is_immediately_visible(cloud):
+    from backend.cloud import market
+    from backend.instruments import InstrumentInput
+    store,keys,auth,journal,admin,uid=cloud
+    market.add_watch(store,uid,InstrumentInput(symbol='600001',market='SH',group_name='观察'))
+    with TestClient(create_app(store.cfg)) as c:
+        login(c)
+        ident='SH:600001'
+        assert c.patch('/api/me/instruments/'+ident,json={'pinned':True}).status_code==200
+        rows=c.get('/api/me/watchlist').json()
+        assert rows[0]['id']==ident and rows[0]['pinned'] is True
+        item=next(r for r in c.get('/api/me/dashboard').json()['watchlist'] if r['id']==ident)
+        assert item['pinned'] is True
+        assert c.patch('/api/me/instruments/'+ident,json={'pinned':False}).status_code==200
+        assert c.get('/api/me/watchlist').json()[0]['pinned'] is False
+
+
 # 验证导入保留已有置顶状态，且非法批次不会部分写入。
 def test_watch_import_preserves_pin_and_is_atomic(cloud):
     from backend.cloud import market
