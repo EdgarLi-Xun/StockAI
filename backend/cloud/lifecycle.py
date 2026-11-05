@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from pathlib import Path
 from contextlib import contextmanager
@@ -16,40 +18,63 @@ from .crypto import atomic_private
 from .store import json_text,stamp
 
 
+# 同一进程内先按锁文件排队，避免 Windows msvcrt 把线程竞争误判成第二个服务。
+_LOCKS={};_LOCKS_GUARD=threading.Lock()
+
+
 # 通过操作系统文件锁保证服务与离线维护操作互斥。
 class ProcessLock:
-    # 保存锁文件路径并初始化文件句柄。
-    def __init__(self,path):
-        self.path=path;self.file=None
+    # 保存锁文件路径；wait=True 时线程和进程都排队，而不是立刻失败。
+    def __init__(self,path,*,wait=False,timeout=8):
+        self.path=Path(path);self.file=None;self.wait=wait;self.timeout=timeout;self._local=None
 
-    # 创建锁文件并以非阻塞方式获取跨进程独占锁。
+    def _acquire_file(self):
+        deadline=time.monotonic()+(self.timeout if self.wait else 0)
+        while True:
+            self.file=self.path.open("a+b")
+            self.file.seek(0);self.file.write(b"0");self.file.flush();self.file.seek(0)
+            try:
+                if os.name=="nt":
+                    import msvcrt
+                    msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.file.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+                return
+            except OSError:
+                self.file.close();self.file=None
+                if not self.wait or time.monotonic()>=deadline:
+                    raise RuntimeError("另一个服务或离线维护进程仍在使用此数据目录") from None
+                time.sleep(0.02)
+
+    # 创建锁文件并获取跨进程独占锁；同进程读者先在内存里排队。
     def __enter__(self):
         self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.file=self.path.open("a+b")
-        self.file.seek(0);self.file.write(b"0");self.file.flush();self.file.seek(0)
+        key=str(self.path.resolve())
+        with _LOCKS_GUARD:self._local=_LOCKS.setdefault(key,threading.RLock())
+        if not self._local.acquire(timeout=self.timeout if self.wait else 0):
+            self._local=None
+            raise RuntimeError("另一个服务或离线维护进程仍在使用此数据目录")
         try:
-            if __import__("os").name=="nt":
-                import msvcrt
-                msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
-            else:
-                import fcntl
-                fcntl.flock(self.file.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except OSError:
-            self.file.close();self.file=None
-            raise RuntimeError("另一个服务或离线维护进程仍在使用此数据目录") from None
-        return self
+            self._acquire_file();return self
+        except Exception:
+            self._local.release();self._local=None;raise
 
-    # 释放操作系统锁并关闭句柄。
+    # 释放操作系统锁、关闭句柄，并让同进程等待者继续。
     def __exit__(self,*args):
-        if self.file:
-            self.file.seek(0)
-            if __import__("os").name=="nt":
-                import msvcrt
-                msvcrt.locking(self.file.fileno(),msvcrt.LK_UNLCK,1)
-            else:
-                import fcntl
-                fcntl.flock(self.file.fileno(),fcntl.LOCK_UN)
-            self.file.close();self.file=None
+        try:
+            if self.file:
+                self.file.seek(0)
+                if os.name=="nt":
+                    import msvcrt
+                    msvcrt.locking(self.file.fileno(),msvcrt.LK_UNLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.file.fileno(),fcntl.LOCK_UN)
+                self.file.close();self.file=None
+        finally:
+            if self._local:
+                self._local.release();self._local=None
 
 
 # 在研究备份外保存带签名的删除记录与备份登记，防止恢复已删账号。

@@ -75,7 +75,24 @@ async function downloadLocalPlan(plan:any){
         progressPending=true
         void loadUpgrade().catch(()=>{}).finally(()=>{progressPending=false})
       },1000)
-      current=await post('/admin/upgrades/'+plan.id+'/download')
+      try{
+        current=await post('/admin/upgrades/'+plan.id+'/download')
+      }catch(e:any){
+        if(!upgradeClosed)await loadUpgrade().catch(()=>{})
+        if(upgradeClosed)return
+        if(e?.code==='CANCELLED'||tx.value?.status==='download_paused'){notice.value='下载已暂停，可继续或取消此计划。';return}
+        if(tx.value?.status==='downloading'){
+          notice.value='正在下载更新并校验安装包，可以继续查看下载进度。'
+          while(!upgradeClosed&&tx.value?.status==='downloading'){
+            await new Promise(resolve=>setTimeout(resolve,250))
+            await loadUpgrade().catch(()=>{})
+          }
+          if(upgradeClosed)return
+          current=tx.value||current
+          if(current.status==='download_paused'){notice.value='下载已暂停，可继续或取消此计划。';return}
+          if(!['verified','preflight_blocked','waiting_confirmation'].includes(current.status))throw e
+        }else throw e
+      }
       if(upgradeClosed)return
     }
     if(['verified','preflight_blocked','waiting_confirmation'].includes(current.status)){

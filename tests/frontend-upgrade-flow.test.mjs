@@ -26,7 +26,10 @@ function client(options={}){
       if(path.endsWith('/download')){
         current={...current,status:'downloading',downloaded:20,total:100}
         if(options.download)await options.download(state)
-        if(options.fail){current={...current,status:options.fail.code==='CANCELLED'?'download_paused':'download_failed'};throw options.fail}
+        if(options.fail){
+          current={...current,status:options.failKeepDownloading?'downloading':options.fail.code==='CANCELLED'?'download_paused':'download_failed'}
+          throw options.fail
+        }
         current={...current,status:'verified',downloaded:100};return current
       }
       if(path.endsWith('/preflight')){current={...current,status:options.blockers?'preflight_blocked':'waiting_confirmation',blockers:options.blockers||[]};return current}
@@ -58,6 +61,27 @@ test('download progress is refreshed while duplicate clicks share the current ac
   assert.ok(c.intervals.size>0)
   finish();await first
   assert.equal(c.intervals.size,0)
+})
+
+test('a dropped download response still waits for the in-flight package',async()=>{
+  let finish,reads=0
+  const c=client({
+    fail:Object.assign(new Error('请求失败，请稍后重试'),{status:500}),
+    failKeepDownloading:true,
+    download:()=>new Promise(resolve=>{finish=resolve}),
+    readUpgrade:snapshot=>{
+      if(snapshot.transaction?.status!=='downloading')return snapshot
+      reads++
+      if(reads>2)return {...snapshot,transaction:{...snapshot.transaction,status:'verified',downloaded:100}}
+      return snapshot
+    }
+  })
+  const pending=c.state.prepare();await new Promise(setImmediate);finish()
+  await pending
+  assert.equal(c.state.error.value,'')
+  assert.match(c.state.notice.value,/确认/)
+  assert.equal(c.state.upgrade.value.transaction.status,'waiting_confirmation')
+  assert.equal(c.requests.some(r=>r.path.endsWith('/preflight')),true)
 })
 
 test('a failed checksum leaves a retryable download and never preflights or installs',async()=>{

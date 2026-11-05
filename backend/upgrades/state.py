@@ -14,11 +14,12 @@ class State:
     def __init__(self,folder,key):
         self.folder=Path(folder);self.folder.mkdir(parents=True,exist_ok=True);self.key=key;self.lock=threading.RLock()
         self.path=self.folder/'history.jsonl';self.head=self.folder/'anchor.json'
-        with ProcessLock(self.folder/'state.lock'):
+        with self._journal():
             if not self.path.exists():
                 if self.head.exists():raise RuntimeError('升级状态记录缺失，拒绝重建')
                 atomic_private(self.path,b'');self.anchor(0,'')
             self.reload()
+    def _journal(self):return ProcessLock(self.folder/'state.lock',wait=True)
     def sign(self,value):return hmac.new(self.key,canonical(value),hashlib.sha256).hexdigest()
     def anchor(self,seq,chain):
         value={'seq':seq,'chain':chain};atomic_private(self.head,canonical({**value,'signature':self.sign(value)}))
@@ -43,12 +44,12 @@ class State:
         if seq>anchor['seq']:self.anchor(seq,chain)
         self.seq,self.chain,self.values=seq,chain,values
     def get(self,slot,default=None):
-        with self.lock,ProcessLock(self.folder/'state.lock'):self.reload();return self.values.get(slot,default)
+        with self.lock,self._journal():self.reload();return self.values.get(slot,default)
     def prefixed(self,prefix):
-        with self.lock,ProcessLock(self.folder/'state.lock'):
+        with self.lock,self._journal():
             self.reload();return {k:v for k,v in self.values.items() if k.startswith(prefix)}
     def put(self,slot,value):
-        with self.lock,ProcessLock(self.folder/'state.lock'):
+        with self.lock,self._journal():
             self.reload()
             if self.values.get(slot)==value:return value
             row={'seq':self.seq+1,'previous':self.chain,'slot':slot,'value':value};signature=self.sign(row)

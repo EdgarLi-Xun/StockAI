@@ -176,7 +176,8 @@ def launch(home,args):
     from backend.upgrades.cli import manager as upgrade_manager
     upgrade_manager_instance=upgrade_manager('desktop',str(home))
     def upgrade_handoff():
-        tx=upgrade_manager_instance.current()
+        try:tx=upgrade_manager_instance.current()
+        except Exception:return
         if tx and tx['status']=='exit_requested' and not quitting['value']:
             from desktop.upgrade import handoff
             handoff(home,tx);quit_all()

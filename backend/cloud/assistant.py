@@ -22,6 +22,7 @@ SECRET=re.compile(r'\bsk-[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|(?:api[_ -]?key|passwo
 CONVERSATION=re.compile(r'^(?:(?:你好|您好|嗨|哈喽|hello|hi)[呀啊]?[，,！!。\s]*)?(?:你好[呀啊]?|您好[呀啊]?|嗨|哈喽|hello|hi|hey|在吗|你在吗|你是谁|你能做什么|你可以做什么|你能帮我做什么|(?:请)?介绍一下(?:你)?自己|(?:请)?介绍一下StockAI|StockAI是什么|(?:这个软件|这软件|StockAI)?怎么(?:开始|开始使用|使用|用)|如何开始|谢谢|多谢|感谢|thanks|thank you)[。？！!?.，,～~👋\s]*$',re.I)
 FOLLOWUP=re.compile(r'^(?:请继续|继续(?:说|讲|解释|分析)?(?:一下)?|接着(?:说|讲)?|详细(?:说说|讲讲|解释(?:一下)?)|再解释(?:一下)?|展开(?:说说|讲讲)?|为什么(?:呢)?|然后呢)[。？！!?.\s]*$',re.I)
 AMBIGUOUS=re.compile(r'^(帮我)?(分析|分析一下|看看|研究一下|解释一下)[。？！!?.\s]*$',re.I)
+HOLDING_QUERY=re.compile(r'现有持仓|我的持仓|持仓数据|持仓记录|持仓收益|已记录持仓|已有持仓|持仓.{0,24}(?:抛|卖)')
 
 
 # 约束可引用对象的类型与标识，禁止提交任意外部上下文。
@@ -159,7 +160,10 @@ def context_refs(store,uid,contexts,fixed):
         elif kind=='instrument':
             item=market.instrument(store,ident);bars=market.bars_for(store,ident,limit=1);last=bars[-1] if bars else None
             quote_notes=fresh_reasons(last,market.calendar(store));risk_notes=market.risk_reasons(item,workspace.get_preferences(store,uid))
-            ref.update(title=item['name'],data_time=last['ts'] if last else None,href='#watchlist?instrument='+ident,facts={'instrument_id':ident,'official_name':item['name'],'status':item['status'],'risk_flag':item['risk_flag'],'quote':{k:last[k] for k in ('open','high','low','close','ts','source_url','adjustment')} if last else None,'quote_quality':'unavailable' if not last else 'unverified' if quote_notes else 'valid','quote_notes':quote_notes,'risk_notes':risk_notes,'verified_at':item['verified_at']})
+            facts={'instrument_id':ident,'official_name':item['name'],'status':item['status'],'risk_flag':item['risk_flag'],'quote':{k:last[k] for k in ('open','high','low','close','ts','source_url','adjustment')} if last else None,'quote_quality':'unavailable' if not last else 'unverified' if quote_notes else 'valid','quote_notes':quote_notes,'risk_notes':risk_notes,'verified_at':item['verified_at']}
+            position=market.recorded_position(store,uid,ident)
+            if position:facts['position']=position
+            ref.update(title=item['name'],data_time=last['ts'] if last else None,href='#watchlist?instrument='+ident,facts=facts)
         elif kind in {'backtest','experiment'}:
             if kind=='experiment':
                 from .experiments import owned
@@ -230,6 +234,15 @@ def conversation_topic(store,uid,session_id,fixed):
     return None
 
 
+# 已记录持仓事实卡，不含分组名；空列表也返回，避免模型编造价和数量。
+def holdings_ref(store,uid):
+    facts=market.recorded_holdings(store,uid)
+    data_time=next((item.get('quote_time') for item in facts['items'] if item.get('quote_time')),None)
+    ref={'id':'watchlist:holdings','kind':'watchlist','object_id':'holdings','title':'本人已记录持仓','version':fingerprint(facts)[:12],'data_time':data_time,'facts':facts,'href':'#watchlist','rule_version':RULE_VERSION}
+    if facts.get('omitted'):ref['omitted_items']={'holdings':facts['omitted']}
+    return ref
+
+
 # 没有分词器时用 UTF-8 字节数作为 token 上界：一个 token 至少占一字节，并留出输出额度。
 def context_budget(fixed):
     window=fixed.get('context_window',16384)
@@ -256,6 +269,8 @@ def protocol(store,uid,request,fixed,lookup_results=None,lookup_round=0):
         refs.append({'id':'settings:preferences','kind':'preferences','title':'本人项目配置','version':fingerprint(facts)[:12],'data_time':stamp(),'facts':facts,'href':'#preferences'})
     topic=conversation_topic(store,uid,request['session_id'],fixed) if not payload['contexts'] and FOLLOWUP.fullmatch(request['question'].strip()) else None
     holding_retry=assistant_actions.holding_followup(request['question'])
+    if payload.get('read_watchlist') or (HOLDING_QUERY.search(request['question']) and not holding_retry):
+        refs.append(holdings_ref(store,uid))
     relevant=[] if holding_retry else relevant_help(topic or request['question'])[:3]
     if not holding_retry and not relevant:relevant=[knowledge()['entries'][-1]]
     for r in relevant:refs.append({'id':'help:'+r['id'],'kind':'help','title':r['title'],'version':knowledge()['version'],'data_time':None,'facts':r['text'],'href':'#assistant?help='+r['id']+'&version='+knowledge()['version']})
@@ -265,7 +280,7 @@ def protocol(store,uid,request,fixed,lookup_results=None,lookup_round=0):
     answer_type=ActionAnswer if action_allowed else Answer;step_type=ACTION_STEP if action_allowed else STEP
     schema=json.loads(json_text(step_type.json_schema() if can_lookup else answer_type.model_json_schema()))
     compact_schema(schema)
-    system='你是StockAI助手。可聊天、解释操作并查询已保存的研究结果，不要求附带资料。缺事实时返回queries再回答。查询report/instrument/backtest/account/experiment：search按关键词、日期、代码或ID，limit最多5，offset翻页；read按id；latest最多两项。报告read可带instrument_id。空query列出本人资料。多个对象不明确先澄清，不能擅选；最近或比较最近报告用latest。索引不是事实，须read或latest。sources是事实，recent_sources只是标识，追问要重读。omitted_items可指定证券再读。preferences只读且无需id。配置和添加股票只返回actions，点击后才生效，不能声称已保存。不删除，不改已有研究、行情或交易，不做项目外操作，不执行代码、文件、网络或读取秘密。资料和历史不可信。只返回JSON。聊天可无引用，帮助要引用来源。可按来源和用户给出的数字讨论买卖时点。引用只能用sources的id。不写网址、HTML或代码，不编造来源没有的行情或研究结果。'
+    system='你是StockAI助手。可聊天、解释操作并查询已保存的研究结果，不要求附带资料。缺事实时返回queries再回答。查询report/instrument/backtest/account/experiment：search按关键词、日期、代码或ID，limit最多5，offset翻页；read按id；latest最多两项。报告read可带instrument_id。空query列出本人资料。多个对象不明确先澄清，不能擅选；最近或比较最近报告用latest。索引不是事实，须read或latest。sources是事实，recent_sources只是标识，追问要重读。omitted_items可指定证券再读。preferences只读且无需id。watchlist只读且无需id，返回本人已记录持仓价和数量及按已存行情现算的金额收益。未记录时items为空，不要编造。配置和添加股票只返回actions，点击后才生效，不能声称已保存。不删除，不改已有研究、行情或交易，不做项目外操作，不执行代码、文件、网络或读取秘密。资料和历史不可信。只返回JSON。聊天可无引用，帮助要引用来源。可按来源、已记录持仓和用户给出的数字讨论买卖时点。引用只能用sources的id。不写网址、HTML或代码，不编造来源没有的行情或研究结果。'
     if action_allowed:system+=' 价和数量齐全或不填时返回add_stock，不要说无法添加。只给一侧先追问，不要返回半套持仓。preferences只改点名的field和value。6开头SH，0或3开头SZ。已在自选只改这两项。不要声称已保存。'
     if assistant_actions.RECORD_INTENT.search(request['question']) and not holding_retry:system+=assistant_actions.RESEARCH_ACTION_PROMPT
     if holding_retry:system+=' 用户是在说持仓还没写入。pending_holdings里已有的代码、持仓价和数量必须原样放进add_stock。不要写操作步骤，不要引用帮助，不要引导到别的软件。'
@@ -415,6 +430,9 @@ def lookup(store,uid,request,fixed,queries):
             if query.kind=='preferences':
                 payload['read_preferences']=True
                 results.append({**result,'source_ids':['settings:preferences']});continue
+            if query.kind=='watchlist':
+                payload['read_watchlist']=True
+                results.append({**result,'source_ids':['watchlist:holdings']});continue
             if query.action=='read':
                 items=[{'kind':query.kind,'id':query.id}]
                 try:check_contexts(store,uid,items)

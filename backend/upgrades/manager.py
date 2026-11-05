@@ -185,13 +185,17 @@ class Manager(Cache):
                 if event.is_set() or self.state.get('cancel:'+ident,False):
                     self.update(tx,'download_paused',error='CANCELLED',next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise UpgradeError('CANCELLED','下载已暂停')
                 self.state.put('cancel:'+ident,False)
-                def stopped():return event.is_set() or bool(cancel and cancel()) or bool(self.state.get('cancel:'+ident,False))
+                def stopped():return event.is_set() or bool(cancel and cancel())
                 try:
                     self.fetcher.download(tx['release'],self.package_path(tx),lambda count,total:self.update(tx,'downloading',downloaded=count,total=total),stopped,ASSET_HOSTS if tx.get('trust')=='github-sha256' else None,lambda conn:self._bind_download(ident,conn))
                     return self.update(tx,'verified',downloaded=tx['release']['package']['size'])
                 except UpgradeError as exc:
                     current=self.state.get('transaction:'+ident) or tx
                     self.update(current,'download_paused' if exc.code=='CANCELLED' else 'download_failed',error=exc.code,next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise
+                except Exception:
+                    current=self.state.get('transaction:'+ident) or tx
+                    self.update(current,'download_failed',error='NETWORK',next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat())
+                    raise UpgradeError('NETWORK','下载未完成，当前程序未改变') from None
         finally:
             with self._download_guard:
                 self._download_cancel.pop(ident,None);self._download_conn.pop(ident,None)

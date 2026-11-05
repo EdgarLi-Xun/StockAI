@@ -358,6 +358,8 @@ def test_manual_apply_api_requires_confirmation_and_owned_request(cloud):
     {'queries': [{'action': 'search', 'kind': 'report', 'user_id': 'other'}]},
     {'queries': [{'action': 'latest', 'kind': 'report', 'limit': 1000}]},
     {'queries': [{'action': 'read', 'kind': 'preferences', 'id': 'another-user'}]},
+    {'queries': [{'action': 'read', 'kind': 'watchlist', 'id': 'another-user'}]},
+    {'queries': [{'action': 'search', 'kind': 'watchlist'}]},
 ])
 def test_model_lookup_schema_has_no_external_write_or_cross_user_controls(raw):
     with pytest.raises(ValidationError): Lookup.model_validate(raw)
@@ -518,6 +520,7 @@ def test_missing_holding_reuses_the_earlier_proposal_instead_of_a_manual_guide(c
     assert current['pending_holdings'][0]['symbol'] == '000911'
     assert current['pending_holdings'][0]['quantity'] == 300
     assert not any(item['kind'] == 'help' for item in current['sources'])
+    assert not any(item['kind'] == 'watchlist' for item in current['sources'])
     result = run(cloud, follow, lambda *args: response(
         '您可以通过以下步骤将股票添加到自选的持仓中：登录您的投资平台，搜索ST广糖。', ['help:watchlist']))
     assert result['status'] == 'success', result
@@ -696,6 +699,87 @@ def test_position_price_can_be_proposed_without_opening_trade_edits():
     assert assistant.classify('把持仓价改成9', []) == 'project'
     assert assistant.classify('修改持仓为100股', []) == 'manual'
     assert assistant.classify('把成交改成已撤销', []) == 'manual'
+
+
+def test_recorded_holdings_are_attached_for_sell_analysis(cloud):
+    store, keys, _, _, admin, uid = cloud
+    profile(cloud); ident = listed_stock(store)
+    daily_bar(store, ident, '2026-11-02T15:00:00+08:00', 10)
+    daily_bar(store, ident, '2026-11-03T15:00:00+08:00', 11)
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',
+                  (uid, ident, 'SECRET-GROUP', 0, stamp(), '8', 100))
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',
+                  (admin, ident, 'ADMIN-GROUP', 0, stamp(), '1', 1))
+    other = listed_stock(store, '600000', '浦发银行')
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,0,?)',
+                  (uid, other, '观察', stamp()))
+    message = submit(store, keys, uid, session(store, uid), '现有持仓适合什么时候抛')
+    sent = []
+    def wire(fixed, messages, key):
+        current = json.loads(messages[-1]['content']); sent.append(current)
+        source = next(item for item in current['sources'] if item['kind'] == 'watchlist')
+        items = source['facts']['items']
+        assert [row['instrument_id'] for row in items] == [ident]
+        assert items[0]['position']['cost_price'] == '8' and items[0]['position']['quantity'] == 100
+        assert items[0]['position']['market_value'] == 1100 and items[0]['position']['total_pnl'] == 300
+        text = json_text(current)
+        assert 'SECRET-GROUP' not in text and 'ADMIN-GROUP' not in text
+        return response('持仓成本 8 元。若已存收盘明显高于成本且没有继续持有的证据，可以卖出。', ['watchlist:holdings'])
+    result = run(cloud, message, wire)
+    assert result['status'] == 'success' and len(sent) == 1
+    assert result['reply']['citations'] == ['watchlist:holdings']
+    assert result['reply']['references'][0]['id'] == 'watchlist:holdings'
+
+
+def test_holding_question_without_records_does_not_invent_prices(cloud):
+    store, keys, *_, uid = cloud; profile(cloud)
+    listed_stock(store)
+    message = submit(store, keys, uid, session(store, uid), '我的持仓收益怎么算')
+    def wire(fixed, messages, key):
+        current = json.loads(messages[-1]['content'])
+        source = next(item for item in current['sources'] if item['kind'] == 'watchlist')
+        assert source['facts']['items'] == [] and source['facts']['recorded_count'] == 0
+        assert 'cost_price' not in json_text(source['facts']['items'])
+        return response('尚未记录持仓价和数量，无法按现有持仓计算收益。', ['watchlist:holdings'])
+    result = run(cloud, message, wire)
+    assert result['status'] == 'success'
+    assert result['reply']['references'][0]['facts']['items'] == []
+
+
+def test_model_can_read_watchlist_holdings_without_auto_attach(cloud):
+    store, keys, *_, uid = cloud
+    profile(cloud); ident = listed_stock(store)
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',
+                  (uid, ident, '长期观察', 0, stamp(), '8', 100))
+    message = submit(store, keys, uid, session(store, uid), '帮我分析最近的研究报告')
+    sent = []
+    def wire(fixed, messages, key):
+        current = json.loads(messages[-1]['content']); sent.append(current)
+        if len(sent) == 1:
+            assert not any(item['kind'] == 'watchlist' for item in current['sources'])
+            return lookup_response({'action': 'read', 'kind': 'watchlist'})
+        source = next(item for item in current['sources'] if item['kind'] == 'watchlist')
+        assert source['facts']['items'][0]['instrument_id'] == ident
+        assert source['facts']['items'][0]['position']['quantity'] == 100
+        return response('已记录持仓可按已存行情核对其相对成本的变化。', ['watchlist:holdings'])
+    result = run(cloud, message, wire)
+    assert result['status'] == 'success' and len(sent) == 2
+    assert result['context']['read_watchlist'] is True
+
+
+def test_instrument_read_includes_recorded_position_only_when_filled(cloud):
+    store, keys, *_, uid = cloud
+    ident = listed_stock(store)
+    other = listed_stock(store, '600000', '浦发银行')
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',
+                  (uid, ident, '长期观察', 0, stamp(), '8', 100))
+    daily_bar(store, ident, '2026-11-03T15:00:00+08:00', 11)
+    held, _ = assistant.context_refs(store, uid, [{'kind': 'instrument', 'id': ident}], {})
+    assert held[0]['facts']['position']['cost_price'] == '8'
+    assert held[0]['facts']['position']['quantity'] == 100
+    assert held[0]['facts']['position']['market_value'] == 1100
+    empty, _ = assistant.context_refs(store, uid, [{'kind': 'instrument', 'id': other}], {})
+    assert 'position' not in empty[0]['facts']
 
 
 def test_watch_holding_survives_sync_projection_and_rejects_invalid_quantity(cloud):

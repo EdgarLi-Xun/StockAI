@@ -260,12 +260,19 @@ def test_assistant_secrets_context_limit_and_static_help(cloud):
 
 # 验证持仓卖点加邮件提醒的首轮提问能放进默认 16k 窗口，不因固定字节上限失败。
 def test_holding_alert_question_fits_default_window(cloud):
+    from test_assistant_lookup import daily_bar, listed_stock
     store,keys,_,_,_,uid=cloud;profile(cloud);session=resources.save(store,uid,'chat_session',{'title':'持仓提醒'})
+    ident=listed_stock(store)
+    daily_bar(store,ident,'2026-11-02T15:00:00+08:00',10)
+    daily_bar(store,ident,'2026-11-03T15:00:00+08:00',11)
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',
+                  (uid,ident,'长期观察',0,stamp(),'8',100))
     question='我需要你持续帮我判断一下 现有持仓适合什么时候抛出，合适的时机发邮件通知提醒我一下'
     row=assistant.submit(store,keys,uid,session['id'],assistant.MessageInput(client_key=uuid.uuid4().hex,question=question))
     raw=store.one('SELECT * FROM assistant_requests WHERE id=?',(row['id'],));fixed=models.snapshot(store,uid)
     proto,refs,sensitive,omitted=assistant.protocol(store,uid,raw,fixed)
     assert row['status']=='queued' and omitted==0
+    assert any(item['kind']=='watchlist' and item['facts']['items'][0]['position']['quantity']==100 for item in refs)
     assert len(json_text(proto['messages']).encode())<=assistant.context_budget(fixed)
 
 

@@ -17,7 +17,7 @@ MAX_LOOKUP_ROUNDS = 3
 class DataQuery(BaseModel):
     model_config = ConfigDict(extra='forbid')
     action: Literal['search', 'read', 'latest']
-    kind: ResearchKind | Literal['preferences']
+    kind: ResearchKind | Literal['preferences', 'watchlist']
     id: str | None = Field(default=None, min_length=1, max_length=100)
     query: str = Field(default='', max_length=100)
     limit: int = Field(default=1, ge=1, le=5, strict=True)
@@ -29,6 +29,10 @@ class DataQuery(BaseModel):
         if self.kind == 'preferences':
             if self.action != 'read' or self.id or self.query or self.offset or self.instrument_id or self.limit != 1:
                 raise ValueError('preferences only supports reading the current user configuration')
+            return self
+        if self.kind == 'watchlist':
+            if self.action != 'read' or self.id or self.query or self.offset or self.instrument_id or self.limit != 1:
+                raise ValueError('watchlist only supports reading the current user recorded holdings')
             return self
         if self.action == 'read':
             if not self.id or self.query or self.offset or self.limit != 1:

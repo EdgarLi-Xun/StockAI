@@ -1,6 +1,9 @@
 """GitHub discovery stays separate from signed acceptance. Desktop EXE may install a checksum-matched asset."""
 from datetime import datetime,timedelta,timezone
+from pathlib import Path
 import hashlib
+import threading
+import time
 import pytest
 from backend.upgrades.github import ASSET_HOSTS,DEFAULT_SOURCE,asset_url,parse_checksum,repository,latest
 from backend.upgrades.manager import Manager
@@ -177,6 +180,69 @@ def test_desktop_downloads_the_official_asset(manager):
     staged['program']=str(install_exe().parent/'elsewhere.exe')
     with pytest.raises(UpgradeError):Runner(m).verify(staged)
     assert m.fetcher.requests[-1][0].endswith('/'+name) and m.fetcher.requests[-1][2]==ASSET_HOSTS
+
+
+def test_unexpected_download_failure_leaves_a_retryable_plan(manager):
+    _,payload,checksum=published(b'boom-payload')
+    class Boom(Checksum):
+        def download(self,*args,**kwargs):
+            raise RuntimeError('另一个服务或离线维护进程仍在使用此数据目录')
+    m=desktop(manager,Boom([release('3.3.0',size=len(payload))],checksum=checksum));m.check();tx=m.prepare_local()
+    with pytest.raises(UpgradeError) as error:m.download(tx['id'])
+    assert error.value.code=='NETWORK'
+    current=m.current()
+    assert current['status']=='download_failed' and current['error']=='NETWORK'
+
+
+def test_process_lock_without_wait_rejects_another_thread(tmp_path):
+    from backend.cloud.lifecycle import ProcessLock
+    path=tmp_path/'service.lock';held=threading.Event();done=threading.Event()
+    def hold():
+        with ProcessLock(path):
+            held.set();done.wait(2)
+    reader=threading.Thread(target=hold);reader.start()
+    try:
+        assert held.wait(1)
+        with pytest.raises(RuntimeError):
+            with ProcessLock(path):pass
+    finally:
+        done.set();reader.join(2)
+
+
+def test_process_lock_wait_lets_another_thread_enter_after_release(tmp_path):
+    from backend.cloud.lifecycle import ProcessLock
+    path=tmp_path/'journal.lock';order=[];held=threading.Event()
+    def hold():
+        with ProcessLock(path,wait=True):
+            order.append('a');held.set();time.sleep(0.05)
+    reader=threading.Thread(target=hold);reader.start()
+    assert held.wait(1)
+    with ProcessLock(path,wait=True):order.append('b')
+    reader.join(2);assert order==['a','b']
+
+
+def test_second_manager_can_read_status_while_a_download_checks_cancel(manager):
+    _,payload,checksum=published(b'x'*2048)
+    class Busy(Checksum):
+        def download(self,release,destination,progress=None,cancel=None,hosts=None,on_connection=None):
+            for i in range(40):
+                if cancel and cancel():raise UpgradeError('CANCELLED','下载已暂停')
+                if progress:progress(min((i+1)*48,len(payload)),len(payload))
+                time.sleep(0.005)
+            path=Path(destination);path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(payload);return path
+    m=desktop(manager,Busy([release('3.3.0',size=len(payload))],checksum=checksum));m.check();tx=m.prepare_local()
+    other=Manager(m.cfg,m.keys,component='desktop',form='exe',version='3.2.1',store=m.store)
+    done=threading.Event();errors=[]
+    def hammer():
+        while not done.is_set():
+            try:other.current();other.status()
+            except Exception as exc:errors.append(exc)
+            time.sleep(0.002)
+    reader=threading.Thread(target=hammer);reader.start()
+    try:assert m.download(tx['id'])['status']=='verified'
+    finally:
+        done.set();reader.join(2)
+    assert errors==[]
 
 
 def test_request_cancel_stops_an_in_flight_download_without_waiting_for_the_next_chunk(manager):

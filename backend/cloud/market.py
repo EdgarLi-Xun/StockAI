@@ -210,6 +210,37 @@ def watch_priority(row):
     return 3
 
 
+def recorded_position(store,uid,ident):
+    """Return the caller's recorded holding for one security, or None if not filled in."""
+    row=store.one("SELECT cost_price,quantity FROM user_watchlist WHERE user_id=? AND instrument_id=?",(uid,ident))
+    if not row:return None
+    position=holding_view(row["cost_price"],row["quantity"],bars_for(store,ident,limit=2))
+    if position["cost_price"] in (None,"") or not isinstance(position["quantity"],int) or position["quantity"]<=0:
+        return None
+    return position
+
+
+def recorded_holdings(store,uid,limit=40):
+    """本人已记录持仓价和数量的自选，不含分组名；超出 limit 记 omitted。"""
+    ranked=[]
+    for r in store.query("SELECT instrument_id,cost_price,quantity,pinned FROM user_watchlist WHERE user_id=? ORDER BY pinned DESC,group_name,instrument_id",(uid,)):
+        position=holding_view(r["cost_price"],r["quantity"],bars_for(store,r["instrument_id"],limit=2))
+        if position["cost_price"] in (None,"") or not isinstance(position["quantity"],int) or position["quantity"]<=0:
+            continue
+        try:item=instrument(store,r["instrument_id"])
+        except AuthError:continue
+        bars=bars_for(store,r["instrument_id"],limit=1);last=bars[-1] if bars else None
+        ranked.append((watch_priority({"pinned":bool(r["pinned"]),"position":position}),{
+            "instrument_id":item["id"],"official_name":item["name"],"symbol":item["symbol"],"market":item["market"],
+            "position":position,"quote_time":last["ts"] if last else None}))
+    ranked.sort(key=lambda row:row[0])
+    items=[row[1] for row in ranked]
+    omitted=max(0,len(items)-limit)
+    facts={"items":items[:limit],"recorded_count":len(items),"notes":["金额和收益按已存日K现算，不含费用","缺行情时金额和收益为空"]}
+    if omitted:facts["omitted"]=omitted
+    return facts
+
+
 # 将本人自选与共享报价、预算及风险状态组合为列表视图。
 def watch_rows(store,uid):
     prefs=get_preferences(store,uid);out=[]
