@@ -28,7 +28,7 @@ LABELS = {'budget': '单只证券预算（元）', 'min_daily_amount': '最低�
           'fees.etf_commission': 'ETF 佣金率', 'fees.etf_minimum': 'ETF 最低佣金（元）',
           'fees.stock_transfer': '股票过户费率', 'fees.stock_stamp_sell': '股票卖出印花税率',
           'fees.slippage_bps': '模拟滑点（基点）'}
-ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|加到|加进|加一下|放入|放进|放到|记入|记到|录入|开启|关闭|启用|停用|持仓价|持仓价格|持仓数量|提醒|通知|日记|判断|课题|实验|回测')
+ACTION_INTENT = re.compile(r'修改|调整|更改|改成|改为|设为|设置|添加|加入|新增|加到|加进|加一下|放入|放进|放到|记入|记到|录入|开启|关闭|启用|停用|持仓价|持仓价格|持仓数量|提醒|通知|日记|判断|课题|做实验|做个实验|新建实验|跑实验|加入实验|创建实验')
 RECORD_INTENT = re.compile(r'提醒|通知|日记|判断|课题|做实验|做个实验|新建实验|跑实验|加入实验|创建实验')
 CONDITION_LABELS = {'price_above': '价格达到或高于', 'price_below': '价格达到或低于', 'change_above': '相对参考收盘涨跌幅 ≥',
                     'change_below': '相对参考收盘涨跌幅 ≤', 'risk_changed': '风险状态变化', 'candidate_invalid': '指定报告候选失效'}
