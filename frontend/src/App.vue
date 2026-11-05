@@ -3,6 +3,7 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, FileText, FlaskConical, Globe2, LayoutDashboard, ListFilter, LoaderCircle, LockKeyhole, Menu, MoreHorizontal, NotebookPen, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star, Terminal, Trash2, Wallet, X, Zap } from 'lucide-vue-next'
 import { api, post, download, setToken } from './api'
+import { preferHoldings } from './workspaceFormat'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import AppearanceSettings from './components/AppearanceSettings.vue'
 import ResearchOverview from './components/ResearchOverview.vue'
@@ -56,8 +57,8 @@ const canEdit = computed(() => props.publicMode || role.value === 'admin')
 const canMaintain = computed(() => !props.publicMode ? canEdit.value : props.publicUser?.role === 'admin')
 // 根据当前页面标识生成页面标题，未知标识回退至研究总览。
 const title = computed(() => nav.find(n => n.id === page.value)?.name || '研究总览')
-// 从最近成功的总览响应派生自选清单，未加载时提供空列表。
-const watchlist = computed<any[]>(() => dashboard.value?.watchlist || [])
+// 今日总览、自选证券和市场行情共用：已记录持仓在前，其次置顶收藏。
+const watchlist = computed<any[]>(() => preferHoldings(dashboard.value?.watchlist || []))
 const overviewWatchlist = computed(() => watchlist.value.filter(r => r.asset_class === 'stock' && ['SH', 'SZ'].includes(r.market)).slice(0, 5))
 // 从自选中的个人分组去重生成筛选选项。
 const groups = computed(() => ['全部', ...new Set(watchlist.value.map(r => r.group_name))])

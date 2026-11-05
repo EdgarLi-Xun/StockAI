@@ -199,12 +199,24 @@ def holding_view(cost_price,quantity,bars):
             "total_return_pct":_points(last,cost) if cost is not None else None}
 
 
+# 已记录持仓排在置顶收藏之前，同级保持分组和代码顺序。
+def watch_priority(row):
+    position=row.get("position") or {}
+    quantity=position.get("quantity")
+    held=position.get("cost_price") not in (None,"") and isinstance(quantity,int) and not isinstance(quantity,bool) and quantity>0
+    if held and row.get("pinned"):return 0
+    if held:return 1
+    if row.get("pinned"):return 2
+    return 3
+
+
 # 将本人自选与共享报价、预算及风险状态组合为列表视图。
 def watch_rows(store,uid):
     prefs=get_preferences(store,uid);out=[]
     for r in store.query("SELECT * FROM user_watchlist WHERE user_id=? ORDER BY pinned DESC,group_name,instrument_id",(uid,)):
         item=detail(store,uid,r["instrument_id"],prefs=prefs)
         bars=item.pop("bars");out.append({**item,"group_name":r["group_name"],"pinned":bool(r["pinned"]),"position":holding_view(r["cost_price"],r["quantity"],bars)})
+    out.sort(key=watch_priority)
     return out
 
 

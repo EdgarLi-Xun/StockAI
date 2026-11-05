@@ -63,9 +63,10 @@
 .public-main .overview-metrics .metric-note,.public-main .overview-metrics .metric-link { min-height: 23px; font-size: 11px; line-height: 1.7; }
 .overview-columns { display: grid; grid-template-columns: minmax(0,1.9fr) minmax(270px,1fr); align-items: start; gap: 20px; }
 .overview-primary,.overview-secondary { display: grid; min-width: 0; gap: 18px; }
-.overview-table { width: 100%; min-width: 0; table-layout: fixed; }
-.overview-table th:first-child { width: 32%; }
+.overview-table { width: max-content; min-width: 100%; table-layout: auto; }
+.overview-table th:first-child { min-width: 148px; }
 .public-main .overview-table td { white-space: normal; overflow-wrap: anywhere; }
+.public-main .overview-table td.number { white-space: nowrap; overflow-wrap: normal; }
 .public-main .overview-table th { padding: 10px 14px; color: var(--muted); background: var(--surface-soft); font-size: 11px; white-space: nowrap; }
 .public-main .overview-table td { padding: 12px 14px; font-size: 12px; }
 .public-main .overview-table td:first-child,.public-main .overview-table th:first-child { padding-left: 18px; }
@@ -287,15 +288,11 @@
   .public-main .overview-metrics .metric-value { font-size: 28px; }
   .overview-columns,.overview-secondary { grid-template-columns: minmax(0,1fr); gap: 16px; }
   .overview-primary { gap: 16px; }
-  .overview-position { display: none; }
   .public-main .overview-table th,.public-main .overview-table td { padding-inline: 8px; }
   .public-main .overview-table th:first-child,.public-main .overview-table td:first-child { padding-left: 12px; }
   .public-main .overview-table th:last-child,.public-main .overview-table td:last-child { padding-right: 12px; }
   .public-main .overview-table .security-name { font-size: 12px; }
   .public-main .overview-table td { font-size: 12px; }
-  .overview-table th:first-child { width: 35%; }
-  .overview-table th:nth-child(2),.overview-table th:nth-child(3) { width: 21%; }
-  .overview-table th:last-child { width: 23%; }
   .public-main .overview-table .tag { padding: 3px 4px; }
   .overview-footnote { padding-inline: 14px; }
   .overview-market .index-tabs { padding-inline: 8px; }

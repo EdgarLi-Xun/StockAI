@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.7] - 2026-11-05
+
+- 已记录持仓的自选排在仅置顶的收藏之前。同时有持仓和置顶的在最前，其次是仅持仓，再次是仅置顶，其余保持原来的分组和代码顺序。
+- 今日总览、自选证券和市场行情共用这一顺序。
+- 公网总览的自选表展开持仓价、持仓数量、持仓金额、当天收益、当天收益率、总收益和总收益率。缺行情时保留「—」，收益不含费用。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.7-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.6] - 2026-11-05
 
 - 新增想法池。早报按固定规则评审已保存的想法，写明过关或死因；周度复盘汇总本周死因。点名比特币或以太坊的内容不进入评审，公开资料补齐时也会跳过。
@@ -172,6 +183,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.7]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.7
 [3.2.6]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.6
 [3.2.5]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.5
 [3.2.4]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.4

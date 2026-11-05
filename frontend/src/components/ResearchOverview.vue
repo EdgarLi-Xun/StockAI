@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
 import { ArrowRight, ArrowUpRight, Bell, ChartCandlestick, Database, FileText, RefreshCw, ShieldCheck, Sparkles, Star } from 'lucide-vue-next'
-import { number as fmt, percent as pct, direction, dateTime } from '../workspaceFormat'
+import { number as fmt, percent as pct, direction, dateTime, preferHoldings } from '../workspaceFormat'
 const ResearchChart = defineAsyncComponent(() => import('./ResearchChart.vue'))
 const props = defineProps<{ dashboard: any, indexData: any, indices: any[], activeIndex: string, canEdit: boolean, canMaintain: boolean, busy: boolean, publicMode: boolean }>()
 const emit = defineEmits<{ navigate: [route: string], instrument: [id: string], report: [id: string], job: [kind: string], add: [], index: [id: string] }>()
-const rows = computed(() => (props.dashboard?.watchlist || []).filter((row: any) => row.asset_class !== 'index').slice(0, 6))
+const rows = computed(() => preferHoldings((props.dashboard?.watchlist || []).filter((row: any) => row.asset_class !== 'index')).slice(0, 6))
 const stats = computed(() => props.dashboard?.stats)
 const currentIndex = computed(() => props.indices.find(row => row.id === props.activeIndex))
 const modes: Record<string, string> = { standard: '标准版早报', full: '完整版复盘', closing: '收盘跟踪' }
@@ -36,8 +36,8 @@ const attention = computed(() => {
       <div class="overview-primary">
         <section class="panel overview-watchlist">
           <div class="panel-heading"><h2>我的自选 <small>{{ stats?.watch_count ?? '—' }}</small></h2><button class="text-button" @click="emit('navigate','watchlist')">管理自选<ArrowUpRight :size="14"/></button></div>
-          <div v-if="rows.length" class="table-scroll"><table class="watch-table overview-table"><thead><tr><th>证券 / 代码</th><th class="number">最近价格</th><th class="number">涨跌幅</th><th v-if="publicMode" class="number overview-position">持仓收益率</th><th>研究状态</th></tr></thead><tbody>
-            <tr v-for="row in rows" :key="row.id"><td><button class="security-name" @click="emit('instrument',row.id)">{{ row.name }}</button><small>{{ row.symbol }} · {{ row.market }}</small></td><td class="number mono">{{ fmt(row.quote?.close ?? row.quote?.price, row.asset_class === 'etf' ? 3 : 2) }}</td><td :class="['number mono',direction(row.change_pct)]">{{ pct(row.change_pct) }}</td><td v-if="publicMode" :class="['number mono overview-position',direction(row.position?.total_return_pct)]">{{ pct(row.position?.total_return_pct) }}</td><td><span :class="['tag',row.observation_only?'':row.exclusion_reasons?.length?'amber':'green']">{{ row.observation_only ? '仅观察' : row.exclusion_reasons?.length ? '待核验' : '已核验' }}</span></td></tr>
+          <div v-if="rows.length" class="table-scroll"><table class="watch-table overview-table"><thead><tr><th>证券 / 代码</th><th class="number">最近价格</th><th class="number">涨跌幅</th><template v-if="publicMode"><th class="number">持仓价</th><th class="number">持仓数量</th><th class="number">持仓金额</th><th class="number">当天收益</th><th class="number">当天收益率</th><th class="number">总收益</th><th class="number">总收益率</th></template><th>研究状态</th></tr></thead><tbody>
+            <tr v-for="row in rows" :key="row.id"><td><button class="security-name" @click="emit('instrument',row.id)">{{ row.name }}</button><small>{{ row.symbol }} · {{ row.market }}</small></td><td class="number mono">{{ fmt(row.quote?.close ?? row.quote?.price, row.asset_class === 'etf' ? 3 : 2) }}</td><td :class="['number mono',direction(row.change_pct)]">{{ pct(row.change_pct) }}</td><template v-if="publicMode"><td class="number mono">{{ fmt(row.position?.cost_price, 4) }}</td><td class="number mono">{{ row.position?.quantity ?? '—' }}</td><td class="number mono">{{ fmt(row.position?.market_value) }}</td><td :class="['number mono',direction(row.position?.daily_pnl)]">{{ fmt(row.position?.daily_pnl) }}</td><td :class="['number mono',direction(row.position?.daily_return_pct)]">{{ pct(row.position?.daily_return_pct) }}</td><td :class="['number mono',direction(row.position?.total_pnl)]">{{ fmt(row.position?.total_pnl) }}</td><td :class="['number mono',direction(row.position?.total_return_pct)]">{{ pct(row.position?.total_return_pct) }}</td></template><td><span :class="['tag',row.observation_only?'':row.exclusion_reasons?.length?'amber':'green']">{{ row.observation_only ? '仅观察' : row.exclusion_reasons?.length ? '待核验' : '已核验' }}</span></td></tr>
           </tbody></table></div>
           <div v-else class="overview-empty"><Star :size="25"/><div><h3>从一只关注的证券开始</h3><p>添加自选后，集中查看行情、持仓与研究依据。</p><button v-if="canEdit" class="text-button" @click="emit('add')">添加自选<ArrowRight :size="14"/></button></div></div>
           <p v-if="rows.length && publicMode" class="overview-footnote">持仓收益按已存日 K 与记录成本计算，不含费用；缺失行情保留「—」。</p>
