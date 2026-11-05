@@ -158,12 +158,14 @@ class Manager(Cache):
         with self.lock():
             tx=self.state.get('transaction:'+ident)
             if not tx or tx['status'] not in ('planned','downloading','download_paused','download_failed'):raise UpgradeError('BUSY')
-            tx=self.update(tx,'downloading',downloaded=0)
+            tx=self.update(tx,'downloading',downloaded=0,total=tx['release']['package']['size'],error=None,next_retry=None)
             self.state.put('cancel:'+ident,False)
             try:
                 self.fetcher.download(tx['release'],self.package_path(tx),lambda count,total:self.update(tx,'downloading',downloaded=count,total=total),cancel or (lambda:self.state.get('cancel:'+ident,False)),ASSET_HOSTS if tx.get('trust')=='github-sha256' else None)
                 return self.update(tx,'verified',downloaded=tx['release']['package']['size'])
-            except UpgradeError as exc:self.update(tx,'download_paused' if exc.code=='CANCELLED' else 'download_failed',error=exc.code,next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise
+            except UpgradeError as exc:
+                current=self.state.get('transaction:'+ident) or tx
+                self.update(current,'download_paused' if exc.code=='CANCELLED' else 'download_failed',error=exc.code,next_retry=(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat());raise
 
     def upload(self,ident,offset,data):
         with self.lock():

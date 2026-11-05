@@ -179,6 +179,32 @@ def test_desktop_downloads_the_official_asset(manager):
     assert m.fetcher.requests[-1][0].endswith('/'+name) and m.fetcher.requests[-1][2]==ASSET_HOSTS
 
 
+@pytest.mark.parametrize('interruption', ['CANCELLED', 'NETWORK'])
+def test_desktop_resume_preserves_progress_and_clears_previous_download_error(manager, interruption):
+    from test_upgrade_download import Stream
+    chunk = 1024 * 1024
+    payload = b'x' * chunk + b'final block'
+    _, _, checksum = published(payload)
+    class Feed(Stream):
+        def __init__(self):
+            super().__init__((200, payload[:chunk], {'ETag': '"resume"'}),
+                             (206, payload[chunk:], {'ETag': '"resume"', 'Content-Range': f'bytes {chunk}-{len(payload)-1}/{len(payload)}'}))
+        def metadata(self, *args):return [release('3.3.0', size=len(payload))]
+        def fetch_bytes(self, *args):return checksum
+    m = desktop(manager, Feed());m.check();tx = m.prepare_local()
+    cancel = lambda: interruption == 'CANCELLED' and m.current().get('downloaded', 0) >= chunk
+    with pytest.raises(UpgradeError) as error:m.download(tx['id'], cancel)
+    assert error.value.code == interruption
+    partial = m.current()
+    assert partial['error'] == interruption and partial['downloaded'] == chunk
+    assert partial['total'] == len(payload)
+    complete = m.download(tx['id'])
+    assert complete['status'] == 'verified' and complete['downloaded'] == len(payload)
+    assert complete['error'] is None and complete['next_retry'] is None
+    assert m.package_path(complete).read_bytes() == payload
+    assert m.preflight(tx['id'])['error'] is None
+
+
 def test_imported_local_exe_matches_the_published_checksum_without_a_release_root(manager,monkeypatch):
     payload=b'local-desktop-exe';_,_,checksum=published(payload)
     m=desktop(manager,Checksum([release('3.3.0',size=len(payload))],checksum=checksum));assert m.check()['status']=='download_available';imported=m.prepare_local()
