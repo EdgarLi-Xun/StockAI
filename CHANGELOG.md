@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.6] - 2026-11-05
+
+- 新增想法池。早报按固定规则评审已保存的想法，写明过关或死因；周度复盘汇总本周死因。点名比特币或以太坊的内容不进入评审，公开资料补齐时也会跳过。
+- 助手可在当前工作台准备条件提醒、研究判断、研究课题和实验方案，仍须本人点击后才写入。价格和涨跌幅阈值由本人给出；没有课题时先准备课题。查看已有回测或实验不再被当成新建方案。
+- 管理员可在「设置 → 邮件发送」保存发信账号。预设 QQ、163、126、Gmail、Outlook，也可填写自定义 SMTP。授权码加密保存；未保存时仍使用部署环境变量。未配置邮件时，条件提醒继续使用站内通知。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.6-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 仓库增加 [打包说明](docs/打包说明.md) 和 `scripts/package-release.ps1`，按当前版本一次生成三种发行包。
+
 ## [3.2.5] - 2026-11-05
 
 - 桌面升级点击「下载并准备安装」后，自动下载、核对 SHA-256 并运行安装预检，最后再确认退出安装。
@@ -161,6 +172,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.6]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.6
 [3.2.5]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.5
 [3.2.4]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.4
 [3.2.3]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.3
