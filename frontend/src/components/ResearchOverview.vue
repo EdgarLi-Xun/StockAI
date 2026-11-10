@@ -50,8 +50,8 @@ const readiness = computed(() => [
       <article class="overview-stat">
         <div class="stat-label">自选证券</div>
         <div class="stat-number">{{ stats?.watch_count ?? '—' }}<small>只</small></div>
-        <div class="stat-progress" aria-hidden="true"><i :style="{width: stats?.watch_count ? '100%' : '0%'}"></i></div>
-        <p class="stat-note">持仓优先</p>
+        <button class="stat-link stat-watchlist-link" @click="emit('navigate','watchlist')">查看我的自选<ArrowRight :size="14"/></button>
+        <p class="stat-note">持仓优先 · 集中跟踪</p>
       </article>
       <article class="overview-stat">
         <div class="stat-label">行情覆盖</div>

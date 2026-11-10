@@ -8,19 +8,24 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript')
 const source = readFileSync(new URL('../frontend/src/App.vue', import.meta.url), 'utf8').split('</script>')[0]
 const parsed = ts.createSourceFile('app.ts', source.slice(source.indexOf('>') + 1), ts.ScriptTarget.Latest, true)
-const names = ['loadIndex', 'showReport', 'closeReport', 'go', 'syncHash', 'action']
+const names = ['loadIndex', 'showReport', 'closeReport', 'go', 'syncHash', 'openRouteContext', 'reportRoute', 'action']
 const functions = parsed.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(parsed)).join('\n')
 const code = ts.transpileModule(functions, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 
-function client(page = 'dashboard') {
+function client(page = 'dashboard', initialHash = '#' + page) {
   const ref = value => ({ value }), requests = []
+  let hash = initialHash
+  const location = {
+    get hash() { return hash },
+    set hash(value) { hash = value.startsWith('#') ? value : '#' + value },
+  }
   const state = {
     activeIndex: ref('SH:000001'), indexData: ref(null), indexRead: 0,
     selectedReport: ref(null), reportRead: 0, reportLoading: ref(false),
     page: ref(page), busy: ref(false), error: ref(''), sidebarOpen: ref(false),
-    props: { publicMode: false }, location: { hash: '#' + page },
+    props: { publicMode: false }, ready: ref(true), location, handledHash: initialHash, URLSearchParams,
     nav: ['dashboard', 'reports', 'review', 'market'].map(id => ({ id })),
-    emit() {}, notify() {}, openRouteContext() {},
+    emit() {}, notify() {},
     api: path => new Promise((resolve, reject) => requests.push({ path, resolve, reject })),
   }
   vm.runInNewContext(code, state)
@@ -135,5 +140,41 @@ test('a failed active report can be retried without leaving loading stuck', asyn
   requests[1].resolve({ id: 'retry' }); await retry
   assert.equal(state.selectedReport.value.id, 'retry')
   assert.equal(state.error.value, '')
+  assert.equal(state.reportLoading.value, false)
+})
+
+test('removing a report deep link on the same page cancels its pending detail', async () => {
+  const { state, requests } = client('reports', '#reports?report=old')
+  state.props.publicMode = true
+  const pending = state.openRouteContext()
+  assert.equal(requests[0].path, '/reports/old')
+  state.location.hash = '#reports'
+  state.syncHash()
+  assert.equal(state.reportLoading.value, false)
+  requests[0].resolve({ id: 'old' }); await pending
+  assert.equal(state.selectedReport.value, null)
+})
+
+test('removing a report deep link also closes an already loaded detail', async () => {
+  const { state, requests } = client('reports', '#reports?report=old')
+  state.props.publicMode = true
+  const pending = state.openRouteContext()
+  requests[0].resolve({ id: 'old' }); await pending
+  state.location.hash = '#reports'
+  state.syncHash()
+  assert.equal(state.selectedReport.value, null)
+})
+
+test('a delayed hashchange from internal report navigation keeps the new request active', async () => {
+  const { state, requests } = client('reports', '#reports?report=old')
+  state.props.publicMode = true
+  state.reportRoute('new')
+  assert.equal(state.location.hash, '#reports')
+  assert.equal(requests[0].path, '/reports/new')
+  state.syncHash()
+  assert.equal(state.reportLoading.value, true)
+  assert.equal(requests.length, 1)
+  requests[0].resolve({ id: 'new' }); await new Promise(setImmediate)
+  assert.equal(state.selectedReport.value.id, 'new')
   assert.equal(state.reportLoading.value, false)
 })

@@ -1,5 +1,15 @@
 # 更新记录
 
+## [3.2.15] - 2026-11-10
+
+- 软件内升级完成后，旧桌面程序会退出，新版本替换正在运行的实例。程序目录仍被占用时会重试替换，升级页显示「正在退出并打开新版本」。
+- 今日总览的自选卡片可以直接进入自选列表。从报告详情返回时，浏览器后退也会回到报告列表。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.15-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.14] - 2026-11-10
 
 - 模拟账户可以启用价格规则：收盘落到后买入、收盘升到后卖出、收盘止损、均线向前跟随。规则只看已完成日线，条件成立后生成限价委托；成交仍按下一根日线开盘，并继续检查涨跌停、费用、T+1 和单只预算。不连接真实证券账户。
@@ -261,6 +271,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.15]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.15
 [3.2.14]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.14
 [3.2.13]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.13
 [3.2.12]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.12

@@ -35,6 +35,14 @@ const githubUpdates=computed(()=>upgrade.value?.source_kind==='github')
 const releasePage=computed(()=>upgrade.value?.release_page||'https://github.com/EdgarLi-Xun/StockAI/releases')
 const checkErrors:Record<string,string>={SOURCE_UNCONFIGURED:'尚未配置可信更新源',NETWORK:'暂时无法连接更新服务，请检查网络后重试',RATE_LIMITED:'更新请求已被限流，请稍后重试',GITHUB_METADATA:'GitHub 返回的版本资料无效，请稍后重试',GITHUB_INCOMPLETE:'GitHub 发行记录尚未读取完整，请前往发布页核对',UNTRUSTED:'发布清单身份或签名验证失败',EXPIRED:'发布清单已过期',REPLAY:'检测到过期或重复使用的发布资料',TARGET:'发行包与当前程序不匹配'}
 const tx=computed(()=>upgrade.value?.transaction)
+const upgradeHeadline=computed(()=>{
+  const current=tx.value
+  if(!current)return ''
+  const running=upgrade.value?.current_version
+  const installed=current.actual_version||current.target_version
+  if(current.status==='succeeded'&&running&&installed&&running!==installed)return '正在退出并打开新版本'
+  return upgradeStates[current.status]||current.status
+})
 const configured=computed(()=>sync.value.status!=='unconfigured'&&sync.value.status!=='loading')
 const date=(value:string)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—'
 async function act(fn:()=>Promise<any>,message='') {if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const value=await fn();if(message)notice.value=message;return value}catch(e:any){notice.value='';error.value=e.message}finally{busy.value=false}}
@@ -214,7 +222,7 @@ onBeforeUnmount(()=>{stopUpgradeFlow();recoveryRead++;clearInterval(timer);windo
         </template>
       </section>
       <section v-if="tx" class="panel personal-form">
-        <h2>{{ upgradeStates[tx.status]||tx.status }}</h2><p>{{ tx.component }} · {{ tx.from_version }} → {{ tx.target_version }} · {{ upgrade.form }}</p><p>计划所属工作区：{{ tx.workspace }}</p>
+        <h2>{{ upgradeHeadline }}</h2><p>{{ tx.component }} · {{ tx.from_version }} → {{ tx.target_version }} · {{ upgrade.form }}</p><p>计划所属工作区：{{ tx.workspace }}</p>
         <p v-if="tx.trust==='github-sha256'">安装包自动从 GitHub 下载并核对 SHA-256。也可导入已经下载的同名 Setup.exe；完成安装预检后，请在下方确认退出安装。</p>
         <p>安装包 {{ (tx.release.package.size/1024/1024).toFixed(1) }} MB · 数据迁移 {{ tx.release.migration||(tx.trust==='github-sha256'?'沿用桌面工作区，由新程序打开':'依签名计划检查') }}</p>
         <template v-if="tx.status==='downloading'||tx.total"><progress :value="tx.downloaded||0" :max="tx.total||tx.release.package.size" aria-label="安装包下载进度" /><p role="status">已下载 {{ ((tx.downloaded||0)/1024/1024).toFixed(1) }} / {{ ((tx.total||tx.release.package.size)/1024/1024).toFixed(1) }} MB</p></template>

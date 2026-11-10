@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--no-forward',action='store_true',help='留在当前源码进程，不转交已安装版本')
     parser.add_argument('--self-test',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--smoke-test',action='store_true',help=argparse.SUPPRESS)
+    parser.add_argument('--replace-instance',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--result',help=argparse.SUPPRESS)
     args=parser.parse_args()
     if not 1024<=args.port<=65505:parser.error('端口须为1024至65505')
@@ -107,6 +108,14 @@ def main():
         raise SystemExit(1)
 
 
+def running_version_is_older(current,target):
+    if not target or target==current:return False
+    try:
+        from backend.upgrades.versions import Version
+        return Version(current)<Version(target)
+    except ValueError:return False
+
+
 def launch(home,args):
     from PySide6.QtCore import QTimer,QUrl
     from PySide6.QtGui import QAction,QDesktopServices,QIcon
@@ -122,8 +131,16 @@ def launch(home,args):
     icon=QIcon(str(ROOT/'frontend/dist-public/favicon.svg'));app.setWindowIcon(icon)
     name='StockAI-Desktop-'+instance_id(home);probe=QLocalSocket();probe.connectToServer(name)
     if probe.waitForConnected(600):
-        probe.write(b'activate');probe.flush();probe.waitForBytesWritten(600)
-        write_result(args.result,{'passed':True,'existing_instance':True});return
+        if args.replace_instance:
+            probe.write(b'replace');probe.flush();probe.waitForBytesWritten(600);probe.disconnectFromServer()
+            released=False
+            for _ in range(80):
+                time.sleep(0.25);again=QLocalSocket();again.connectToServer(name);held=again.waitForConnected(200);again.disconnectFromServer()
+                if not held:released=True;break
+            if not released:write_result(args.result,{'passed':True,'existing_instance':True});return
+        else:
+            probe.write(b'activate');probe.flush();probe.waitForBytesWritten(600)
+            write_result(args.result,{'passed':True,'existing_instance':True});return
     QLocalServer.removeServer(name);ipc=QLocalServer()
     if not ipc.listen(name):raise RuntimeError('无法建立本机单实例通信')
     window=QMainWindow();window.setWindowTitle('StockAI '+VERSION+' · 个人研究终端');window.resize(1440,940);window.setMinimumSize(960,650)
@@ -168,11 +185,18 @@ def launch(home,args):
     for action in menu.actions():native_menu.addAction(action)
     tray.activated.connect(lambda reason:show() if reason in (QSystemTrayIcon.ActivationReason.DoubleClick,QSystemTrayIcon.ActivationReason.Trigger) else None)
     tray.show()
-    def activate():
+    def on_instance():
         sock=ipc.nextPendingConnection()
-        if sock:sock.deleteLater()
-        show()
-    ipc.newConnection.connect(activate)
+        if not sock:return
+        def deliver():
+            message=bytes(sock.readAll())
+            if not message:return
+            sock.deleteLater()
+            if message.startswith(b'replace'):quit_all()
+            else:show()
+        sock.readyRead.connect(deliver)
+        if sock.bytesAvailable():deliver()
+    ipc.newConnection.connect(on_instance)
     def download(item):
         name,_=QFileDialog.getSaveFileName(window,'保存导出文件',item.downloadFileName())
         if name:
@@ -186,9 +210,12 @@ def launch(home,args):
     def upgrade_handoff():
         try:tx=upgrade_manager_instance.current()
         except Exception:return
-        if tx and tx['status']=='exit_requested' and not quitting['value']:
+        if not tx or quitting['value']:return
+        if tx['status']=='exit_requested':
             from desktop.upgrade import handoff
-            handoff(home,tx);quit_all()
+            handoff(home,tx);quit_all();return
+        target=tx.get('actual_version') or tx.get('target_version')
+        if tx['status']=='succeeded' and running_version_is_older(VERSION,target):quit_all()
     upgrade_timer=QTimer(window);upgrade_timer.timeout.connect(upgrade_handoff);upgrade_timer.start(1500)
     window.statusBar().showMessage('Web 版：'+host.url+' · 桌面和浏览器共享数据 · 关闭窗口后驻留托盘')
     (home/'running.json').write_text(json.dumps({'url':host.url,'pid':os.getpid(),'version':VERSION,'instance':instance_id(home)}),encoding='utf-8')

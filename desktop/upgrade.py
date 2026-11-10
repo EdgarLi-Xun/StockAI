@@ -9,6 +9,21 @@ import time
 from backend.processes import hidden_process
 
 
+def parent_released(pid,timeout_ms=120000):
+    """True when the previous desktop process is gone. A live process we cannot wait on stays unreleased."""
+    if not pid or os.name!='nt':return True
+    import ctypes
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.OpenProcess.restype=ctypes.c_void_p
+    kernel.OpenProcess.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong]
+    kernel.WaitForSingleObject.argtypes=[ctypes.c_void_p,ctypes.c_ulong]
+    kernel.CloseHandle.argtypes=[ctypes.c_void_p]
+    parent=kernel.OpenProcess(0x100000,False,int(pid))
+    if not parent:return ctypes.get_last_error()==87
+    try:return kernel.WaitForSingleObject(parent,timeout_ms)==0
+    finally:kernel.CloseHandle(parent)
+
+
 def forward(home,arguments,client_only=False):
     if not (home/('client-state/secrets/keys.json' if client_only else 'secrets/keys.json')).is_file():return False
     from backend.upgrades.cli import manager
@@ -21,8 +36,14 @@ def forward(home,arguments,client_only=False):
     selected=m.state.get('active-installation')
     if not selected or selected['version']==VERSION:return False
     from backend.upgrades.install_path import program_path
-    Runner(m).verify(selected);target=program_path(selected)
-    if selected['form']=='exe' and getattr(sys,'frozen',False) and target.resolve()==Path(sys.executable).resolve():return False
+    runner=Runner(m);runner.verify(selected);target=program_path(selected)
+    same_exe=selected['form']=='exe' and getattr(sys,'frozen',False) and target.resolve()==Path(sys.executable).resolve()
+    if same_exe and selected.get('layout')=='setup' and selected.get('transaction'):
+        staging=runner.root/selected['transaction']/'app'
+        if (staging/'StockAI.exe').is_file():
+            from backend.upgrades.install_path import schedule_swap
+            schedule_swap(os.getpid(),staging,arguments);return True
+    if same_exe:return False
     command=[str(target)] if selected['form']=='exe' else [sys.executable,str(target/'stockai_desktop.py')]
     subprocess.Popen([*command,*arguments],**hidden_process());return True
 
@@ -44,14 +65,7 @@ def helper(argv=None):
         m=client_manager(Path(args.home))
     else:m=manager('desktop',args.home)
     runner=Runner(m);lock=None
-    if args.parent and os.name=='nt':
-        import ctypes
-        kernel=ctypes.WinDLL('kernel32',use_last_error=True);kernel.OpenProcess.restype=ctypes.c_void_p;kernel.OpenProcess.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong];kernel.WaitForSingleObject.argtypes=[ctypes.c_void_p,ctypes.c_ulong];kernel.CloseHandle.argtypes=[ctypes.c_void_p]
-        parent=kernel.OpenProcess(0x100000,False,args.parent)
-        if parent:
-            try:
-                if kernel.WaitForSingleObject(parent,120000)!=0:raise RuntimeError('旧客户端尚未退出，升级未开始')
-            finally:kernel.CloseHandle(parent)
+    if args.parent and not parent_released(args.parent):raise RuntimeError('旧客户端尚未退出，升级未开始')
     # 只等待当前工作区服务正常释放锁，不杀进程或替换被占用的 EXE。
     for _ in range(240):
         try:lock=ProcessLock(m.cfg.erasures/'service.lock');lock.__enter__();break

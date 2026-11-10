@@ -27,6 +27,7 @@ const nav = [
 ]
 // 从地址哈希恢复当前研究页面，支持刷新和浏览器前进后退。
 const page = ref(location.hash.slice(1).split('?')[0] || 'dashboard')
+let handledHash = location.hash
 const sidebarOpen = ref(false), loading = ref(true), ready = ref(false), busy = ref(false)
 const error = ref(''), toast = ref(''), showNotifications = ref(false), requiresLogin = ref(false), role = ref('admin')
 // 集中保存服务端快照，具体页面通过派生值和按需请求读取。
@@ -113,9 +114,19 @@ const dashboardBrief = computed(() => {
   return { title: '今日可以开始研究', lead: '行情与核验已对齐。' }
 })
 // 切换页面并同步地址哈希，清理侧栏与报告详情的临时状态。
-function go(id: string) { if (props.publicMode && id === 'settings') { emit('open-settings'); return }; if(props.publicMode&&id==='backtest'){emit('open-workbench','experiments');return};page.value = id; location.hash = id; sidebarOpen.value = false; closeReport() }
+function go(id: string) { if (props.publicMode && id === 'settings') { emit('open-settings'); return }; if(props.publicMode&&id==='backtest'){emit('open-workbench','experiments');return};page.value = id; location.hash = id; handledHash = location.hash; sidebarOpen.value = false; closeReport() }
 // 响应浏览器哈希变化，只接受导航中已定义的页面。
-function syncHash() { const id = location.hash.slice(1).split('?')[0]; if (nav.some(n => n.id === id) && id !== page.value) { page.value = id; closeReport(); sidebarOpen.value = false };void openRouteContext() }
+function syncHash() {
+  const hash = location.hash, id = hash.slice(1).split('?')[0]
+  // 主页面相同时，浏览器返回列表仍需取消旧详情；内部导航已在 go 中记录。
+  const reportRemoved = id === 'reports' && handledHash.slice(1).split('?')[0] === 'reports'
+    && new URLSearchParams(handledHash.split('?')[1]).get('report')
+    && !new URLSearchParams(hash.split('?')[1]).get('report')
+  handledHash = hash
+  if (nav.some(n => n.id === id) && id !== page.value) { page.value = id; closeReport(); sidebarOpen.value = false }
+  else if (reportRemoved) closeReport()
+  void openRouteContext()
+}
 // 公网会话就绪后解析报告或证券深链接，打开对应的归档详情。
 async function openRouteContext(){if(!props.publicMode||!ready.value)return;const p=new URLSearchParams(location.hash.split('?')[1]);if(p.get('report')&&page.value==='reports')await showReport(p.get('report')!);if(p.get('instrument')&&page.value==='watchlist')await openDetail(p.get('instrument')!);if(p.get('backtest')&&page.value==='review')await action(async()=>selectedBacktest.value=await api('/backtests/'+p.get('backtest')))}
 // 显示短时操作提示，重复触发时重置关闭计时器。

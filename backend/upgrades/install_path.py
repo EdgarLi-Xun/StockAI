@@ -42,22 +42,32 @@ def schedule_swap(parent, staging, arguments):
     backup = folder / 'previous-app'
     argfile = folder / 'restart-args.txt'
     script = folder / 'swap.ps1'
-    argfile.write_text('\n'.join(arguments), encoding='utf-8-sig')
+    restart = list(arguments)
+    if '--replace-instance' not in restart:
+        restart.append('--replace-instance')
+    argfile.write_text('\n'.join(restart), encoding='utf-8-sig')
     script.write_text(
         "param([int]$Parent,[string]$Staging,[string]$Live,[string]$Backup,[string]$Exe,[string]$ArgFile)\n"
         "Wait-Process -Id $Parent -ErrorAction SilentlyContinue\n"
-        "Start-Sleep -Seconds 1\n"
-        "if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Recurse -Force }\n"
-        "$moved = $false\n"
-        "if (Test-Path -LiteralPath $Live) { Move-Item -LiteralPath $Live -Destination $Backup; $moved = $true }\n"
-        "try { Move-Item -LiteralPath $Staging -Destination $Live }\n"
-        "catch {\n"
-        "  if ($moved -and -not (Test-Path -LiteralPath $Live) -and (Test-Path -LiteralPath $Backup)) { Move-Item -LiteralPath $Backup -Destination $Live }\n"
-        "  exit 1\n"
+        "$deadline = (Get-Date).AddSeconds(90)\n"
+        "while ($true) {\n"
+        "  Start-Sleep -Seconds 1\n"
+        "  if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Recurse -Force -ErrorAction SilentlyContinue }\n"
+        "  $moved = $false\n"
+        "  $done = $false\n"
+        "  try {\n"
+        "    if (Test-Path -LiteralPath $Live) { Move-Item -LiteralPath $Live -Destination $Backup -ErrorAction Stop; $moved = $true }\n"
+        "    Move-Item -LiteralPath $Staging -Destination $Live -ErrorAction Stop\n"
+        "    $done = $true\n"
+        "  } catch {\n"
+        "    if ($moved -and -not (Test-Path -LiteralPath $Live) -and (Test-Path -LiteralPath $Backup)) { Move-Item -LiteralPath $Backup -Destination $Live -ErrorAction SilentlyContinue }\n"
+        "  }\n"
+        "  if ($done -and (Test-Path -LiteralPath $Exe)) { break }\n"
+        "  if ((Get-Date) -gt $deadline) { exit 1 }\n"
         "}\n"
         "$lines = @()\n"
         "if (Test-Path -LiteralPath $ArgFile) { $lines = @(Get-Content -LiteralPath $ArgFile -Encoding UTF8) }\n"
         "if ($lines.Count -gt 0) { Start-Process -FilePath $Exe -ArgumentList $lines } else { Start-Process -FilePath $Exe }\n"
-        "if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Recurse -Force }\n",
+        "if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Recurse -Force -ErrorAction SilentlyContinue }\n",
         encoding='ascii')
     subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), str(parent), str(staging), str(live), str(backup), str(live / 'StockAI.exe'), str(argfile)], **hidden_process())
