@@ -1,5 +1,15 @@
 # 更新记录
 
+## [3.2.13] - 2026-11-10
+
+- 软件内「下载并准备安装」可以完成。新版本会先静默装到工作区里的升级临时目录做检查，安装包不再把这个目录当成研究资料目录拒绝。
+- 安装向导里如果把程序选进工作区，仍然会提示并停止。正式程序目录仍是 `%LOCALAPPDATA%\Programs\StockAI`。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.13-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.12] - 2026-11-10
 
 - 工作台页面标题和空状态改为更短的说明；登录页改为「行情。研究。记录与复盘。」
@@ -239,6 +249,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.13]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.13
 [3.2.12]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.12
 [3.2.11]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.11
 [3.2.10]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.10

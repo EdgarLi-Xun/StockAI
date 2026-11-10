@@ -59,13 +59,27 @@ begin
   Result := Pos('\stockai\workspace', LowerCase(Dir)) > 0;
 end;
 
+// 软件内升级会静默装到工作区 control\upgrades\installations\<计划号>\app，检查后再换到程序目录。
+function IsUpgradeStaging(Dir: String): Boolean;
+var
+  Value: String;
+begin
+  Value := LowerCase(RemoveBackslash(Dir));
+  Result := (Pos('\stockai\workspace\control\upgrades\installations\', Value) > 0) and (ExtractFileName(Value) = 'app');
+end;
+
+function IsBlockedInstallDir(Dir: String): Boolean;
+begin
+  Result := IsWorkspace(Dir) and not (WizardSilent and IsUpgradeStaging(Dir));
+end;
+
 function InitializeSetup(): Boolean;
 var
   Dir: String;
 begin
   Result := True;
   Dir := ExpandConstant('{param:DIR|}');
-  if (Dir <> '') and IsWorkspace(Dir) then
+  if (Dir <> '') and IsBlockedInstallDir(Dir) then
   begin
     MsgBox('请不要把 StockAI 安装到工作区目录。工作区只保存研究资料。', mbError, MB_OK);
     Result := False;
@@ -74,7 +88,7 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if (CurStep = ssInstall) and IsWorkspace(ExpandConstant('{app}')) then
+  if (CurStep = ssInstall) and IsBlockedInstallDir(ExpandConstant('{app}')) then
   begin
     MsgBox('请不要把 StockAI 安装到工作区目录。工作区只保存研究资料。', mbError, MB_OK);
     Abort;
