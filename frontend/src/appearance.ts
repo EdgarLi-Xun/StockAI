@@ -59,18 +59,18 @@ function readableAccent(accent: string, surface: string, dark: boolean) {
 
 // CSS 和画布共用一套颜色，切换主题时无需重新加载行情。
 export function buildAppearancePalette(settings: AppearanceSettings, dark: boolean) {
-  const background = dark ? '#121a21' : '#f4f6f6'
+  const background = dark ? '#121a21' : '#f5f4f0'
   const surface = dark ? '#1b252d' : '#ffffff'
-  const surfaceSoft = dark ? '#222f38' : '#f6f8f7'
+  const surfaceSoft = dark ? '#222f38' : '#f7f7f3'
   const red = dark ? '#ff858d' : '#bf3545'
   const green = dark ? '#61d6a5' : '#08794f'
   const accentText = readableAccent(settings.accent, surfaceSoft, dark)
   const onAccent = contrastRatio(settings.accent, '#ffffff') >= 4.5 ? '#ffffff' : '#000000'
   return {
     background, surface, surfaceSoft,
-    text: dark ? '#e4ece7' : '#20312e',
-    muted: dark ? '#a4b6ac' : '#687875',
-    border: dark ? '#35443e' : '#e3e9e6',
+    text: dark ? '#e4ece7' : '#272d29',
+    muted: dark ? '#a4b6ac' : '#626c65',
+    border: dark ? '#35443e' : '#dde1da',
     accent: settings.accent,
     accentHover: mixColor(settings.accent, onAccent === '#ffffff' ? '#000000' : '#ffffff', .18),
     accentText,

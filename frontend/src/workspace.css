@@ -1,5 +1,8 @@
 /* 共享工作台：统一导航、排版、表面层级和响应式布局。 */
 :root {
+  --font-display: "Georgia", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --radius-panel: 5px;
+  --radius-control: 4px;
   font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   font-size: 14px;
   color: #233b32;
@@ -29,7 +32,7 @@ input, select, textarea { min-height: 40px; border-color: #cdd9d1; color: var(--
 input::placeholder, textarea::placeholder { color: #73847b; }
 input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px #18765b12; }
 input[type="checkbox"] { min-height: 0; width: 16px; height: 16px; }
-h1 { font-size: 30px; font-weight: 650; letter-spacing: -.8px; }
+h1 { font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -.5px; text-wrap: balance; }
 h2 { font-size: 17px; letter-spacing: -.25px; }
 h3 { font-size: 15px; }
 small { font-size: 12px; }
@@ -50,7 +53,7 @@ small { font-size: 12px; }
 .tag.red { background: #fbeded; color: #a23f43; }
 .small-badge { font-size: 11px; color: #657c6e; border-color: var(--border); }
 .eyebrow { font-size: 10px; letter-spacing: 1.6px; color: #668173; }
-.panel { border-color: var(--border); border-radius: 11px; box-shadow: 0 2px 6px #17362d02; }
+.panel { border-color: var(--border); border-radius: var(--radius-panel); box-shadow: none; }
 .panel-heading { padding: 21px 24px; }
 .panel-heading p, .page-heading p { font-size: 13px; line-height: 1.75; color: var(--muted); }
 .panel-heading p { margin-top: 5px; }

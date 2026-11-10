@@ -108,10 +108,36 @@
 :root[data-theme] .sidebar :is(.nav-item:hover, .nav-item.active) { background: var(--accent-soft); color: var(--accent-text); }
 :root[data-theme] .sidebar .nav-item.active svg { color: var(--accent-text); }
 :root[data-theme] .sidebar .nav-count { color: var(--accent-text); background: var(--accent-soft); }
-:root[data-theme] .auth-story { background: var(--accent-soft); }
+:root[data-theme] .auth-story { background: var(--surface-soft); }
 :root[data-theme] .auth-story :is(.brand, h1) { color: var(--dark); }
 :root[data-theme] .auth-story :is(p, .eyebrow, small, .auth-principles) { color: var(--muted); }
 :root[data-theme] .auth-story .brand span { color: var(--accent-text); }
 :root[data-theme='dark'] .auth-story::after { border-color: var(--border); box-shadow: none; }
 :root[data-theme='dark'] .chart-empty { background-image: linear-gradient(transparent calc(100% - 1px), var(--border) 1px); }
 :root[data-theme='dark'] .modal-scrim { background: #050b13b8; }
+
+/* 摘要与侧栏按栏目排版，主题切换时仍沿用同一套语义色。 */
+:root[data-theme] .public-workspace #primary-workspace-navigation { background: var(--surface-soft); }
+:root[data-theme] .workspace-nav-section > button.active,
+:root[data-theme] .workspace-nav-section > button.active:hover { background: var(--dark); color: var(--surface); }
+:root[data-theme] .public-workspace .workspace-nav-section > button.active > svg { color: inherit; }
+:root[data-theme] .workspace-nav-active-mark { background: currentColor; }
+:root[data-theme] .app-shell .overview-metrics .metric-card,
+:root[data-theme] .app-shell .overview-secondary > .panel { background: transparent; }
+:root[data-theme] .app-shell .overview-metrics .metric-card.accent-card .metric-label { color: var(--muted); }
+:root[data-theme] .app-shell .overview-metrics .metric-card.accent-card .metric-value { color: var(--dark); }
+:root[data-theme] .app-shell .overview-metrics .metric-card.accent-card .metric-link { color: var(--accent-text); }
+:root[data-theme] .app-shell .overview-market .index-tabs > button.selected { background: transparent; border-bottom-color: var(--accent-text); }
+:root[data-theme] .public-workspace .public-userbar .user-chip { color: var(--muted); background: transparent; border-color: transparent; }
+:root[data-theme] .overview-empty > svg { color: var(--muted); }
+
+@media (min-width: 761px) {
+  :root[data-theme] .public-workspace .assistant-launcher { color: var(--dark); background: var(--surface); border: 1px solid var(--border); }
+  :root[data-theme] .public-workspace .assistant-launcher:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent-text); }
+}
+
+/* 固定助手占用横向空间时，总览及时切成单栏。 */
+@media (min-width: 1181px) and (max-width: 1500px) {
+  .has-docked-assistant .overview-columns { grid-template-columns: minmax(0,1fr); }
+  .has-docked-assistant .overview-secondary { padding-left: 0; border-left: 0; }
+}

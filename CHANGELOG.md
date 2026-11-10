@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.12] - 2026-11-10
+
+- 工作台页面标题和空状态改为更短的说明；登录页改为「行情。研究。记录与复盘。」
+- 浅色主题背景改为暖纸色，标题使用衬线字体，面板圆角更紧凑。
+- 导航与总览指标卡排版更紧凑。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.12-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.11] - 2026-11-05
 
 - 助手被问到现有持仓时，会读取已记录的持仓价、数量和按已存行情现算的金额收益；未记录时返回空列表，不编造。
@@ -228,6 +239,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.12]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.12
 [3.2.11]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.11
 [3.2.10]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.10
 [3.2.9]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.9
