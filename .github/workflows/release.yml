@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore: release version'))
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Install checked age 1.3.2
+        shell: pwsh
+        run: |
+          $zip = 'age-v1.3.2-windows-amd64.zip'
+          $expected = 'f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7'
+          Invoke-WebRequest -Uri "https://github.com/FiloSottile/age/releases/download/v1.3.2/$zip" -OutFile $zip
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLower()
+          if ($actual -ne $expected) { throw "age 校验不一致：$actual" }
+          Expand-Archive -LiteralPath $zip -DestinationPath .tmp\age-src
+          New-Item -ItemType Directory -Force -Path .tmp\tools\age | Out-Null
+          Copy-Item -LiteralPath (Get-ChildItem -Recurse -Filter age.exe .tmp\age-src | Select-Object -First 1).FullName -Destination .tmp\tools\age\age.exe
+          Copy-Item -LiteralPath (Get-ChildItem -Recurse -Filter age-keygen.exe .tmp\age-src | Select-Object -First 1).FullName -Destination .tmp\tools\age\age-keygen.exe
+
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements-exe.txt
+          npm ci --prefix frontend
+
+      - name: Package
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-release.ps1
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (.\.venv\Scripts\python.exe -X utf8 -c "import sys; sys.path.insert(0, '.'); from backend.cloud import VERSION; print(VERSION)").Trim()
+          $tag = "v$version"
+          $notes = "docs/RELEASE-$version.md"
+          $assets = @(
+            "dist/StockAI-$version-Setup.exe",
+            "dist/StockAI-$version-Setup.exe.sha256",
+            "dist/StockAI-$version-Setup.exe.build.json",
+            "dist/StockAI-$version-Public.zip",
+            "dist/StockAI-$version-Public.zip.sha256",
+            "dist/StockAI-$version-Hub.zip",
+            "dist/StockAI-$version-Hub.zip.sha256"
+          )
+          foreach ($path in $assets) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "缺少产物 $path" }
+          }
+          $exists = $false
+          gh release view $tag | Out-Null
+          if ($LASTEXITCODE -eq 0) { $exists = $true }
+          if ($exists) {
+            gh release upload $tag @assets --clobber
+          } else {
+            $create = @('release','create',$tag,'--title',"StockAI $version",'--target',$env:GITHUB_SHA)
+            if (Test-Path -LiteralPath $notes) { $create += @('--notes-file',$notes) }
+            gh @create @assets
+          }
+          if ($LASTEXITCODE -ne 0) { throw '发布上传失败' }
