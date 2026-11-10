@@ -5,6 +5,7 @@ import { NotebookPen, Trash2 } from 'lucide-vue-next'
 import { api } from '../api'
 
 defineProps<{ canEdit: boolean }>()
+const emit = defineEmits<{ arm: [item: any] }>()
 const items = ref<any[]>([])
 const watchlist = ref<any[]>([])
 const error = ref('')
@@ -102,6 +103,7 @@ onMounted(load)
               <small>{{ instrumentOf(item.instrument_id)?.symbol || item.instrument_id }}</small>
             </div>
             <span class="tag">{{ item.counterparty || '未写对手盘' }}</span>
+            <button class="text-button" :disabled="!canEdit" @click="emit('arm', item)">预填价格规则</button>
             <button class="icon-button" :disabled="!canEdit" aria-label="删除想法" @click="remove(item.id)"><Trash2 :size="15" /></button>
           </header>
           <h3>{{ item.sentence }}</h3>

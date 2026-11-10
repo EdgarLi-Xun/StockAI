@@ -19,6 +19,7 @@ ROOTS={
  'model_profiles':('profile','id'),'model_profile_versions':('profile','profile_id'),
  'personal_reports':('report','id'),'personal_candidates':('report','report_id'),
  'sim_accounts':('account','id'),'sim_orders':('account','account_id'),'sim_lots':('account','account_id'),'sim_ledger':('account','account_id'),'sim_equity':('account','account_id'),'portfolio_valuation_history':('account','account_id'),
+ 'sim_price_rules':('account','account_id'),'sim_price_rule_events':('account','account_id'),
  'personal_backtests':('backtest','id'),'research_experiments':('experiment','id'),
  'research_objects':('object','id'),'research_versions':('object','object_id'),
  'journal_observation_history':('object','object_id'),'alert_events':('object','rule_id'),

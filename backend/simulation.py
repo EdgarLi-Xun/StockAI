@@ -191,8 +191,140 @@ def snapshot_equity():
         db.execute("INSERT OR REPLACE INTO equity_snapshots VALUES(?,?,?)",(account["id"],timestamp(),str(money(value))))
 
 
-# 汇总账户估值、可卖数量、委托和流水，供模拟交易页面读取。
+# 校验证券与账户后启用一条价格规则，启用时间由服务端写入。
+def create_rule(payload: dict):
+    from .config import STRATEGY_VERSION
+    from .price_rules import prepare
+    item=instruments.get(str(payload.get("instrument_id") or ""))
+    if not item.get("watched",1):
+        raise ValueError("只对自选里的证券启用价格规则")
+    if not db.one("SELECT id FROM accounts WHERE id=?",(payload.get("account_id"),)):
+        raise ValueError("虚拟账户不存在")
+    prepared=prepare(payload,item,STRATEGY_VERSION)
+    if prepared["kind"]=="ma_forward" and db.one("SELECT id FROM price_rules WHERE account_id=? AND instrument_id=? AND kind='ma_forward' AND status IN ('active','paused')",(payload["account_id"],item["id"])):
+        raise ValueError("同一账户同一证券只能有一条均线跟随")
+    ident=uuid.uuid4().hex
+    db.execute("INSERT INTO price_rules(id,account_id,instrument_id,kind,params_json,status,armed_at,expires_on,max_orders,success_count,source_kind,source_id,source_note,created_at) VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?)",(ident,payload["account_id"],item["id"],prepared["kind"],db.dumps(prepared["params"]),"active",timestamp(),prepared["expires_on"],prepared["max_orders"],prepared["source_kind"],prepared["source_id"],prepared["source_note"],timestamp()))
+    return _rule_view(db.one("SELECT * FROM price_rules WHERE id=?",(ident,)),[])
+
+
+# 暂停仍启用的价格规则，已挂出的委托保留。
+def pause_rule(ident: str):
+    if not db.execute("UPDATE price_rules SET status='paused' WHERE id=? AND status='active'",(ident,)):
+        raise ValueError("只有启用中的价格规则可以暂停")
+    return {"success":True}
+
+
+# 恢复已暂停的价格规则。过期或次数用尽的规则不能恢复。
+def resume_rule(ident: str):
+    rule=db.one("SELECT * FROM price_rules WHERE id=?",(ident,))
+    if not rule or rule["status"]!="paused":
+        raise ValueError("只有暂停中的价格规则可以恢复")
+    if rule["expires_on"] and rule["expires_on"]<now().date().isoformat() or rule["success_count"]>=rule["max_orders"]:
+        raise ValueError("规则已到期或达到次数上限")
+    if rule["kind"]=="ma_forward" and db.one("SELECT id FROM price_rules WHERE account_id=? AND instrument_id=? AND kind='ma_forward' AND status='active'",(rule["account_id"],rule["instrument_id"])):
+        raise ValueError("同一账户同一证券只能有一条均线跟随")
+    db.execute("UPDATE price_rules SET status='active' WHERE id=?",(ident,))
+    return {"success":True}
+
+
+# 停止价格规则。只有明确要求时才撤销该规则尚未成交的委托。
+def stop_rule(ident: str, cancel_pending=False):
+    rule=db.one("SELECT * FROM price_rules WHERE id=?",(ident,))
+    if not rule:
+        raise ValueError("价格规则不存在")
+    if rule["status"]!="stopped":
+        db.execute("UPDATE price_rules SET status='stopped' WHERE id=?",(ident,))
+    if cancel_pending:
+        from .price_rules import rule_id_from_client_key
+        for queued in db.query("SELECT id,client_key FROM orders WHERE account_id=? AND status='pending'",(rule["account_id"],)):
+            if rule_id_from_client_key(queued["client_key"])==ident:
+                db.execute("UPDATE orders SET status='cancelled',reason='规则已停止' WHERE id=? AND status='pending'",(queued["id"],))
+    return {"success":True}
+
+
+# 按已完成日线判断启用中的规则，再由调用方撮合由此生成的委托。
+def evaluate_rules(log=lambda m: None):
+    from .price_rules import calendar_block, judge, prior_closes, session_usable
+    ctx=collectors.calendar_context()
+    today=now().date().isoformat()
+    created=[]
+    for rule in db.query("SELECT * FROM price_rules WHERE status='active' ORDER BY armed_at,id"):
+        if (rule["expires_on"] and rule["expires_on"]<today) or rule["success_count"]>=rule["max_orders"]:
+            db.execute("UPDATE price_rules SET status='stopped' WHERE id=? AND status='active'",(rule["id"],))
+            continue
+        if calendar_block(ctx):
+            _rule_event(rule,today,"skipped",calendar_block(ctx),None)
+            continue
+        item=instruments.get(rule["instrument_id"])
+        bars=[b for b in collectors.bars_for(item["id"],"1d") if b["ts"][:10]<=ctx["last_completed_session"]]
+        seen={row["bar_date"] for row in db.query("SELECT bar_date FROM price_rule_events WHERE price_rule_id=?",(rule["id"],))}
+        view={**rule,"params":json.loads(rule["params_json"])}
+        cfg=db.settings()
+        for index,bar in enumerate(bars):
+            day=bar["ts"][:10]
+            if day in seen or not session_usable(rule["armed_at"],day):
+                continue
+            position,cash,pending=_rule_state(rule,day)
+            decision=judge(view,bar,prior_closes(bars,index),position,pending,cash,cfg.fees,cfg.budget,item["asset_class"],item["rules"])
+            if not decision:
+                continue
+            order_id=None
+            result,reason=decision["result"],decision["reason"]
+            if result=="signal":
+                try:
+                    placed=order(OrderInput(client_key=decision["client_key"],account_id=rule["account_id"],instrument_id=rule["instrument_id"],side=decision["side"],quantity=decision["quantity"],limit_price=float(decision["limit_price"]),stop_loss=float(decision["stop_loss"]) if decision["stop_loss"] else None))
+                    order_id,result,reason=placed["id"],"created","已生成限价委托"
+                    created.append(placed["id"])
+                except ValueError as exc:
+                    result,reason="rejected",str(exc)
+            if _rule_event(rule,day,result,reason,order_id) and result=="created":
+                db.execute("UPDATE price_rules SET success_count=success_count+1 WHERE id=?",(rule["id"],))
+                current=db.one("SELECT success_count,max_orders FROM price_rules WHERE id=?",(rule["id"],))
+                if current["success_count"]>=current["max_orders"]:
+                    db.execute("UPDATE price_rules SET status='stopped' WHERE id=?",(rule["id"],))
+                    log(f"价格规则 {rule['id']} 已达到次数上限")
+                    break
+            seen.add(day)
+            if result=="created":
+                log(f"价格规则 {rule['id']} 已生成委托")
+    return created
+
+
+# 读取该规则在某个交易日可见的持仓、现金和同方向待成交委托。
+def _rule_state(rule, day):
+    from .price_rules import rule_id_from_client_key
+    lots=db.query("SELECT * FROM lots WHERE account_id=? AND instrument_id=? AND quantity>0",(rule["account_id"],rule["instrument_id"]))
+    available=sum(lot["quantity"] for lot in lots if lot["settlement_days"]==0 or lot["acquired_day"]<day)
+    position={"quantity":sum(lot["quantity"] for lot in lots),"available":available,"cost":sum((dec(lot["cost"]) for lot in lots),Decimal(0))}
+    cash=dec(db.one("SELECT cash FROM accounts WHERE id=?",(rule["account_id"],))["cash"])
+    pending={queued["side"] for queued in db.query("SELECT side,client_key FROM orders WHERE account_id=? AND instrument_id=? AND status='pending'",(rule["account_id"],rule["instrument_id"])) if rule_id_from_client_key(queued["client_key"])==rule["id"]}
+    return position,cash,pending
+
+
+# 同一规则同一交易日只记录一次判断。
+def _rule_event(rule, day, result, reason, order_id):
+    if db.one("SELECT id FROM price_rule_events WHERE price_rule_id=? AND bar_date=?",(rule["id"],day)):
+        return False
+    db.execute("INSERT INTO price_rule_events(id,account_id,price_rule_id,bar_date,result,reason,order_id) VALUES(?,?,?,?,?,?,?)",(uuid.uuid4().hex,rule["account_id"],rule["id"],day,result,reason[:500],order_id))
+    return True
+
+
+# 把规则行转成页面使用的字段，并附上最近判断和下一个可用交易日。
+def _rule_view(rule, calendar_days, last_completed=None):
+    from .price_rules import next_usable_day, summarize
+    params=json.loads(rule["params_json"]) if isinstance(rule["params_json"],str) else rule["params_json"]
+    events=db.query("SELECT * FROM price_rule_events WHERE price_rule_id=? ORDER BY bar_date DESC LIMIT 1",(rule["id"],))
+    seen={row["bar_date"] for row in db.query("SELECT bar_date FROM price_rule_events WHERE price_rule_id=?",(rule["id"],))}
+    item=instruments.get(rule["instrument_id"])
+    return {**{k:rule[k] for k in ("id","account_id","instrument_id","kind","status","armed_at","expires_on","max_orders","success_count","source_kind","source_id","source_note","created_at")},"name":item["name"],"params":params,"summary":summarize(rule["kind"],params),"last_event":events[0] if events else None,"next_day":next_usable_day(rule["armed_at"],last_completed,seen,calendar_days)}
+
+
+# 汇总账户估值、预留现金、价格规则、委托和流水。
 def portfolio():
+    from .price_rules import explain_pending, rule_id_from_client_key
+    ctx=collectors.calendar_context()
+    days=[row["day"] for row in db.query("SELECT day FROM calendar")]
     out=[]
     for a in db.query("SELECT * FROM accounts ORDER BY created_at"):
         positions=[]
@@ -205,5 +337,16 @@ def portfolio():
             value=money(dec(last["close"])*p["quantity"]) if last else basis
             equity+=value
             positions.append({**p,"name":instruments.get(p["instrument_id"])["name"],"cost":float(basis),"market_value":float(value) if last else None,"unrealized_pnl":float(value-basis) if last else None,"quote_time":last["ts"] if last else None,"stale":bool(collectors.fresh_reasons(last)),"available_quantity":sum(l["quantity"] for l in lots if l["settlement_days"]==0 or l["acquired_day"]<now().date().isoformat())})
-        out.append({**a,"positions":positions,"equity":float(money(equity)),"pnl":float(money(equity-dec(a["initial_cash"]))),"curve":db.query("SELECT ts,equity FROM equity_snapshots WHERE account_id=? ORDER BY ts",(a["id"],))})
-    return {"accounts":out,"orders":db.query("SELECT o.*,i.name FROM orders o JOIN instruments i ON i.id=o.instrument_id ORDER BY o.created_at DESC LIMIT 500"),"ledger":db.query("SELECT * FROM ledger ORDER BY id DESC LIMIT 500")}
+        reserved=sum((dec(row["cost"]) for row in db.query("SELECT cost FROM orders WHERE account_id=? AND side='buy' AND status='pending'",(a["id"],))),Decimal(0))
+        out.append({**a,"positions":positions,"equity":float(money(equity)),"pnl":float(money(equity-dec(a["initial_cash"]))),"reserved_buy":float(money(reserved)),"available_cash":float(money(dec(a["cash"])-reserved)),"curve":db.query("SELECT ts,equity FROM equity_snapshots WHERE account_id=? ORDER BY ts",(a["id"],))})
+    orders=[]
+    for queued in db.query("SELECT o.*,i.name FROM orders o JOIN instruments i ON i.id=o.instrument_id ORDER BY o.created_at DESC LIMIT 500"):
+        item=instruments.get(queued["instrument_id"])
+        lots=db.query("SELECT * FROM lots WHERE account_id=? AND instrument_id=? AND quantity>0",(queued["account_id"],queued["instrument_id"]))
+        available=sum(lot["quantity"] for lot in lots if lot["settlement_days"]==0 or lot["acquired_day"]<now().date().isoformat())
+        bars=collectors.bars_for(queued["instrument_id"],"1d")
+        queued["rule_id"]=rule_id_from_client_key(queued["client_key"])
+        queued["pending_note"]=explain_pending(queued,bars,item["rules"],available,ctx) if queued["status"]=="pending" else None
+        orders.append(queued)
+    rules=[_rule_view(rule,days,ctx.get("last_completed_session")) for rule in db.query("SELECT * FROM price_rules ORDER BY created_at DESC")]
+    return {"accounts":out,"orders":orders,"ledger":db.query("SELECT * FROM ledger ORDER BY id DESC LIMIT 500"),"rules":rules}

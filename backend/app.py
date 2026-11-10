@@ -381,6 +381,24 @@ def order(payload:simulation.OrderInput):
     return simulation.order(payload)
 
 
+# 启用一条价格规则。数字由请求给出，不从想法原文里提取。
+@app.post("/api/simulation/rules")
+def create_rule(payload:dict):
+    return simulation.create_rule(payload)
+
+
+# 暂停、恢复或停止价格规则。停止时可同时撤销该规则的待成交委托。
+@app.post("/api/simulation/rules/{ident}/{action}")
+def change_rule(ident:str,action:str,payload:dict|None=None):
+    if action=="pause":
+        return simulation.pause_rule(ident)
+    if action=="resume":
+        return simulation.resume_rule(ident)
+    if action=="stop":
+        return simulation.stop_rule(ident,bool((payload or {}).get("cancel_pending")))
+    raise ValueError("不支持的价格规则操作")
+
+
 # 仅撤销仍在等待成交的委托，其他状态返回明确错误。
 @app.post("/api/orders/{ident}/cancel")
 def cancel(ident:str):

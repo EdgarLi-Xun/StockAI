@@ -38,8 +38,8 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', keyboard); narrowV
 <template>
   <button v-if="open" class="workspace-nav-scrim" aria-label="关闭导航遮罩" tabindex="-1" @click="emit('close')"></button>
   <aside id="primary-workspace-navigation" ref="navigation" :class="['workspace-nav', { 'is-open': open }]" :role="open?'dialog':undefined" :aria-modal="open||undefined" aria-label="研究空间导航" @transitionend.self="focusCurrent">
-    <div class="workspace-nav-brand"><a href="#dashboard" @click.prevent="emit('navigate', 'dashboard')"><icons.ChartNoAxesCombined :size="25"/><span>Stock<b>AI</b></span></a><button class="workspace-nav-close icon-button" aria-label="关闭导航" @click="emit('close')"><icons.X :size="19"/></button></div>
-    <div class="workspace-nav-caption"><span class="status-dot"></span>个人研究空间</div>
+    <div class="workspace-nav-brand"><a href="#dashboard" aria-label="StockAI 今日总览" @click.prevent="emit('navigate', 'dashboard')"><span class="workspace-brand-mark" aria-hidden="true"><icons.ChartNoAxesCombined :size="21"/></span><span>Stock<b>AI</b></span></a><button class="workspace-nav-close icon-button" aria-label="关闭导航" @click="emit('close')"><icons.X :size="19"/></button></div>
+    <div class="workspace-nav-caption"><span class="status-dot" aria-hidden="true"></span>个人研究空间<span class="workspace-private-badge">PRIVATE</span></div>
     <nav class="workspace-nav-sections" aria-label="主导航">
       <section v-for="section in workspaceSections" :key="section.label" class="workspace-nav-section">
         <h2>{{ section.label }}</h2>

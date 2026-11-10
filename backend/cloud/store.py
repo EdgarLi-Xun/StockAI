@@ -93,6 +93,17 @@ CREATE TABLE IF NOT EXISTS sim_ledger(
 CREATE TABLE IF NOT EXISTS sim_equity(
  account_id TEXT NOT NULL,user_id TEXT NOT NULL,ts TEXT NOT NULL,equity TEXT NOT NULL,PRIMARY KEY(account_id,ts),
  FOREIGN KEY(account_id,user_id) REFERENCES sim_accounts(id,user_id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS sim_price_rules(
+ id TEXT PRIMARY KEY,user_id TEXT NOT NULL,account_id TEXT NOT NULL,instrument_id TEXT NOT NULL REFERENCES instruments(id),
+ kind TEXT NOT NULL,params_json TEXT NOT NULL,status TEXT NOT NULL,armed_at TEXT NOT NULL,expires_on TEXT,
+ max_orders INTEGER NOT NULL,success_count INTEGER NOT NULL DEFAULT 0,source_kind TEXT NOT NULL,source_id TEXT,
+ source_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,UNIQUE(id,user_id),
+ FOREIGN KEY(account_id,user_id) REFERENCES sim_accounts(id,user_id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS sim_price_rule_events(
+ id TEXT PRIMARY KEY,user_id TEXT NOT NULL,account_id TEXT NOT NULL,price_rule_id TEXT NOT NULL,bar_date TEXT NOT NULL,
+ result TEXT NOT NULL,reason TEXT NOT NULL DEFAULT '',order_id TEXT,UNIQUE(user_id,price_rule_id,bar_date),
+ FOREIGN KEY(account_id,user_id) REFERENCES sim_accounts(id,user_id) ON DELETE CASCADE,
+ FOREIGN KEY(price_rule_id,user_id) REFERENCES sim_price_rules(id,user_id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS personal_backtests(
  id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,created_at TEXT NOT NULL,params_json TEXT NOT NULL,
  result_json TEXT NOT NULL,data_hash TEXT NOT NULL,strategy_version TEXT NOT NULL);

@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS ledger(
 CREATE TABLE IF NOT EXISTS equity_snapshots(
  account_id TEXT NOT NULL REFERENCES accounts(id), ts TEXT NOT NULL, equity TEXT NOT NULL,
  PRIMARY KEY(account_id,ts));
+CREATE TABLE IF NOT EXISTS price_rules(
+ id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+ instrument_id TEXT NOT NULL REFERENCES instruments(id), kind TEXT NOT NULL, params_json TEXT NOT NULL,
+ status TEXT NOT NULL, armed_at TEXT NOT NULL, expires_on TEXT, max_orders INTEGER NOT NULL,
+ success_count INTEGER NOT NULL DEFAULT 0, source_kind TEXT NOT NULL, source_id TEXT,
+ source_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS price_rule_events(
+ id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+ price_rule_id TEXT NOT NULL REFERENCES price_rules(id) ON DELETE CASCADE, bar_date TEXT NOT NULL,
+ result TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', order_id TEXT REFERENCES orders(id) ON DELETE SET NULL,
+ UNIQUE(price_rule_id, bar_date));
 CREATE TABLE IF NOT EXISTS backtest_runs(
  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, params_json TEXT NOT NULL, result_json TEXT NOT NULL,
  data_hash TEXT NOT NULL, strategy_version TEXT NOT NULL);

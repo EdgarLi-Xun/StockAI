@@ -32,7 +32,9 @@ watch(() => props.detail?.instrument.id, id => {
   <section class="security-workbench" aria-label="证券研究工作区">
     <aside class="security-context-list" aria-label="工作台自选清单">
       <h2>我的自选 <small>{{ watchlist.length }}</small></h2>
-      <button v-for="row in watchlist" :key="row.id" type="button" :aria-current="id===row.id?'page':undefined" @click="emit('select',row.id)"><span><strong>{{ row.name }}</strong><small :class="direction(row.change_pct)">{{ pct(row.change_pct) }}</small></span><span><small>{{ row.market }}:{{ row.symbol }}</small><small>{{ fmt(row.quote?.close ?? row.quote?.price,row.asset_class==='etf'?3:2) }}</small></span></button>
+      <div class="security-context-scroll">
+        <button v-for="row in watchlist" :key="row.id" type="button" :aria-current="id===row.id?'page':undefined" @click="emit('select',row.id)"><span><strong>{{ row.name }}</strong><small :class="direction(row.change_pct)">{{ pct(row.change_pct) }}</small></span><span><small>{{ row.market }}:{{ row.symbol }}</small><small>{{ fmt(row.quote?.close ?? row.quote?.price,row.asset_class==='etf'?3:2) }}</small></span></button>
+      </div>
       <p>行情、持仓与来源围绕当前证券展开。</p>
     </aside>
     <div class="security-research-main">

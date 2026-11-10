@@ -26,6 +26,26 @@ function draw() {
     return
   }
   const dates = props.bars.map(x => x.ts.slice(0, 16).replace('T', ' '))
+  // 总览仅绘制实际收盘价与成交量；细节页继续使用完整 K 线。
+  if (props.kind === 'trend') {
+    // 缺失或非数字留空，不把空值画成 0。
+    const validNumber = (value: unknown) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value)
+    chart.setOption({
+      ...common,
+      grid: [{ left: 58, right: 24, top: 12, height: '65%' }, { left: 58, right: 24, top: '78%', height: '10%' }],
+      axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      // 日期只标在下方成交量轴，价格轴不再重复。
+      xAxis: [0, 1].map(index => ({ type: 'category', gridIndex: index, data: dates, boundaryGap: false, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: index === 1, color: palette.muted, fontSize: 10, hideOverlap: true, formatter: (value: string) => value.slice(5, 10).replace('-', '/') } })),
+      yAxis: [{ scale: true, splitNumber: 3, axisLabel: { color: palette.muted, fontSize: 10 }, splitLine: { lineStyle: { color: palette.border, type: 'dashed', opacity: .65 } } }, { gridIndex: 1, show: false, min: 0 }],
+      series: [
+        // 不复权收盘单独成线；空缺不连线，避免把缺失行情补成趋势。
+        { name: '不复权收盘', type: 'line', data: props.bars.map(bar => validNumber(bar.close)), showSymbol: props.bars.length === 1, symbol: 'circle', symbolSize: 6, connectNulls: false, lineStyle: { color: palette.accentText, width: 2.5 }, itemStyle: { color: palette.accentText }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: mixColor(palette.accent, palette.surface, .65) }, { offset: 1, color: palette.surface }]) } },
+        // 成交量放在下方副图，与价格共用时间轴。
+        { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: props.bars.map(bar => validNumber(bar.volume)), barMaxWidth: 7, itemStyle: { color: mixColor(palette.accentText, palette.surface, .65), borderRadius: [3, 3, 0, 0] } },
+      ],
+    }, true)
+    return
+  }
   // 下方副图按用户选择展示 RSI、ATR、MACD 或成交量，与主图共享时间轴。
   const lowerData = props.indicator === 'rsi' ? props.indicators.map(x => x.rsi14) : props.indicator === 'atr' ? props.indicators.map(x => x.atr14) : props.indicator === 'macd' ? props.indicators.map(x => x.macd) : props.bars.map(x => x.volume)
   chart.setOption({ ...common, legend: { data: ['MA5', 'MA20', 'MA60'], top: 0, right: 20, itemWidth: 14, textStyle: { color: palette.muted, fontSize: 11 } }, axisPointer: { link: [{ xAxisIndex: 'all' }] }, grid: [{ left: 60, right: 24, top: 35, height: '55%' }, { left: 60, right: 24, top: '73%', height: '14%' }], xAxis: [0, 1].map(i => ({ type: 'category', data: dates, gridIndex: i, boundaryGap: true, axisLine: { lineStyle: { color: palette.border } }, axisLabel: { show: i === 1, hideOverlap: true, color: palette.muted }, axisTick: { show: false } })), yAxis: [{ scale: true, axisLabel: { color: palette.muted }, splitLine: { lineStyle: { color: palette.border, type: 'dashed' } } }, { gridIndex: 1, scale: true, splitNumber: 2, splitLine: { show: false }, axisLabel: { formatter: compact, color: palette.muted } }], dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], start: Math.max(0, 100 - 10000 / props.bars.length), end: 100 }], series: [{ type: 'candlestick', name: '不复权OHLC', data: props.bars.map(x => [x.open, x.close, x.low, x.high]), itemStyle: { color: palette.up, color0: palette.down, borderColor: palette.up, borderColor0: palette.down } }, ...[5, 20, 60].map((n, i) => ({ type: 'line', name: 'MA' + n, data: props.indicators.map(x => x['ma' + n]), showSymbol: false, lineStyle: { width: 1.3, color: ['#d0a55a', '#5d87c8', '#a07eb9'][i] }, connectNulls: false })), { type: props.indicator === 'rsi' || props.indicator === 'atr' ? 'line' : 'bar', xAxisIndex: 1, yAxisIndex: 1, data: lowerData, showSymbol: false, itemStyle: { color: mixColor(palette.accentText, palette.surface, .45) }, lineStyle: { color: palette.accentText } }] }, true)
@@ -38,4 +58,4 @@ watch(() => [props.bars, props.indicators, props.curve, props.kind, props.indica
 onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
 </script>
 <!-- 图表提供可访问说明，缺少真实数据时显示明确空状态。 -->
-<template><div class="chart-wrap"><div ref="root" class="chart-canvas" role="img" :aria-label="kind === 'equity' ? '模拟权益曲线' : '证券K线和技术指标图'"></div><div v-if="!hasData" class="chart-empty"><div class="empty-chart-icon">⌁</div><strong>等待真实K线数据</strong><span>同步行情后，这里将显示价格与指标</span></div></div></template>
+<template><div class="chart-wrap"><div ref="root" class="chart-canvas" role="img" :aria-label="kind === 'equity' ? '模拟权益曲线' : kind === 'trend' ? '指数不复权收盘价与成交量走势' : '证券K线和技术指标图'"></div><div v-if="!hasData" class="chart-empty"><div class="empty-chart-icon">⌁</div><strong>等待真实K线数据</strong><span>同步行情后，这里将显示价格与指标</span></div></div></template>

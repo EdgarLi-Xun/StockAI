@@ -1,12 +1,12 @@
 /* 共享工作台：统一导航、排版、表面层级和响应式布局。 */
 :root {
-  --font-display: "Georgia", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
-  --radius-panel: 5px;
-  --radius-control: 4px;
+  --font-display: "Segoe UI Variable Display", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --radius-panel: 16px;
+  --radius-control: 8px;
   font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   font-size: 14px;
   color: #233b32;
-  background: #f3f6f4;
+  background: #eef3f0;
   --green: #18765b;
   --green-dark: #105a44;
   --dark: #233b32;
@@ -32,7 +32,7 @@ input, select, textarea { min-height: 40px; border-color: #cdd9d1; color: var(--
 input::placeholder, textarea::placeholder { color: #73847b; }
 input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px #18765b12; }
 input[type="checkbox"] { min-height: 0; width: 16px; height: 16px; }
-h1 { font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -.5px; text-wrap: balance; }
+h1 { font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -.8px; text-wrap: balance; }
 h2 { font-size: 17px; letter-spacing: -.25px; }
 h3 { font-size: 15px; }
 small { font-size: 12px; }

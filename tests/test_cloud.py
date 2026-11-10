@@ -764,3 +764,32 @@ def test_etf_name_worker_uses_reference_metadata(monkeypatch):
     monkeypatch.setattr(ak,'fund_etf_spot_em',no_spot_quotes)
     rows=collect('etf_names',{}).to_dict('records')
     assert rows==[{'代码':'159330','名称':'测试ETF名称'}]
+
+
+# 没有写入权时不判断价格规则，同步来的待成交委托也不再撮合。
+def test_rules_skip_without_write_lease_and_inert_orders_do_not_fill(cloud,bars,monkeypatch):
+    from backend.cloud import market
+    from backend.instruments import InstrumentInput
+    from backend.simulation import OrderInput
+    from backend.sync.protocol import SyncError
+    store,keys,auth,journal,admin,uid=cloud
+    item=market.add_watch(store,uid,InstrumentInput(symbol='600001',market='SH'))
+    evidence={k:'https://www.sse.com.cn/test' for k in ('listing_url','status_url','announcement_url')};evidence['review_note']='隔离测试'
+    market.verify(store,item['id'],{'name':'测试证券','status':'active','risk_flag':'clear','rules':{**item['rules'],'verified':True,'source_url':'https://www.sse.com.cn/rules'},'evidence':evidence})
+    market.import_bars(store,item['id'],{'bars':bars[:4]})
+    monkeypatch.setattr(market,'calendar',lambda *a,**kw:{'calendar_verified':True,'last_completed_session':bars[3]['ts'][:10],'date':bars[3]['ts'][:10]})
+    monkeypatch.setattr('backend.collectors.fresh_reasons',lambda *a,**k:[])
+    account=simulation.create_account(store,uid,'规则账户',10000)
+    saved=simulation.create_rule(store,uid,{'account_id':account['id'],'instrument_id':item['id'],'kind':'close_at_or_below','trigger_price':'9','limit_price':'6','quantity':100,'source_kind':'manual'})
+    store.execute('UPDATE sim_price_rules SET armed_at=? WHERE id=? AND user_id=?',(bars[0]['ts'][:10]+'T10:00:00+08:00',saved['id'],uid))
+    class Guard:
+        def account_guard(self,user,account_id):
+            raise SyncError('LEASE')
+    store.sync_service=Guard()
+    assert simulation.evaluate(store,uid)==[]
+    assert store.one('SELECT COUNT(*) n FROM sim_orders WHERE user_id=?',(uid,))['n']==0
+    store.sync_service=None
+    queued=simulation.order(store,uid,OrderInput(client_key='inert-order-key',account_id=account['id'],instrument_id=item['id'],side='buy',quantity=100,limit_price=6))
+    store.execute('UPDATE sim_orders SET created_at=? WHERE id=? AND user_id=?',(bars[0]['ts'][:10]+'T10:00:00+08:00',queued['id'],uid))
+    store.execute('INSERT INTO sync_inert_orders VALUES(?,?)',(queued['id'],uid))
+    assert simulation.match(store,uid)==[]

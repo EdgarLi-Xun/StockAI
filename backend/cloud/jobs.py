@@ -203,6 +203,14 @@ def run(store,keys,job,transport=None):
         if not store.active(job["user_id"]):
             raise models.ModelError("ACCOUNT_DISABLED")
         if job.get('automatic') and getattr(store,'sync_service',None):store.sync_service.ensure_executor(job['user_id'])
+        if job["kind"]=="closing":
+            from . import simulation as sim
+            from backend.sync.protocol import SyncError
+            try:
+                sim.evaluate(store,job["user_id"])
+                sim.match(store,job["user_id"])
+            except SyncError as exc:
+                _log(store,job,str(exc),"warning")
         facts=snap.get("facts")
         if facts is None:
             facts=workspace.facts(store,job["user_id"],"standard" if job["kind"]=="profile_test" else job["kind"],prefs)

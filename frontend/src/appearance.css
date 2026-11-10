@@ -30,7 +30,7 @@
   background: var(--canvas);
 }
 :root[data-theme] :is(.app-shell, .research-shell) { color: var(--dark); background: var(--canvas); }
-:root[data-theme] :is(.panel, .metric-card, .modal-card, .notification-panel, .workspace-nav, .public-auth, .public-userbar, .public-main .public-userbar, .assistant-host-panel, .assistant-compose, .assistant-starters button, .task-summary, .research-metrics, .public-main .research-metrics, .public-main .metric-card, .public-main .metals-panel, .public-main .heading-actions .notification-button, .search-box, .detail-drawer, .drawer-heading, .modal, .login-card, .chart-empty strong, .chart-empty span, .empty-chart-icon) {
+:root[data-theme] :is(.panel, .metric-card, .modal-card, .notification-panel, .workspace-nav, .public-auth, .public-userbar, .public-main .public-userbar, .assistant-host-panel, .assistant-compose, .assistant-starters button, .task-summary, .research-metrics, .public-main .research-metrics, .public-main .metric-card, .public-main .metals-panel, .public-main .heading-actions .notification-button, .search-box, .detail-drawer, .drawer-heading, .modal, .login-card, .chart-empty strong, .chart-empty span, .empty-chart-icon, .stats-grid) {
   background: var(--surface);
   color: var(--dark);
   border-color: var(--border);
@@ -44,6 +44,7 @@
   border-color: var(--accent);
   color: var(--on-accent);
 }
+:root[data-theme] :is(.primary, .secondary) { border-radius: 999px; }
 :root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher):hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 :root[data-theme] .workspace-nav-section > button.active { background: var(--accent-soft); color: var(--accent-text); }
 :root[data-theme] :is(.workspace-nav-section > button.active > svg, .workspace-nav-section > button.active:hover) { color: var(--accent-text); }
@@ -85,6 +86,8 @@
 :root[data-theme] :is(.clickable:hover, .report-list-row:hover, .icon-button:hover:not(:disabled)) { background: var(--accent-soft); }
 :root[data-theme] :is(.public-main .stats-grid, .stats-grid, .index-tabs, .report-list-row) { border-color: var(--border); }
 :root[data-theme] :is(.detail-price strong, .account-metrics b, .report-list-row strong) { color: var(--dark); }
+:root[data-theme] .account-metrics { gap: 12px; }
+:root[data-theme] .account-metrics > div { padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
 
 /* 行情方向和操作状态分别配色，避免更改涨跌习惯影响风险提示。 */
 :root[data-theme] .up { color: var(--quote-up) !important; }
@@ -119,7 +122,7 @@
 /* 摘要与侧栏按栏目排版，主题切换时仍沿用同一套语义色。 */
 :root[data-theme] .public-workspace #primary-workspace-navigation { background: var(--surface-soft); }
 :root[data-theme] .workspace-nav-section > button.active,
-:root[data-theme] .workspace-nav-section > button.active:hover { background: var(--dark); color: var(--surface); }
+:root[data-theme] .workspace-nav-section > button.active:hover { background: var(--accent-soft); color: var(--accent-text); }
 :root[data-theme] .public-workspace .workspace-nav-section > button.active > svg { color: inherit; }
 :root[data-theme] .workspace-nav-active-mark { background: currentColor; }
 :root[data-theme] .app-shell .overview-metrics .metric-card,
@@ -141,3 +144,14 @@
   .has-docked-assistant .overview-columns { grid-template-columns: minmax(0,1fr); }
   .has-docked-assistant .overview-secondary { padding-left: 0; border-left: 0; }
 }
+
+/* 研究增强侧栏与主侧栏使用同一套表面色，深浅主题都不再固定深绿底。 */
+:root[data-theme] .public-workspace .research-nav {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  color: var(--dark);
+}
+:root[data-theme] .public-workspace .research-nav-heading strong { color: var(--dark); }
+:root[data-theme] .public-workspace .research-nav :is(.eyebrow, p) { color: var(--muted); }
+:root[data-theme] .public-workspace .research-nav nav button { color: var(--muted); }
+:root[data-theme] .public-workspace .research-nav > .text-button { color: var(--accent-text); }

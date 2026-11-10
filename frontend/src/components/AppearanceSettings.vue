@@ -88,18 +88,18 @@ function reset() { resetAppearance(); colorInput.value = appearance.accent; inva
 .appearance-theme.selected { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }
 .appearance-theme > input, .appearance-swatch > input { position: absolute; width: 1px; height: 1px; min-height: 0; opacity: 0; }
 .appearance-theme:focus-within, .appearance-swatch:focus-within { outline: 3px solid var(--accent-text); outline-offset: 4px; }
-.appearance-theme-preview { display: flex; height: 84px; gap: 10px; border: 1px solid #dfe6e1; border-radius: 5px; overflow: hidden; background: #f3f5f0; }
-.appearance-theme-preview > i { width: 24%; background: #fff; border-right: 1px solid #dfe6e1; }
+.appearance-theme-preview { display: flex; height: 84px; gap: 10px; border: 1px solid #e3ebe6; border-radius: 5px; overflow: hidden; background: #eef3f0; }
+.appearance-theme-preview > i { width: 24%; background: #fff; border-right: 1px solid #e3ebe6; }
 .appearance-theme-preview > span { flex: 1; display: grid; gap: 7px; padding: 12px 12px 12px 0; }
 .appearance-theme-preview b { height: 9px; width: 55%; border-radius: 2px; background: #c6d1c9; }
 .appearance-theme-preview b:first-child { width: 35%; background: var(--accent); }
 .appearance-theme-preview b:last-child { height: 22px; width: 100%; background: #fff; }
-.preview-dark { background: #121a21; border-color: #35443e; }
-.preview-dark > i { background: #1b252d; border-color: #35443e; }
-.preview-dark b { background: #53665c; }
-.preview-dark b:last-child { background: #26362e; }
-.preview-system { background: linear-gradient(110deg, #f3f5f0 50%, #121a21 50%); }
-.preview-system b:last-child { background: linear-gradient(110deg, #fff 44%, #26362e 44%); }
+.preview-dark { background: #101816; border-color: #31423b; }
+.preview-dark > i { background: #18211e; border-color: #31423b; }
+.preview-dark b { background: #3d5248; }
+.preview-dark b:last-child { background: #212b27; }
+.preview-system { background: linear-gradient(110deg, #eef3f0 50%, #101816 50%); }
+.preview-system b:last-child { background: linear-gradient(110deg, #fff 44%, #212b27 44%); }
 .appearance-theme-name { display: flex; align-items: center; gap: 7px; margin: 12px 0 5px; color: var(--dark); font-size: 13px; }
 .appearance-theme-name > svg:last-child:not(:first-child) { margin-left: auto; color: var(--accent-text); }
 .appearance-theme > small { display: block; color: var(--muted); font-size: 12px; }

@@ -113,6 +113,7 @@ def run(ident):
                         except ValueError as exc:
                             fnlog(f"{item['instrument_id']} 周度历史验证未通过：{exc}")
                 if row["kind"]=="closing":
+                    simulation.evaluate_rules(fnlog)
                     simulation.match_orders(fnlog)
                 result=research.generate(row["logical_key"],row["kind"],ident,fnlog)
                 result["data_status"]=sync_result["status"]
@@ -124,6 +125,7 @@ def run(ident):
                 if not any(x.get("status")=="success" for x in result["metals"]):
                     raise ValueError("黄金白银数据源不可用，未填造价格")
             elif row["kind"]=="match":
+                simulation.evaluate_rules(fnlog)
                 result={"fills":simulation.match_orders(fnlog)}
             elif row["kind"]=="backup":
                 result=maintenance.create_backup()

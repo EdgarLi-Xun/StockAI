@@ -9,9 +9,9 @@ from backend.cloud.store import json_text
 from .protocol import SyncError,digest,MAX_OBJECT
 
 SECRET={'api_key','password','credential_id','envelope_json','key_hint','token','csrf_hash','authorization','smtp_password','allow_summary','allow_trades','allow_simulation_summary','allow_trade_details'}
-REFS={'report_id':'personal_reports','source_report_id':'personal_reports','series_id':'report_series','parent_id':None,'account_id':'sim_accounts','order_id':'sim_orders','session_id':'research_objects','object_id':'research_objects','rule_id':'research_objects','request_id':'assistant_requests','regenerate_of':'assistant_requests','topic_id':'research_objects','result_id':'personal_backtests','profile_id':'model_profiles','experiment_id':'research_experiments'}
+REFS={'report_id':'personal_reports','source_report_id':'personal_reports','series_id':'report_series','parent_id':None,'account_id':'sim_accounts','order_id':'sim_orders','price_rule_id':'sim_price_rules','session_id':'research_objects','object_id':'research_objects','rule_id':'research_objects','request_id':'assistant_requests','regenerate_of':'assistant_requests','topic_id':'research_objects','result_id':'personal_backtests','profile_id':'model_profiles','experiment_id':'research_experiments'}
 KINDS={'report':'personal_reports','account':'sim_accounts','backtest':'personal_backtests','experiment':'research_experiments','profile':'model_profiles','object':'research_objects','delivery':'alert_deliveries'}
-ALLOWED={'user_watchlist','user_settings','model_profiles','model_profile_versions','model_context_limits','report_series','personal_reports','personal_candidates','sim_accounts','sim_orders','sim_lots','sim_ledger','sim_equity','portfolio_valuation_history','personal_backtests','research_experiments','research_objects','research_versions','journal_observation_history','alert_state','alert_events','assistant_requests','assistant_chunks'}
+ALLOWED={'user_watchlist','user_settings','model_profiles','model_profile_versions','model_context_limits','report_series','personal_reports','personal_candidates','sim_accounts','sim_orders','sim_lots','sim_ledger','sim_equity','sim_price_rules','sim_price_rule_events','portfolio_valuation_history','personal_backtests','research_experiments','research_objects','research_versions','journal_observation_history','alert_state','alert_events','assistant_requests','assistant_chunks'}
 COMPOSITE={'user_watchlist','user_settings','model_profile_versions','model_context_limits','personal_candidates','sim_equity','research_versions','assistant_chunks'}
 INTEGER={'sim_ledger'}
 ALLOWED.update({'alert_deliveries','alert_delivery_events'});COMPOSITE.add('alert_delivery_events');REFS.update(event_id='alert_events',delivery_id='alert_deliveries')
@@ -125,7 +125,7 @@ class Adapter:
         elif kind=='account':
             root=owned('sim_accounts')
             if root:
-                for table in ('sim_orders','sim_lots','sim_ledger','sim_equity','portfolio_valuation_history'):owned(table,'account_id')
+                for table in ('sim_orders','sim_lots','sim_ledger','sim_equity','portfolio_valuation_history','sim_price_rules','sim_price_rule_events'):owned(table,'account_id')
         elif kind=='backtest':root=owned('personal_backtests')
         elif kind=='experiment':root=owned('research_experiments')
         elif kind=='delivery':
@@ -181,9 +181,9 @@ class Adapter:
             if item.get('id')!=item.get('market','')+':'+item.get('symbol',''):raise SyncError('CORRUPT')
             c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(item['id'],item['symbol'],item['market'],item['name'],item['asset_class'],Rules().model_dump_json()))
         if kind=='account':
-            for name in ('sim_lots','sim_ledger','sim_equity','portfolio_valuation_history','sim_orders'):
+            for name in ('sim_price_rule_events','sim_lots','sim_ledger','sim_equity','portfolio_valuation_history','sim_orders','sim_price_rules'):
                 c.execute('DELETE FROM '+name+' WHERE user_id=? AND account_id=?',(self.uid,ident))
-        order=['user_watchlist','user_settings','model_profiles','model_profile_versions','model_context_limits','report_series','personal_reports','personal_candidates','sim_accounts','sim_orders','sim_lots','sim_ledger','sim_equity','portfolio_valuation_history','personal_backtests','research_objects','research_versions','research_experiments','journal_observation_history','alert_state','alert_events','assistant_requests','assistant_chunks','alert_deliveries','alert_delivery_events']
+        order=['user_watchlist','user_settings','model_profiles','model_profile_versions','model_context_limits','report_series','personal_reports','personal_candidates','sim_accounts','sim_price_rules','sim_orders','sim_price_rule_events','sim_lots','sim_ledger','sim_equity','portfolio_valuation_history','personal_backtests','research_objects','research_versions','research_experiments','journal_observation_history','alert_state','alert_events','assistant_requests','assistant_chunks','alert_deliveries','alert_delivery_events']
         for name in order:
             for original in tables.get(name,[]):
                 row=dict(original);info=c.execute('PRAGMA table_info('+name+')').fetchall();columns={v['name'] for v in info}
@@ -257,4 +257,11 @@ class Adapter:
             if any(type(row['quantity']) is not int or row['quantity']<0 for row in tables.get('sim_lots',[])):raise ValueError()
             orders=[r['id'] for r in tables.get('sim_orders',[])]
             if len(orders)!=len(set(orders)):raise ValueError()
+            root_id=root[0]['id']
+            rules=tables.get('sim_price_rules',[])
+            rule_ids={r['id'] for r in rules}
+            kinds={'close_at_or_below','close_at_or_above','close_stop','ma_forward'}
+            if any(r.get('account_id')!=root_id or r.get('kind') not in kinds or r.get('status') not in {'active','paused','stopped'} for r in rules):raise ValueError()
+            if len(rule_ids)!=len(rules):raise ValueError()
+            if any(e.get('account_id')!=root_id or e.get('price_rule_id') not in rule_ids or e.get('result') not in {'created','skipped','rejected'} for e in tables.get('sim_price_rule_events',[])):raise ValueError()
         except Exception:raise SyncError('CORRUPT','模拟账户账本或持仓校验失败，未应用半套状态') from None

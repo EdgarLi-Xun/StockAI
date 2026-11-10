@@ -11,4 +11,5 @@ const module = import.meta.env.MODE === 'public' ? await import('./PublicApp.vue
 await import('./workspace.css')
 await import('./navigation.css')
 await import('./appearance.css')
+await import('./dashboard.css')
 createApp(module.default).mount('#app')

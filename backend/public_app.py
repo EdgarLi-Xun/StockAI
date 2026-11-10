@@ -390,7 +390,9 @@ def create_app(cfg=None):
     def run_job(payload:dict,request:Request,a:Actor=Depends(user)):
         kind=payload.get("kind","standard")
         if kind=="match":
-            return {"status":"success","fills":simulation.match(rt(request).store,a.id)}
+            store=rt(request).store
+            simulation.evaluate(store,a.id)
+            return {"status":"success","fills":simulation.match(store,a.id)}
         if kind in {"sync","metals","context"}:
             if a.role!="admin":
                 raise AuthError("ADMIN_REQUIRED","共享行情由站点管理员统一维护",403)
@@ -420,6 +422,21 @@ def create_app(cfg=None):
     @app.get("/api/me/orders/{ident}")
     def order_detail(ident:str,request:Request,a:Actor=Depends(user)):
         return workspace.owned(rt(request).store,"sim_orders",a.id,ident)
+    # 启用本人的价格规则。
+    @app.post("/api/me/simulation/rules")
+    def create_rule(payload:dict,request:Request,a:Actor=Depends(user)):
+        return simulation.create_rule(rt(request).store,a.id,payload)
+    # 暂停、恢复或停止本人的价格规则。
+    @app.post("/api/me/simulation/rules/{ident}/{action}")
+    def change_rule(ident:str,action:str,payload:dict,request:Request,a:Actor=Depends(user)):
+        store=rt(request).store
+        if action=="pause":
+            return simulation.pause_rule(store,a.id,ident)
+        if action=="resume":
+            return simulation.resume_rule(store,a.id,ident)
+        if action=="stop":
+            return simulation.stop_rule(store,a.id,ident,bool(payload.get("cancel_pending")))
+        raise ValueError("不支持的价格规则操作")
     # 仅撤销本人仍待成交的模拟委托。
     @app.post("/api/me/orders/{ident}/cancel")
     def cancel_order(ident:str,request:Request,a:Actor=Depends(user)):

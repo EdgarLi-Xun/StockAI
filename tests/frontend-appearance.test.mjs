@@ -36,7 +36,7 @@ test('restores theme and normalized custom colors before the app mounts', () => 
   assert.equal(root.dataset.marketColors, 'green-up')
   assert.equal(service.appearance.accent, '#abcdef')
   assert.equal(tokens.get('--accent'), '#abcdef')
-  assert.equal(tokens.get('--surface'), '#1b252d')
+  assert.equal(tokens.get('--surface'), '#18211e')
 })
 
 test('follows OS changes only in system mode and resumes following when reselected', () => {
@@ -148,8 +148,8 @@ test('chart rendering uses the current candle, tooltip, and equity colors', () =
   const dark = renders.at(-1)
   assert.equal(dark.series[0].itemStyle.color, '#61d6a5')
   assert.equal(dark.series[0].itemStyle.color0, '#ff858d')
-  assert.equal(dark.tooltip.backgroundColor, '#1b252d')
-  assert.equal(dark.tooltip.textStyle.color, '#e4ece7')
+  assert.equal(dark.tooltip.backgroundColor, '#18211e')
+  assert.equal(dark.tooltip.textStyle.color, '#e6f0ea')
   context.props.kind = 'equity'
   context.draw()
   assert.equal(renders.at(-1).series[0].lineStyle.color, service.appearancePalette.value.accentText)

@@ -19,7 +19,7 @@ from .store import json_text,stamp
 
 # 仅从允许的表中按资源及用户共同查询，拒绝访问其他用户对象。
 def owned(store,table,uid,ident):
-    if table not in {"personal_reports","personal_jobs","personal_backtests","sim_accounts","sim_orders"}:
+    if table not in {"personal_reports","personal_jobs","personal_backtests","sim_accounts","sim_orders","sim_price_rules"}:
         raise ValueError("不支持的个人资源")
     row=store.one(f"SELECT * FROM {table} WHERE id=? AND user_id=?",(ident,uid))
     if not row:
