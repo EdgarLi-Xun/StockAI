@@ -35,6 +35,13 @@ def write_result(path,value):
         p=Path(path);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
 
 
+def keep_source_process(no_forward=False):
+    """Stay in this interpreter instead of handing off to an installed build."""
+    if no_forward:return True
+    if sys.gettrace() is not None:return True
+    return 'pydevd' in sys.modules or 'debugpy' in sys.modules
+
+
 def main():
     if len(sys.argv)>2 and sys.argv[1]=='--upgrade-probe':
         worker_stdio()
@@ -57,6 +64,7 @@ def main():
     parser.add_argument('--remote-url',help='仅连接指定 HTTPS 远程 Web，不启动本机后台')
     parser.add_argument('--remote-account',help='该站点的独立账号会话配置名称')
     parser.add_argument('--port',type=int,default=8765,help='首选本机端口，被占用时顺延')
+    parser.add_argument('--no-forward',action='store_true',help='留在当前源码进程，不转交已安装版本')
     parser.add_argument('--self-test',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--smoke-test',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--result',help=argparse.SUPPRESS)
@@ -70,7 +78,7 @@ def main():
             saved=json.loads(mode_file.read_text(encoding='utf-8'))
             if saved.get('mode')=='remote':args.remote_url=saved['url'];args.remote_account=saved.get('account','')
     if not args.remote_url:configure_home(home)
-    if not args.self_test and not args.smoke_test:
+    if not args.self_test and not args.smoke_test and not keep_source_process(args.no_forward):
         from desktop.upgrade import forward
         if forward(home,sys.argv[1:],client_only=bool(args.remote_url)):return
     log=(home/'desktop.log').open('a',encoding='utf-8',buffering=1)

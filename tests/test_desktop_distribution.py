@@ -209,6 +209,20 @@ def test_shell_document_is_not_cached(cloud):
         assert page.status_code==200 and page.headers['cache-control']=='no-store'
 
 
+def test_debug_session_stays_on_source_instead_of_installed_build(monkeypatch):
+    from desktop.application import keep_source_process
+    monkeypatch.setattr(sys,'gettrace',lambda:None)
+    monkeypatch.delitem(sys.modules,'pydevd',raising=False)
+    monkeypatch.delitem(sys.modules,'debugpy',raising=False)
+    assert keep_source_process() is False
+    assert keep_source_process(True) is True
+    monkeypatch.setattr(sys,'gettrace',lambda:object())
+    assert keep_source_process() is True
+    monkeypatch.setattr(sys,'gettrace',lambda:None)
+    monkeypatch.setitem(sys.modules,'debugpy',object())
+    assert keep_source_process() is True
+
+
 def test_inherited_windows_code_page_is_normalized_for_worker_json(monkeypatch):
     import io,json
     from desktop.application import worker_stdio
