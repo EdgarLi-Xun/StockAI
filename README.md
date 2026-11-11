@@ -1,18 +1,18 @@
-> 当前正式版：**3.2.17**，见 [下载发行包](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.17) 和 [更新记录](CHANGELOG.md)。桌面版是每用户安装包，同时保留本机 Web、独立 Hub/远程客户端、研究工作台、AI 助手、加密同步与受控升级。已发布的 3.2.2 仍是单文件 EXE。真实 NAS、跨机与生产签名更新源仍需目标环境验收。
+> 当前正式版：**3.2.18**，见 [下载发行包](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.18) 和 [更新记录](CHANGELOG.md)。桌面版是每用户安装包，同时保留本机 Web、独立 Hub/远程客户端、研究工作台、AI 助手、加密同步与受控升级。已发布的 3.2.2 仍是单文件 EXE。真实 NAS、跨机与生产签名更新源仍需目标环境验收。
 
 # StockAI
 
 股票与贵金属研究、AI 解释、模拟交易和历史回测工具。支持 Windows 桌面与浏览器共用一套本地数据，也提供可独立部署的公网多用户模式。
 
-## Windows 桌面安装包（3.2.17）
+## Windows 桌面安装包（3.2.18）
 
-主交付为 **`StockAI-3.2.17-Setup.exe`**。运行安装包后从开始菜单打开 StockAI，菜单「打开 Web 版」连接同一份本机后台与数据；包含研究增强、项目助手、加密同步和受控升级。不需要另装 Python、Node.js 或部署 Linux，也不要求管理员权限。程序装在 `%LOCALAPPDATA%\Programs\StockAI`。[已发布的 3.2.2](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.2) 仍是单文件 EXE，不会自动切换成安装版。
+主交付为 **`StockAI-3.2.18-Setup.exe`**。运行安装包后从开始菜单打开 StockAI，菜单「打开 Web 版」连接同一份本机后台与数据；包含研究增强、项目助手、加密同步和受控升级。不需要另装 Python、Node.js 或部署 Linux，也不要求管理员权限。程序装在 `%LOCALAPPDATA%\Programs\StockAI`。[已发布的 3.2.2](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.2) 仍是单文件 EXE，不会自动切换成安装版。
 
 首次创建本机账号后即可使用。关闭窗口驻留托盘，选择「退出 StockAI」停止本机服务。数据保存在 `%LOCALAPPDATA%\StockAI\workspace`，安装、覆盖和卸载都不重置资料。3.2 操作与验证见 [使用说明](docs/使用说明-同步与升级.md) 和 [验收记录](docs/验收记录-同步与升级.md)；[3.1 EXE 历史验收](docs/Windows-EXE验收记录.md) 保留。下文保留原源码 ZIP 与独立公网部署方式。
 
 **所有交易均为模拟；项目没有真实证券账户接入或实盘下单接口。**
 
-[下载当前正式版](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.17) · [桌面版指南](docs/Windows-EXE使用说明.md) · [公网部署指南](deploy/cloud/README.md) · [更新记录](CHANGELOG.md)
+[下载当前正式版](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.18) · [桌面版指南](docs/Windows-EXE使用说明.md) · [公网部署指南](deploy/cloud/README.md) · [更新记录](CHANGELOG.md)
 
 ![StockAI 本地版研究总览](docs/screenshots/dashboard.jpg)
 
@@ -33,13 +33,13 @@
 | | 单文件桌面版 | 独立 Web 研究站点 | 独立同步 Hub |
 | --- | --- | --- | --- |
 | 适用场景 | 自己在电脑上研究，桌面与本机 Web 共用数据 | 在 Linux 服务器上供多个用户分别使用 | 为各研究端保存加密同步资料 |
-| 入口 | `StockAI-3.2.17-Setup.exe` | `backend.public_app:app`，由 Caddy 提供 HTTPS | `backend.hub`，独立域名和数据卷 |
+| 入口 | `StockAI-3.2.18-Setup.exe` | `backend.public_app:app`，由 Caddy 提供 HTTPS | `backend.hub`，独立域名和数据卷 |
 | 默认地址 | `http://127.0.0.1:8765`，占用时顺延 | 配置的 HTTPS 域名，容器内部端口 8766 | 配置的 HTTPS 域名，容器内部端口 8770 |
 | 模型服务 | 个人模型配置，含本机 Ollama | MiniMax、OpenAI 兼容 HTTPS 服务、服务器端 Ollama | 不运行模型或研究任务 |
 | 个人数据 | `%LOCALAPPDATA%\StockAI\workspace` | 独立研究数据卷，按用户隔离 | 密文业务对象和独立控制卷 |
 | 操作说明 | [桌面指南](docs/Windows-EXE使用说明.md) | [部署与迁移](deploy/cloud/README.md) | [Hub 部署](deploy/hub/README.md) |
 
-当前研究工作台、桌面安装包、Web 和 Hub 版本为 **3.2.17**。原源码本地版仍保留 2.0.0 的入口与包元信息，数据目录与新桌面版独立。首次发布的 Windows 源码 ZIP 保留在 [v2.0.0 Release](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v2.0.0)；下文的源码本地版安装步骤仅适用于该旧入口。两种模式不会自动迁移或混用数据。
+当前研究工作台、桌面安装包、Web 和 Hub 版本为 **3.2.18**。原源码本地版仍保留 2.0.0 的入口与包元信息，数据目录与新桌面版独立。首次发布的 Windows 源码 ZIP 保留在 [v2.0.0 Release](https://github.com/EdgarLi-Xun/StockAI/releases/tag/v2.0.0)；下文的源码本地版安装步骤仅适用于该旧入口。两种模式不会自动迁移或混用数据。
 
 ## 原源码本地版：Windows ZIP
 
@@ -109,7 +109,7 @@ npm --prefix frontend run dev
 
 首发部署目标为 **Linux x86_64、单机、单个 Uvicorn worker、20 个账号、两个报告执行槽**。需要 Docker Compose、可用域名、SMTP 服务和由运维保管的 age 备份身份；从源码构建前端还需 Node.js 24。
 
-本版 Release 中的 **`StockAI-3.2.17-Public.zip`** 包含公网源码、部署配置及预构建的公网页面，使用该包可以跳过下方 `npm ci` / `npm run build:public`，从 `deploy/cloud` 的环境配置开始。独立同步 Hub 使用同版的 **`StockAI-3.2.17-Hub.zip`**，部署步骤见 [Hub 指南](deploy/hub/README.md)。下载后用各包同名 `.zip.sha256` 核对完整性。
+本版 Release 中的 **`StockAI-3.2.18-Public.zip`** 包含公网源码、部署配置及预构建的公网页面，使用该包可以跳过下方 `npm ci` / `npm run build:public`，从 `deploy/cloud` 的环境配置开始。独立同步 Hub 使用同版的 **`StockAI-3.2.18-Hub.zip`**，部署步骤见 [Hub 指南](deploy/hub/README.md)。下载后用各包同名 `.zip.sha256` 核对完整性。
 
 从源码根目录开始：
 

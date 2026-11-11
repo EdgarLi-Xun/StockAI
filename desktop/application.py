@@ -148,11 +148,15 @@ def launch(home,args):
     profile=QWebEngineProfile('StockAI-Desktop',window)
     profile.setPersistentStoragePath(str(home/'desktop-profile'));prepare_page_cache(profile,home/'desktop-cache')
     host=Host(home,args.port,background=not args.smoke_test)
+    from desktop.links import open_blank_target
     class Page(QWebEnginePage):
         def acceptNavigationRequest(self,url,kind,main_frame):
             if url.scheme()=='http' and url.host()=='127.0.0.1' and url.port()==host.port:return True
             if kind==QWebEnginePage.NavigationType.NavigationTypeLinkClicked and url.scheme() in ('https','http'):QDesktopServices.openUrl(url)
             return False
+        # target=_blank 会先要新窗口，不会走进当前页的外链判断。
+        def createWindow(self,kind):
+            return open_blank_target(self,('http','https'),QDesktopServices.openUrl)
     page=Page(profile,view);view.setPage(page)
     from desktop.credentials_bridge import attach_login_credentials
     attach_login_credentials(page,os.path.normcase(str(home.resolve()))+'|local',host.url)

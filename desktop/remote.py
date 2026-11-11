@@ -46,6 +46,7 @@ def launch(home,args):
     from desktop.host import prepare_page_cache
     profile=QWebEngineProfile('StockAI-Remote-'+ident,window)
     profile.setPersistentStoragePath(str(home/'remote-profiles'/ident/'storage'));prepare_page_cache(profile,home/'remote-profiles'/ident/'cache')
+    from desktop.links import open_blank_target
     class Page(QWebEnginePage):
         def acceptNavigationRequest(self,destination,kind,main_frame):
             try:
@@ -56,6 +57,9 @@ def launch(home,args):
                 if p.scheme=='https' and p.netloc==urlsplit(url).netloc:return True
             if kind==QWebEnginePage.NavigationType.NavigationTypeLinkClicked and destination.scheme()=='https':QDesktopServices.openUrl(destination)
             return False
+        # 远程窗口同样不内嵌新窗口，只把 https 外链交给系统浏览器。
+        def createWindow(self,kind):
+            return open_blank_target(self,('https',),QDesktopServices.openUrl)
     page=Page(profile,view);view.setPage(page)
     from desktop.credentials_bridge import attach_login_credentials
     attach_login_credentials(page,str(home.resolve())+'|remote|'+ident,url)

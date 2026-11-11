@@ -40,6 +40,7 @@ def launch(smoke_test=False):
         QMessageBox.critical(None,"StockAI 启动失败",str(exc))
         raise SystemExit(1)
     # 限制内嵌页面导航范围，把外部链接交给系统浏览器。
+    from desktop.links import open_blank_target
     class Page(QWebEnginePage):
         # 仅在嵌入窗口中接受允许的本地导航，其他链接按外部地址处理。
         def acceptNavigationRequest(self,url,kind,main_frame):
@@ -48,6 +49,9 @@ def launch(smoke_test=False):
             if kind==QWebEnginePage.NavigationType.NavigationTypeLinkClicked and url.scheme() in {"https","http"}:
                 QDesktopServices.openUrl(url)
             return False
+        # target=_blank 的公告和来源链接走新窗口，转给系统浏览器。
+        def createWindow(self, kind):
+            return open_blank_target(self, ("http", "https"), QDesktopServices.openUrl)
     window=QMainWindow()
     window.setWindowTitle("StockAI · 个人研究终端")
     window.resize(1440,940)
