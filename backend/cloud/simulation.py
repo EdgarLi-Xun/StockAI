@@ -224,21 +224,20 @@ def resume_rule(store,uid,ident):
 
 # 停止本人的价格规则，并按要求撤销该规则的待成交委托。
 def stop_rule(store,uid,ident,cancel_pending=False):
-    from backend.price_rules import rule_id_from_client_key
     rule=owned(store,"sim_price_rules",uid,ident)
     _guard(store,uid,rule["account_id"])
     if rule["status"]!="stopped":
         store.execute("UPDATE sim_price_rules SET status='stopped' WHERE id=? AND user_id=?",(ident,uid))
     if cancel_pending:
-        for queued in store.query("SELECT id,client_key FROM sim_orders WHERE user_id=? AND account_id=? AND status='pending'",(uid,rule["account_id"])):
-            if rule_id_from_client_key(queued["client_key"])==ident:
+        for queued in store.query("SELECT id,account_id,client_key FROM sim_orders WHERE user_id=? AND account_id=? AND status='pending'",(uid,rule["account_id"])):
+            if _order_rule_id(store,uid,queued)==ident:
                 store.execute("UPDATE sim_orders SET status='cancelled',reason='规则已停止' WHERE id=? AND user_id=? AND status='pending'",(queued["id"],uid))
     return {"success":True}
 
 
 # 判断本人启用中的价格规则。没有写入权的账户直接跳过。
 def evaluate(store,uid):
-    from backend.price_rules import calendar_block,judge,prior_closes,session_usable
+    from backend.price_rules import calendar_block,judge,prior_closes,session_usable,evaluated_days
     from backend.sync.protocol import SyncError
     ctx=market.calendar(store);today=now().date().isoformat();created=[];prefs=get_preferences(store,uid)
     for rule in store.query("SELECT * FROM sim_price_rules WHERE user_id=? AND status='active' ORDER BY armed_at,id",(uid,)):
@@ -252,7 +251,7 @@ def evaluate(store,uid):
             _rule_event(store,uid,rule,today,"skipped",calendar_block(ctx),None);continue
         item=market.instrument(store,rule["instrument_id"])
         bars=[b for b in market.bars_for(store,item["id"],"1d") if b["ts"][:10]<=ctx["last_completed_session"]]
-        seen={row["bar_date"] for row in store.query("SELECT bar_date FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=?",(uid,rule["id"]))}
+        seen=evaluated_days(store.query("SELECT bar_date,result,reason FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=?",(uid,rule["id"])))
         view={**rule,"params":json.loads(rule["params_json"])}
         for index,bar in enumerate(bars):
             day=bar["ts"][:10]
@@ -282,35 +281,43 @@ def evaluate(store,uid):
 
 # 读取规则在该交易日可见的持仓、现金和本规则待成交方向。
 def _rule_state(store,uid,rule,day):
-    from backend.price_rules import rule_id_from_client_key
     lots=store.query("SELECT * FROM sim_lots WHERE user_id=? AND account_id=? AND instrument_id=? AND quantity>0",(uid,rule["account_id"],rule["instrument_id"]))
     available=sum(lot["quantity"] for lot in lots if lot["settlement_days"]==0 or lot["acquired_day"]<day)
     position={"quantity":sum(lot["quantity"] for lot in lots),"available":available,"cost":sum((dec(lot["cost"]) for lot in lots),Decimal(0))}
     cash=dec(store.one("SELECT cash FROM sim_accounts WHERE id=? AND user_id=?",(rule["account_id"],uid))["cash"])
-    pending={queued["side"] for queued in store.query("SELECT side,client_key FROM sim_orders WHERE user_id=? AND account_id=? AND instrument_id=? AND status='pending'",(uid,rule["account_id"],rule["instrument_id"])) if rule_id_from_client_key(queued["client_key"])==rule["id"]}
+    pending={queued["side"] for queued in store.query("SELECT id,account_id,side,client_key FROM sim_orders WHERE user_id=? AND account_id=? AND instrument_id=? AND status='pending'",(uid,rule["account_id"],rule["instrument_id"])) if _order_rule_id(store,uid,queued)==rule["id"]}
     return position,cash,pending
 
 
 # 同一用户、同一规则、同一交易日只记录一次判断。
 def _rule_event(store,uid,rule,day,result,reason,order_id):
-    if store.one("SELECT id FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=? AND bar_date=?",(uid,rule["id"],day)):
-        return False
-    store.execute("INSERT INTO sim_price_rule_events(id,user_id,account_id,price_rule_id,bar_date,result,reason,order_id) VALUES(?,?,?,?,?,?,?,?)",(uuid.uuid4().hex,uid,rule["account_id"],rule["id"],day,result,reason[:500],order_id))
-    return True
+    from backend.price_rules import CALENDAR_BLOCK_REASONS
+    return bool(store.execute("""INSERT INTO sim_price_rule_events(id,user_id,account_id,price_rule_id,bar_date,result,reason,order_id)
+        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,price_rule_id,bar_date) DO UPDATE SET
+        result=excluded.result,reason=excluded.reason,order_id=excluded.order_id
+        WHERE sim_price_rule_events.result='skipped' AND sim_price_rule_events.reason IN (?,?)""",
+        (uuid.uuid4().hex,uid,rule["account_id"],rule["id"],day,result,reason[:500],order_id,*CALENDAR_BLOCK_REASONS)))
+
+
+def _order_rule_id(store,uid,queued):
+    """旧同步订单的 key 可能保留来源端 ID，优先使用已映射的事件关联。"""
+    from backend.price_rules import rule_id_from_client_key
+    event=store.one("SELECT price_rule_id FROM sim_price_rule_events WHERE user_id=? AND account_id=? AND order_id=? AND result='created'",(uid,queued["account_id"],queued["id"]))
+    return event["price_rule_id"] if event else rule_id_from_client_key(queued["client_key"])
 
 
 # 把规则行转成页面字段。
 def _rule_view(store,uid,rule,calendar_days,last_completed=None):
-    from backend.price_rules import next_usable_day,summarize
+    from backend.price_rules import next_usable_day,summarize,evaluated_days
     params=json.loads(rule["params_json"]) if isinstance(rule["params_json"],str) else rule["params_json"]
     events=store.query("SELECT * FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=? ORDER BY bar_date DESC LIMIT 1",(uid,rule["id"]))
-    seen={row["bar_date"] for row in store.query("SELECT bar_date FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=?",(uid,rule["id"]))}
+    seen=evaluated_days(store.query("SELECT bar_date,result,reason FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=?",(uid,rule["id"])))
     return {**{k:rule[k] for k in ("id","account_id","instrument_id","kind","status","armed_at","expires_on","max_orders","success_count","source_kind","source_id","source_note","created_at")},"name":market.instrument(store,rule["instrument_id"])["name"],"params":params,"summary":summarize(rule["kind"],params),"last_event":events[0] if events else None,"next_day":next_usable_day(rule["armed_at"],last_completed,seen,calendar_days)}
 
 
 # 返回本人虚拟账户、预留现金、价格规则、委托及现金流水。
 def portfolio(store,uid):
-    from backend.price_rules import explain_pending,rule_id_from_client_key
+    from backend.price_rules import explain_pending
     out=[];ctx=market.calendar(store);days=[row["day"] for row in store.query("SELECT day FROM calendar")]
     for a in store.query("SELECT * FROM sim_accounts WHERE user_id=? ORDER BY created_at",(uid,)):
         positions=[];equity=dec(a["cash"])
@@ -326,7 +333,7 @@ def portfolio(store,uid):
         item=market.instrument(store,queued["instrument_id"])
         lots=store.query("SELECT * FROM sim_lots WHERE user_id=? AND account_id=? AND instrument_id=? AND quantity>0",(uid,queued["account_id"],queued["instrument_id"]))
         available=sum(lot["quantity"] for lot in lots if lot["settlement_days"]==0 or lot["acquired_day"]<now().date().isoformat())
-        queued["rule_id"]=rule_id_from_client_key(queued["client_key"])
+        queued["rule_id"]=_order_rule_id(store,uid,queued)
         queued["pending_note"]=explain_pending(queued,market.bars_for(store,queued["instrument_id"],"1d"),item["rules"],available,ctx) if queued["status"]=="pending" else None
         orders.append(queued)
     rules=[_rule_view(store,uid,rule,days,ctx.get("last_completed_session")) for rule in store.query("SELECT * FROM sim_price_rules WHERE user_id=? ORDER BY created_at DESC",(uid,))]

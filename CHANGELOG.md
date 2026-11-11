@@ -1,5 +1,18 @@
 # 更新记录
 
+## [3.2.16] - 2026-11-11
+
+- 交易日历暂时不可用时，价格规则只记下跳过原因。日历恢复后仍会判断当天，不会把这次跳过当成已经处理过。
+- 价格规则的数量、均线周期和成功次数上限必须是整数，小数不再被截断后保存。
+- 同步过来的规则委托会改接到本机规则。停止规则并撤单时，仍能撤掉这些待成交委托。
+- 确认框和表单不再因为点到外侧遮罩而关闭。
+- 调试桌面程序时，升级成功后仍留在当前进程。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.16-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.15] - 2026-11-10
 
 - 软件内升级完成后，旧桌面程序会退出，新版本替换正在运行的实例。程序目录仍被占用时会重试替换，升级页显示「正在退出并打开新版本」。
@@ -271,6 +284,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.16]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.16
 [3.2.15]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.15
 [3.2.14]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.14
 [3.2.13]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.13

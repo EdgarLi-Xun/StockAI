@@ -12,6 +12,7 @@ from .config import TZ, Fees
 KINDS = {"close_at_or_below", "close_at_or_above", "close_stop", "ma_forward"}
 SOURCES = {"manual", "candidate", "idea", "backtest"}
 PRICE_KINDS = {"close_at_or_below", "close_at_or_above", "close_stop"}
+CALENDAR_BLOCK_REASONS = ("交易日历未核验", "没有最近已完成交易日")
 
 
 # 判断启用日是否允许使用该交易日的收盘。15:00 及之后启用的，当天收盘不采用。
@@ -34,6 +35,12 @@ def calendar_block(calendar: dict) -> str | None:
     if not calendar.get("last_completed_session"):
         return "没有最近已完成交易日"
     return None
+
+
+def evaluated_days(events: list[dict]) -> set[str]:
+    """日历暂不可用的记录不是已完成判断，恢复后仍须处理对应交易日。"""
+    return {row["bar_date"] for row in events
+            if not (row["result"] == "skipped" and row["reason"] in CALENDAR_BLOCK_REASONS)}
 
 
 # 幂等键只含规则、交易日和方向，同一根 K 线重复判断不会生成第二笔。
@@ -106,7 +113,7 @@ def prepare(payload: dict, instrument: dict, strategy_version: str) -> dict:
         datetime.strptime(expires, "%Y-%m-%d")
     default_max = 100 if kind == "ma_forward" else 1
     raw_max = payload.get("max_orders")
-    maximum = default_max if raw_max in (None, "") else int(raw_max)
+    maximum = default_max if raw_max in (None, "") else _integer(raw_max, "成功次数上限")
     if not 1 <= maximum <= 100:
         raise ValueError("成功次数上限为1至100")
     if kind == "ma_forward":
@@ -224,8 +231,11 @@ def explain_pending(order: dict, bars: list[dict], current_rules: dict, availabl
 
 # 冻结均线跟随参数，并核对与回测相同的取值范围。
 def _ma_params(payload: dict, strategy_version: str) -> dict:
-    fast, slow = int(payload.get("fast")), int(payload.get("slow"))
-    stop = dec(payload.get("stop_loss_pct"))
+    fast, slow = _integer(payload.get("fast"), "短均线周期"), _integer(payload.get("slow"), "长均线周期")
+    try:
+        stop = dec(payload.get("stop_loss_pct"))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise ValueError("请填写有效的收盘止损比例") from exc
     if not 2 <= fast <= 100 or not 3 <= slow <= 250 or fast >= slow:
         raise ValueError("短均线必须小于长均线，且处于回测允许的范围")
     if not Decimal("0") < stop <= Decimal("0.5"):
@@ -269,12 +279,20 @@ def _tick_price(value, tick: Decimal, label: str) -> Decimal:
     return price
 
 
+# 对整数输入显式报错，不把小数数量或周期静默截断。
+def _integer(value, label: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"请填写整数{label}") from exc
+    if isinstance(value, bool) or isinstance(value, float) and value != number:
+        raise ValueError(f"请填写整数{label}")
+    return number
+
+
 # 要求数量符合一手和申报阶梯。
 def _quantity(value, rules: dict) -> int:
-    try:
-        quantity = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("请填写数量") from exc
+    quantity = _integer(value, "数量")
     lot, step = int(rules["lot_size"]), int(rules["quantity_step"])
     if quantity < lot or (quantity - lot) % step != 0 or quantity > 1000000:
         raise ValueError("数量不符合该产品最小申报数量和阶梯")

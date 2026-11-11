@@ -245,7 +245,7 @@ def stop_rule(ident: str, cancel_pending=False):
 
 # 按已完成日线判断启用中的规则，再由调用方撮合由此生成的委托。
 def evaluate_rules(log=lambda m: None):
-    from .price_rules import calendar_block, judge, prior_closes, session_usable
+    from .price_rules import calendar_block, judge, prior_closes, session_usable, evaluated_days
     ctx=collectors.calendar_context()
     today=now().date().isoformat()
     created=[]
@@ -258,7 +258,7 @@ def evaluate_rules(log=lambda m: None):
             continue
         item=instruments.get(rule["instrument_id"])
         bars=[b for b in collectors.bars_for(item["id"],"1d") if b["ts"][:10]<=ctx["last_completed_session"]]
-        seen={row["bar_date"] for row in db.query("SELECT bar_date FROM price_rule_events WHERE price_rule_id=?",(rule["id"],))}
+        seen=evaluated_days(db.query("SELECT bar_date,result,reason FROM price_rule_events WHERE price_rule_id=?",(rule["id"],)))
         view={**rule,"params":json.loads(rule["params_json"])}
         cfg=db.settings()
         for index,bar in enumerate(bars):
@@ -304,18 +304,20 @@ def _rule_state(rule, day):
 
 # 同一规则同一交易日只记录一次判断。
 def _rule_event(rule, day, result, reason, order_id):
-    if db.one("SELECT id FROM price_rule_events WHERE price_rule_id=? AND bar_date=?",(rule["id"],day)):
-        return False
-    db.execute("INSERT INTO price_rule_events(id,account_id,price_rule_id,bar_date,result,reason,order_id) VALUES(?,?,?,?,?,?,?)",(uuid.uuid4().hex,rule["account_id"],rule["id"],day,result,reason[:500],order_id))
-    return True
+    from .price_rules import CALENDAR_BLOCK_REASONS
+    return bool(db.execute("""INSERT INTO price_rule_events(id,account_id,price_rule_id,bar_date,result,reason,order_id)
+        VALUES(?,?,?,?,?,?,?) ON CONFLICT(price_rule_id,bar_date) DO UPDATE SET
+        result=excluded.result,reason=excluded.reason,order_id=excluded.order_id
+        WHERE price_rule_events.result='skipped' AND price_rule_events.reason IN (?,?)""",
+        (uuid.uuid4().hex,rule["account_id"],rule["id"],day,result,reason[:500],order_id,*CALENDAR_BLOCK_REASONS)))
 
 
 # 把规则行转成页面使用的字段，并附上最近判断和下一个可用交易日。
 def _rule_view(rule, calendar_days, last_completed=None):
-    from .price_rules import next_usable_day, summarize
+    from .price_rules import next_usable_day, summarize, evaluated_days
     params=json.loads(rule["params_json"]) if isinstance(rule["params_json"],str) else rule["params_json"]
     events=db.query("SELECT * FROM price_rule_events WHERE price_rule_id=? ORDER BY bar_date DESC LIMIT 1",(rule["id"],))
-    seen={row["bar_date"] for row in db.query("SELECT bar_date FROM price_rule_events WHERE price_rule_id=?",(rule["id"],))}
+    seen=evaluated_days(db.query("SELECT bar_date,result,reason FROM price_rule_events WHERE price_rule_id=?",(rule["id"],)))
     item=instruments.get(rule["instrument_id"])
     return {**{k:rule[k] for k in ("id","account_id","instrument_id","kind","status","armed_at","expires_on","max_orders","success_count","source_kind","source_id","source_note","created_at")},"name":item["name"],"params":params,"summary":summarize(rule["kind"],params),"last_event":events[0] if events else None,"next_day":next_usable_day(rule["armed_at"],last_completed,seen,calendar_days)}
 

@@ -215,7 +215,7 @@ def launch(home,args):
             from desktop.upgrade import handoff
             handoff(home,tx);quit_all();return
         target=tx.get('actual_version') or tx.get('target_version')
-        if tx['status']=='succeeded' and running_version_is_older(VERSION,target):quit_all()
+        if tx['status']=='succeeded' and not keep_source_process(args.no_forward) and running_version_is_older(VERSION,target):quit_all()
     upgrade_timer=QTimer(window);upgrade_timer.timeout.connect(upgrade_handoff);upgrade_timer.start(1500)
     window.statusBar().showMessage('Web 版：'+host.url+' · 桌面和浏览器共享数据 · 关闭窗口后驻留托盘')
     (home/'running.json').write_text(json.dumps({'url':host.url,'pid':os.getpid(),'version':VERSION,'instance':instance_id(home)}),encoding='utf-8')

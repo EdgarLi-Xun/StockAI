@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import uuid
 from backend.cloud.store import json_text
+from backend.price_rules import client_key as price_rule_key
 from .protocol import SyncError,digest,MAX_OBJECT
 
 SECRET={'api_key','password','credential_id','envelope_json','key_hint','token','csrf_hash','authorization','smtp_password','allow_summary','allow_trades','allow_simulation_summary','allow_trade_details'}
@@ -69,6 +70,13 @@ class Adapter:
     def normalize(self,table,row,c):
         value={k:v for k,v in dict(row).items() if k not in SECRET and k!='user_id'}
         if isinstance(value.get('client_key'),str) and value['client_key'].startswith('sync:'):value['client_key']=value['client_key'].split(':',2)[2]
+        if table=='sim_orders':
+            # 旧接收端的 key 仍含发送端规则编号，优先用事件的外键恢复关联。
+            event=c.execute("SELECT price_rule_id,bar_date FROM sim_price_rule_events WHERE user_id=? AND account_id=? AND order_id=? AND result='created' ORDER BY bar_date,id LIMIT 1",(self.uid,row['account_id'],row['id'])).fetchone()
+            parts=str(value.get('client_key') or '').split(':')
+            rule=event['price_rule_id'] if event else parts[1] if len(parts)==4 and parts[0]=='rule' and parts[3]==row['side'] else None
+            if rule and c.execute('SELECT id FROM sim_price_rules WHERE id=? AND user_id=? AND account_id=?',(rule,self.uid,row['account_id'])).fetchone():
+                value['client_key']=price_rule_key(self.gid('sim_price_rules',rule,c),event['bar_date'] if event else parts[2],row['side'])
         if table=='user_settings':
             value.pop('default_profile_id',None)
             settings=json.loads(value['payload_json'])
@@ -171,6 +179,8 @@ class Adapter:
                 return str(ident)
         if set(tables)-ALLOWED-{'instruments'} or set(files)-{'markdown','html'}:raise SyncError('CORRUPT')
         if kind=='account':self.validate_account(tables)
+        price_rule_ids={r['id'] for r in tables.get('sim_price_rules',[])}
+        price_rule_events={e['order_id']:e for e in tables.get('sim_price_rule_events',[]) if e.get('order_id') and e.get('result')=='created'}
         # 所有全局 ID 预分配；外键延迟到整批应用末尾核验。
         for name,rows in tables.items():
             if not isinstance(rows,list) or len(rows)>100000:raise SyncError('CORRUPT')
@@ -194,7 +204,14 @@ class Adapter:
                     elif key in REFS and item:row[key]=self.local_id(REFS[key] or ('research_experiments' if name=='research_experiments' else 'personal_reports'),item,c)
                     elif key.endswith('_json') and item is not None:row[key]=json_text(self.nested(item,False,c,name))
                 if 'user_id' in columns:row['user_id']=self.uid
-                if row.get('client_key'):row['client_key']='sync:'+str(gid)+':'+row['client_key']
+                if row.get('client_key'):
+                    parts=str(row['client_key']).split(':')
+                    event=price_rule_events.get(original['id']) if name=='sim_orders' else None
+                    rule=event['price_rule_id'] if event else parts[1] if name=='sim_orders' and len(parts)==4 and parts[0]=='rule' and parts[3]==row['side'] else None
+                    if rule in price_rule_ids:
+                        # 用接收端规则编号构成原生幂等键，同日重试仍命中原委托。
+                        row['client_key']=price_rule_key(self.local_id('sim_price_rules',rule,c),event['bar_date'] if event else parts[2],row['side'])
+                    else:row['client_key']='sync:'+str(gid)+':'+row['client_key']
                 if name=='user_watchlist':
                     self.gid(name,row['instrument_id'],c)
                     if 'cost_price' in row or 'quantity' in row:
