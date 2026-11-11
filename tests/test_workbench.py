@@ -88,6 +88,53 @@ def test_readiness_deduplicates_objects_and_freezes_report(research_data,cloud):
     assert store.one('SELECT payload_json FROM personal_reports WHERE id=?',(report['report_id'],))==before
 
 
+# 价格和涨跌幅提醒优先用更新的最新价；更旧的最新价仍退回日线收盘。
+def test_alert_uses_newer_spot_then_falls_back_to_close(research_data):
+    store,uid,ident,bars,at=research_data
+    close=bars[-1]['close']
+    price=alerts.save(store,uid,alerts.AlertInput(name='到价',instrument_id=ident,condition='price_above',threshold=close+1,expires_at=None))
+    assert alerts.sample(store,uid,price['data'],at)['satisfied'] is False
+    spot_at=datetime.fromisoformat(bars[-1]['ts'])+timedelta(hours=2)
+    payload={"id":ident,"price":close+2,"prev_close":close,"quote_time":spot_at.isoformat(),"fetched_at":spot_at.isoformat(),"source":"东方财富最新价","source_url":"https://quote.eastmoney.com/sh603126.html","kind":"spot"}
+    store.execute("INSERT INTO market_quotes VALUES(?,?)",(ident,json.dumps(payload)))
+    sampled=alerts.sample(store,uid,price['data'],at)
+    assert sampled['satisfied'] is True and sampled['value']==close+2 and sampled['quote_time']==spot_at.isoformat()
+    assert alerts.evaluate(store,uid,at)==1
+    assert store.one("SELECT COUNT(*) n FROM personal_notifications")["n"]==1
+    assert market.bars_for(store,ident,limit=1)[-1]["close"]==close
+    change=alerts.save(store,uid,alerts.AlertInput(name='涨跌幅',instrument_id=ident,condition='change_above',threshold=5,expires_at=None))
+    payload["price"]=close*1.1;payload["quote_time"]=(spot_at+timedelta(minutes=1)).isoformat()
+    store.execute("UPDATE market_quotes SET payload_json=? WHERE instrument_id=?",(json.dumps(payload),ident))
+    assert alerts.sample(store,uid,change['data'],at)['value']==pytest.approx(10)
+    payload["price"]=close*2;payload["quote_time"]=(datetime.fromisoformat(bars[-1]['ts'])-timedelta(minutes=1)).isoformat()
+    store.execute("UPDATE market_quotes SET payload_json=? WHERE instrument_id=?",(json.dumps(payload),ident))
+    again=alerts.sample(store,uid,price['data'],at)
+    assert again['satisfied'] is False and again['value']==close and again['quote_time']==bars[-1]['ts']
+
+
+def test_ma_phrase_alert_uses_live_price_against_average(research_data):
+    store,uid,ident,bars,at=research_data
+    period=5
+    average=sum(bar['close'] for bar in bars[-period:])/period
+    rule=alerts.save(store,uid,alerts.AlertInput(name='均线',instrument_id=ident,condition='ma_above',threshold=period,expires_at=None))
+    spot_at=datetime.fromisoformat(bars[-1]['ts'])+timedelta(hours=2)
+    store.execute("INSERT INTO market_quotes VALUES(?,?)",(ident,json.dumps({"kind":"spot","price":average+1,"quote_time":spot_at.isoformat(),"fetched_at":spot_at.isoformat(),"source":"东方财富最新价","source_url":"https://quote.eastmoney.com/sh603126.html"})))
+    sampled=alerts.sample(store,uid,rule['data'],at)
+    assert sampled['satisfied'] is True and sampled['value']==pytest.approx(average+1) and sampled['ma']==pytest.approx(average)
+
+
+def test_change_alert_can_follow_previous_close(research_data):
+    store,uid,ident,bars,at=research_data
+    close=bars[-1]['close']
+    frozen=alerts.save(store,uid,alerts.AlertInput(name='冻结',instrument_id=ident,condition='change_above',threshold=5,expires_at=None))
+    previous=alerts.save(store,uid,alerts.AlertInput(name='昨收',instrument_id=ident,condition='change_above',threshold=5,change_basis='prev_close',expires_at=None))
+    spot_at=datetime.fromisoformat(bars[-1]['ts'])+timedelta(hours=2)
+    payload={"id":ident,"price":close,"prev_close":close/2,"quote_time":spot_at.isoformat(),"fetched_at":spot_at.isoformat(),"source":"东方财富最新价","source_url":"https://quote.eastmoney.com/sh603126.html","kind":"spot"}
+    store.execute("INSERT INTO market_quotes VALUES(?,?)",(ident,json.dumps(payload)))
+    assert alerts.sample(store,uid,frozen['data'],at)['value']==pytest.approx(0)
+    assert alerts.sample(store,uid,previous['data'],at)['value']==pytest.approx(100)
+
+
 # 验证初始满足、条件变化、未知状态、冷却与提醒归属检查。
 def test_alert_initial_edge_unknown_cooldown_and_owner(research_data,cloud,monkeypatch):
     store,uid,ident,bars,at=research_data

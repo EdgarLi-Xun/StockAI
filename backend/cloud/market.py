@@ -11,7 +11,7 @@ from decimal import Decimal,ROUND_HALF_UP
 from backend import analytics
 from backend.budget import budget_check,dec,money
 from backend.config import now,timestamp
-from backend.collectors import fresh_reasons
+from backend.collectors import fresh_reasons, newer_spot
 from backend.instruments import InstrumentInput,Rules,official_url
 from .auth import AuthError
 from .collector import queue_names
@@ -162,6 +162,7 @@ def detail(store,uid,ident,timeframe="1d",prefs=None):
     item["budget"]=None
     if last and item["asset_class"] in {"stock","etf"}:
         item["budget"]=budget_check(last["close"],item["rules"],item["asset_class"],prefs.fees,prefs.budget)
+    _show_spot(item)
     return item
 
 
@@ -180,6 +181,52 @@ def normalize_holding(cost,quantity):
 def _points(current,base):
     if current is None or base is None or base==0:return None
     return float((((current/base)-1)*Decimal(100)).quantize(Decimal("0.0001"),rounding=ROUND_HALF_UP))
+
+
+# 列表和详情上的价格改用更新的最新价。预算和核验仍用调用前算好的日线收盘。
+def _show_spot(item):
+    spot=newer_spot(item.get("quote"), item.get("observation"))
+    if not spot:return
+    price=float(spot["price"])
+    try:
+        prev=float(spot["prev_close"]) if spot.get("prev_close") not in (None,"") else None
+    except (TypeError,ValueError):
+        prev=None
+    if prev is not None and (not math.isfinite(prev) or prev<=0):prev=None
+    shown=dict(item.get("quote") or {})
+    shown.update(close=price,price=price,ts=spot["quote_time"],prev_close=prev,source=spot.get("source") or "东方财富最新价",source_url=spot.get("source_url") or "",fetched_at=spot.get("fetched_at") or "",kind="spot")
+    change=(price/prev-1)*100 if prev else spot.get("change_pct")
+    try:
+        change=round(float(change),3) if change is not None else None
+    except (TypeError,ValueError):
+        change=None
+    item["quote"]=shown
+    if change is not None:item["change_pct"]=change
+
+
+# 持仓金额和当天收益跟着最新价走。没有昨收时不沿用前一根日线的涨跌。
+def _mark_latest(position,price,prev_close):
+    if not position or not isinstance(position.get("quantity"),int) or isinstance(position.get("quantity"),bool) or position["quantity"]<=0 or price in (None,""):
+        return position
+    last=dec(price);qty=position["quantity"];updated=dict(position)
+    updated["market_price"]=float(last)
+    updated["market_value"]=float(money(last*qty))
+    try:
+        prev=dec(prev_close) if prev_close not in (None,"") else None
+    except Exception:
+        prev=None
+    if prev is not None and prev>0:
+        updated["prev_close"]=float(prev)
+        updated["daily_pnl"]=float(money((last-prev)*qty))
+        updated["daily_return_pct"]=_points(last,prev)
+    else:
+        updated["daily_pnl"]=None
+        updated["daily_return_pct"]=None
+    if position.get("cost_price") not in (None,""):
+        cost=dec(position["cost_price"])
+        updated["total_pnl"]=float(money((last-cost)*qty))
+        updated["total_return_pct"]=_points(last,cost)
+    return updated
 
 
 # 用已存日K现算持仓金额和收益，不写行情，也不把缺失价格补成零。
@@ -246,7 +293,12 @@ def watch_rows(store,uid):
     prefs=get_preferences(store,uid);out=[]
     for r in store.query("SELECT * FROM user_watchlist WHERE user_id=? ORDER BY pinned DESC,group_name,instrument_id",(uid,)):
         item=detail(store,uid,r["instrument_id"],prefs=prefs)
-        bars=item.pop("bars");out.append({**item,"group_name":r["group_name"],"pinned":bool(r["pinned"]),"position":holding_view(r["cost_price"],r["quantity"],bars)})
+        bars=item.pop("bars")
+        position=holding_view(r["cost_price"],r["quantity"],bars)
+        quote=item.get("quote") or {}
+        if quote.get("kind")=="spot":
+            position=_mark_latest(position, quote.get("close"), quote.get("prev_close"))
+        out.append({**item,"group_name":r["group_name"],"pinned":bool(r["pinned"]),"position":position})
     out.sort(key=watch_priority)
     return out
 

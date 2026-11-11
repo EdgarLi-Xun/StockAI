@@ -19,3 +19,33 @@ export function preferHoldings(rows: any[]): any[] {
   }
   return rows.map((row, index) => ({ row, index, rank: rank(row) })).sort((a, b) => a.rank - b.rank || a.index - b.index).map(item => item.row)
 }
+
+function positive(value: unknown) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : 0
+}
+
+function weekKey(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10)
+  const day = new Date(date)
+  day.setDate(date.getDate() + 4 - (date.getDay() || 7))
+  const yearStart = new Date(day.getFullYear(), 0, 1)
+  return day.getFullYear() + '-' + Math.ceil((((day.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+}
+
+/** 图上补今天的最新价。不写入已完成日线，研究仍用收盘 K 线。 */
+export function withLiveBar(bars: any[] = [], spot: any, timeframe = '1d') {
+  if (!spot || spot.kind !== 'spot' || !positive(spot.price) || !spot.quote_time) return bars
+  const last = bars[bars.length - 1]
+  if (last?.ts && String(spot.quote_time) <= String(last.ts)) return bars
+  const price = positive(spot.price)
+  const open = positive(spot.open) || positive(spot.prev_close) || price
+  const high = Math.max(positive(spot.high) || price, price, open)
+  const low = Math.min(...[positive(spot.low), price, open].filter(value => value > 0))
+  const live = { ts: spot.quote_time, open, high, low, close: price, volume: positive(spot.volume), provisional: true }
+  if (timeframe === '1w' && last && weekKey(String(last.ts)) === weekKey(String(spot.quote_time))) {
+    return [...bars.slice(0, -1), { ...last, ts: spot.quote_time, high: Math.max(positive(last.high), high), low: Math.min(positive(last.low) || low, low), close: price, volume: positive(last.volume) + live.volume, provisional: true }]
+  }
+  return [...bars, live]
+}

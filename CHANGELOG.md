@@ -1,5 +1,17 @@
 # 更新记录
 
+## [3.2.17] - 2026-11-11
+
+- 自选、总览和证券图显示最新价，并在图上补当天这一根。已完成日线不改写，研究仍用收盘。持仓收益优先用最近价。
+- 打开 15 分或 60 分时，会自动更新正在查看的分钟图。
+- 价格规则在最新价穿过条件时当天生成委托。限价到达后可按最新价撮合；没到价仍留到后续日线。
+- 条件提醒可以相对昨收，也可以上穿或跌破均线。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.17-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.16] - 2026-11-11
 
 - 交易日历暂时不可用时，价格规则只记下跳过原因。日历恢复后仍会判断当天，不会把这次跳过当成已经处理过。
@@ -284,6 +296,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.17]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.17
 [3.2.16]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.16
 [3.2.15]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.15
 [3.2.14]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.14

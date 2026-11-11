@@ -63,6 +63,7 @@ class Runtime:
                 self._start(self._observations,"research-observations")
                 self._start(self._sync,"personal-sync")
                 self._start(self._upgrade_check,"release-check")
+                self._start(self._spots,"spot-quotes")
             return self
         except BaseException:
             self.lock.__exit__();self.lock=None;raise
@@ -169,6 +170,16 @@ class Runtime:
                 pass
             self.stop.wait(20)
 
+    # 每 15 秒刷新自选最新价。只写观察报价，不改日线和研究用的收盘。
+    def _spots(self):
+        from backend import collectors
+        while not self.stop.is_set():
+            if self.paused():self.stop.wait(1);continue
+            try:collectors.sync_spots()
+            except Exception:pass
+            self._trade_live()
+            self.stop.wait(15)
+
     # 周期评估个人提醒并投递已生成的事件通知。
     def _research(self):
         from . import alerts,research
@@ -178,9 +189,24 @@ class Runtime:
                 if self.stop.is_set():break
                 try:
                     alerts.evaluate(self.store,user['id'])
+                    self._trade_one(user['id'])
                 except Exception:
                     pass
             self.stop.wait(15)
+
+    def _trade_live(self):
+        from . import simulation
+        for user in self.store.query("SELECT id FROM users WHERE status='active' AND verified_at IS NOT NULL"):
+            if self.stop.is_set():break
+            self._trade_one(user['id'])
+
+    def _trade_one(self,uid):
+        from . import simulation
+        try:
+            simulation.evaluate_live(self.store,uid)
+            simulation.match(self.store,uid)
+        except Exception:
+            pass
 
     def _alert_mail(self):
         from . import alerts

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ChevronRight, FileInput, LoaderCircle, MessageSquare, RefreshCw, ShieldCheck } from 'lucide-vue-next'
-import { number as fmt, percent as pct, direction, dateTime } from '../workspaceFormat'
+import { number as fmt, percent as pct, direction, dateTime, withLiveBar } from '../workspaceFormat'
 const ResearchChart = defineAsyncComponent(() => import('./ResearchChart.vue'))
 const props = defineProps<{ id: string, detail: any, loading: boolean, busy: boolean, watchlist: any[], timeframe: string, budget: any, canEdit: boolean, canMaintain: boolean, publicMode: boolean }>()
 const emit = defineEmits<{
@@ -12,7 +12,15 @@ const emit = defineEmits<{
 const tab = ref('chart'), indicator = ref('volume'), importFile = ref<HTMLInputElement>()
 const budgetInput = ref({price: 0, quantity: 100})
 const position = computed(() => props.watchlist.find(row => row.id === props.id)?.position)
-const quote = computed(() => props.detail?.bars?.at(-1))
+const chartBars = computed(() => withLiveBar(props.detail?.bars || [], props.detail?.observation, props.timeframe))
+const quote = computed(() => {
+  const candle = props.detail?.bars?.at(-1)
+  const spot = props.detail?.observation
+  if (spot?.kind === 'spot' && Number(spot.price) > 0 && (!candle?.ts || String(spot.quote_time) > String(candle.ts))) {
+    return { close: Number(spot.price), price: Number(spot.price), ts: spot.quote_time, source: spot.source, source_url: spot.source_url, kind: 'spot' }
+  }
+  return candle
+})
 const currency = computed(() => ({SH:'CNY',SZ:'CNY',FUND:'CNY',SHFE:'CNY',US:'USD',HK:'HKD'} as Record<string,string>)[props.detail?.instrument.market] || props.detail?.observation?.currency || '')
 const evidenceLabels: Record<string,string> = { listing_url:'上市与名称',status_url:'停复牌状态',announcement_url:'官方公告' }
 const indicatorLabels: Record<string,string> = {ma5:'MA5',ma20:'MA20',ma60:'MA60',rsi14:'RSI14',atr14:'ATR14',volatility20:'20日年化波动率 %',support20:'20周期支撑参考',resistance20:'20周期阻力参考'}
@@ -24,7 +32,7 @@ const holdings = computed<{label:string,value:any,change?:unknown}[]>(() => [
 ])
 watch(() => props.id, () => { tab.value='chart'; indicator.value='volume' })
 watch(() => props.detail?.instrument.id, id => {
-  if (id) budgetInput.value={price: props.detail.bars?.at(-1)?.close || 0,quantity: props.detail.instrument.rules?.lot_size || 100}
+  if (id) budgetInput.value={price: Number(quote.value?.close) || 0,quantity: props.detail.instrument.rules?.lot_size || 100}
 }, {immediate:true})
 </script>
 
@@ -46,8 +54,8 @@ watch(() => props.detail?.instrument.id, id => {
         <nav class="security-tabs" aria-label="证券研究内容"><button v-for="item in [{id:'chart',label:'行情与图表'},{id:'research',label:'研究与依据'},{id:'holding',label:'持仓与预算'}]" :key="item.id" type="button" :aria-current="tab===item.id?'page':undefined" @click="tab=item.id">{{ item.label }}</button></nav>
         <section v-show="tab==='chart'" class="panel security-chart-panel">
           <div class="security-chart-tools"><div class="segmented"><button v-for="period in ['1d','1w','60m','15m']" :key="period" type="button" :class="{selected:timeframe===period}" :aria-pressed="timeframe===period" :disabled="busy" @click="emit('period',period)">{{ {'1d':'日 K','1w':'周 K','60m':'60 分','15m':'15 分'}[period] }}</button></div><select v-model="indicator" aria-label="附图指标"><option value="volume">成交量</option><option value="macd">MACD</option><option value="rsi">RSI14</option><option value="atr">ATR14</option></select><button v-if="canMaintain" class="icon-button" :disabled="busy || !canEdit" aria-label="同步当前周期" @click="emit('sync')"><RefreshCw :size="16"/></button></div>
-          <ResearchChart :bars="detail.bars || []" :indicators="detail.indicators?.series || []" :indicator="indicator"/>
-          <div class="security-source"><span>{{ quote?.source || detail.observation?.source || '行情不可用' }} · {{ dateTime(quote?.ts || detail.observation?.quote_time) }} · {{ detail.observation?.timestamp_basis || (quote?.adjustment==='none'?'不复权':'复权口径待核验') }}</span><a v-if="quote?.source_url || detail.observation?.source_url" :href="quote?.source_url || detail.observation?.source_url" target="_blank" rel="noopener">来源证据<ArrowUpRight :size="13"/></a></div>
+          <ResearchChart :bars="chartBars" :indicators="detail.indicators?.series || []" :indicator="indicator"/>
+          <div class="security-source"><span v-if="quote?.kind==='spot'">{{ quote.source || '最新价' }} · {{ dateTime(quote.ts) }} · 最新价</span><span v-else>{{ quote?.source || '行情不可用' }} · {{ dateTime(quote?.ts) }} · {{ quote?.adjustment==='none'?'不复权':'复权口径待核验' }}</span><a v-if="quote?.source_url" :href="quote.source_url" target="_blank" rel="noopener">来源证据<ArrowUpRight :size="13"/></a></div>
           <div v-if="publicMode" class="security-position-summary"><div><small>持仓成本</small><strong>{{ fmt(position?.cost_price,4) }} <small>{{ currency }}</small></strong></div><div><small>记录数量</small><strong>{{ position?.quantity ?? '—' }}</strong></div><div><small>总收益率 · 不含费用</small><strong :class="direction(position?.total_return_pct)">{{ pct(position?.total_return_pct) }}</strong></div></div>
         </section>
         <section v-show="tab==='chart'" class="panel security-next"><ShieldCheck :size="20"/><div><h2>{{ detail.risk_reasons.length ? '继续研究前，先核对证据' : '把当时的依据留下来' }}</h2><p>{{ detail.risk_reasons[0] || '行情与交易资格分别展示，研究结论保留原始来源。' }}</p></div><button class="text-button" @click="tab='research'">查看详情<ArrowRight :size="14"/></button></section>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -149,11 +150,121 @@ def match(store,uid):
                 c.execute("UPDATE sim_orders SET status='filled',filled_at=?,fill_price=?,fees=?,source_ts=?,reason=NULL WHERE id=? AND user_id=?",(b["ts"],str(price),str(fee),b["ts"],queued["id"],uid))
                 results.append({"id":queued["id"],"fill_price":float(price),"quantity":q})
             break
+    _match_live(store,uid,prefs)
     _stops(store,uid)
     for a in portfolio(store,uid)["accounts"]:
         with store.user_lock(uid),store.tx(immediate=True) as c:
             if store.active(uid,c=c):
                 c.execute("INSERT OR REPLACE INTO sim_equity VALUES(?,?,?,?)",(a["id"],uid,timestamp(),str(a["equity"])))
+    return results
+
+
+def _note_block(store,uid,queued,reason):
+    if queued.get("reason")==reason:return
+    queued["reason"]=reason
+    store.execute("UPDATE sim_orders SET reason=? WHERE id=? AND user_id=? AND status='pending'",(reason,queued["id"],uid))
+    store.notify(uid,f"{queued['instrument_id']} 最新价已到，未成交：{reason}","warning")
+
+
+def _load_spot(store,ident):
+    row=store.one("SELECT payload_json FROM market_quotes WHERE instrument_id=?",(ident,))
+    if not row:return None
+    try:payload=json.loads(row["payload_json"])
+    except (TypeError,ValueError):return None
+    if payload.get("kind")!="spot" or not payload.get("quote_time"):return None
+    try:price=float(payload["price"])
+    except (TypeError,ValueError):return None
+    if not math.isfinite(price) or price<=0:return None
+    return payload
+
+
+def _live_bar(spot):
+    def num(key):
+        try:value=float(spot.get(key))
+        except (TypeError,ValueError):return None
+        return value if math.isfinite(value) and value>0 else None
+    price=float(spot["price"]);open_=num("open") or num("prev_close") or price
+    high=max(num("high") or price,price,open_);low=min(num("low") or price,price,open_)
+    return {"ts":spot["quote_time"],"open":open_,"high":high,"low":low,"close":price,"volume":num("volume") or 1,"quality":"valid","adjustment":"none","metadata":{"reference_price":num("prev_close")}}
+
+
+# 最新价穿过启用中的价格规则时，当天生成委托。未穿过不记账，收盘仍可再判断。
+def evaluate_live(store,uid):
+    from backend.price_rules import judge,prior_closes,session_usable,evaluated_days
+    today=now().date().isoformat();created=[];prefs=get_preferences(store,uid)
+    for rule in store.query("SELECT * FROM sim_price_rules WHERE user_id=? AND status='active' ORDER BY armed_at,id",(uid,)):
+        try:_guard(store,uid,rule["account_id"])
+        except Exception:continue
+        if (rule["expires_on"] and rule["expires_on"]<today) or rule["success_count"]>=rule["max_orders"]:continue
+        seen=evaluated_days(store.query("SELECT bar_date,result,reason FROM sim_price_rule_events WHERE user_id=? AND price_rule_id=?",(uid,rule["id"])))
+        if today in seen or not session_usable(rule["armed_at"],today):continue
+        spot=_load_spot(store,rule["instrument_id"])
+        if not spot or str(spot["quote_time"])[:10]!=today:continue
+        item=market.instrument(store,rule["instrument_id"])
+        history=[b for b in market.bars_for(store,item["id"],"1d") if b["ts"][:10]<today]
+        position,cash,pending=_rule_state(store,uid,rule,today)
+        decision=judge({**rule,"params":json.loads(rule["params_json"])},_live_bar(spot),prior_closes(history,len(history)),position,pending,cash,prefs.fees,prefs.budget,item["asset_class"],item["rules"])
+        if not decision or decision.get("result")!="signal":continue
+        try:
+            placed=order(store,uid,OrderInput(client_key=decision["client_key"],account_id=rule["account_id"],instrument_id=rule["instrument_id"],side=decision["side"],quantity=decision["quantity"],limit_price=float(decision["limit_price"]),stop_loss=float(decision["stop_loss"]) if decision["stop_loss"] else None))
+        except Exception as exc:
+            if _rule_event(store,uid,rule,today,"rejected",str(exc),None):store.notify(uid,f"{rule['instrument_id']} 条件已到，委托未生成：{exc}","warning")
+            continue
+        if _rule_event(store,uid,rule,today,"created","已按最新价生成委托",placed["id"]):
+            store.execute("UPDATE sim_price_rules SET success_count=success_count+1 WHERE id=? AND user_id=?",(rule["id"],uid))
+            created.append(placed["id"])
+    return created
+
+
+# 用最新价撮合已有委托。限价未到则留到后续日线。
+def _match_live(store,uid,prefs):
+    results=[]
+    for queued in store.query("SELECT * FROM sim_orders WHERE user_id=? AND status='pending' AND id NOT IN(SELECT order_id FROM sync_inert_orders WHERE user_id=?) ORDER BY created_at,id",(uid,uid)):
+        spot=_load_spot(store,queued["instrument_id"])
+        if not spot or str(spot["quote_time"])<=str(queued["created_at"]):continue
+        item=market.instrument(store,queued["instrument_id"]);rules=json.loads(queued["rules_json"])
+        if rules!=item["rules"]:continue
+        bar=_live_bar(spot);fee_cfg=Fees.model_validate_json(queued["fees_json"]);raw=dec(bar["close"]);limit=dec(queued["limit_price"])
+        reached=(queued["side"]=="buy" and raw<=limit) or (queued["side"]=="sell" and raw>=limit)
+        if not reached:continue
+        price=executable_price(raw,queued["side"],rules["price_tick"],fee_cfg.slippage_bps)
+        if queued["side"]=="buy" and price>limit:price=limit
+        if queued["side"]=="sell" and price<limit:price=limit
+        prev=bar["metadata"].get("reference_price")
+        if prev:
+            tick=dec(rules["price_tick"]);span=dec(rules["limit_pct"]);prev=dec(prev)
+            upper=(prev*(1+span)/tick).quantize(Decimal(1),rounding="ROUND_HALF_UP")*tick
+            lower=(prev*(1-span)/tick).quantize(Decimal(1),rounding="ROUND_HALF_UP")*tick
+            if (queued["side"]=="buy" and raw>=upper) or (queued["side"]=="sell" and raw<=lower):
+                _note_block(store,uid,queued,"涨跌停附近未成交");continue
+        with store.user_lock(uid),store.tx(immediate=True) as c:
+            if not store.active(uid,c=c):return results
+            current=c.execute("SELECT status FROM sim_orders WHERE id=? AND user_id=?",(queued["id"],uid)).fetchone()
+            if not current or current[0]!="pending":continue
+            account=c.execute("SELECT * FROM sim_accounts WHERE id=? AND user_id=?",(queued["account_id"],uid)).fetchone();q=queued["quantity"]
+            fee=dec(transaction_fees(price,q,item["asset_class"],queued["side"],fee_cfg)["total"]);gross=money(price*q)
+            if queued["side"]=="buy":
+                total=money(gross+fee)
+                exposure=sum((dec(r[0]) for r in c.execute("SELECT cost FROM sim_lots WHERE user_id=? AND account_id=? AND instrument_id=? AND quantity>0",(uid,account["id"],item["id"]))),Decimal(0))
+                if exposure+total>dec(prefs.budget) or total>dec(account["cash"]):
+                    _note_block(store,uid,queued,"现金或单只预算不足");continue
+                delta=-total
+                c.execute("INSERT INTO sim_lots VALUES(?,?,?,?,?,?,?,?)",(queued["id"],uid,account["id"],item["id"],q,str(total),bar["ts"][:10],rules["settlement_days"]))
+            else:
+                lots=[dict(r) for r in c.execute("SELECT * FROM sim_lots WHERE user_id=? AND account_id=? AND instrument_id=? AND quantity>0 ORDER BY acquired_day,id",(uid,account["id"],item["id"])) if r["settlement_days"]==0 or r["acquired_day"]<bar["ts"][:10]]
+                if sum(r["quantity"] for r in lots)<q:
+                    _note_block(store,uid,queued,"可卖数量不足");continue
+                remain=q
+                for lot in lots:
+                    take=min(remain,lot["quantity"]);left=lot["quantity"]-take
+                    c.execute("UPDATE sim_lots SET quantity=?,cost=? WHERE id=? AND user_id=?",(left,str(money(dec(lot["cost"])*left/lot["quantity"])),lot["id"],uid));remain-=take
+                    if not remain:break
+                delta=money(gross-fee)
+            balance=money(dec(account["cash"])+delta)
+            c.execute("UPDATE sim_accounts SET cash=? WHERE id=? AND user_id=?",(str(balance),account["id"],uid))
+            c.execute("INSERT INTO sim_ledger(user_id,account_id,order_id,ts,delta,balance,description) VALUES(?,?,?,?,?,?,?)",(uid,account["id"],queued["id"],bar["ts"],str(delta),str(balance),"模拟最新价"+queued["side"]))
+            c.execute("UPDATE sim_orders SET status='filled',filled_at=?,fill_price=?,fees=?,source_ts=?,reason=NULL WHERE id=? AND user_id=?",(bar["ts"],str(price),str(fee),bar["ts"],queued["id"],uid))
+            results.append({"id":queued["id"],"fill_price":float(price),"quantity":q})
     return results
 
 

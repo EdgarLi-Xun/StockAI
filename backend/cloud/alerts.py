@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import smtplib
 import ssl
 import uuid
@@ -11,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from backend.config import now,TZ
-from backend.collectors import fresh_reasons
+from backend.collectors import fresh_reasons, newer_spot
 from backend.budget import budget_check
 from . import market,resources,workspace
 from .auth import AuthError
@@ -26,7 +27,8 @@ class AlertInput(BaseModel):
     model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
     name:str=Field(min_length=1,max_length=100)
     instrument_id:str
-    condition:Literal['price_above','price_below','change_above','change_below','risk_changed','candidate_invalid']
+    condition:Literal['price_above','price_below','change_above','change_below','ma_above','ma_below','risk_changed','candidate_invalid']
+    change_basis:Literal['reference','prev_close']='reference'
     threshold:float|None=None
     report_id:str|None=None
     cooldown_minutes:int=Field(60,ge=0,le=525600,strict=True)
@@ -39,9 +41,10 @@ class AlertInput(BaseModel):
     # 按提醒类型核验阈值、时段及其他互相关联的参数。
     @model_validator(mode='after')
     def valid(self):
-        if self.condition.startswith(('price_','change_')) and self.threshold is None:raise ValueError('需要条件阈值')
+        if self.condition.startswith(('price_','change_','ma_')) and self.threshold is None:raise ValueError('需要条件阈值')
         if self.condition.startswith('price_') and self.threshold<=0:raise ValueError('价格阈值必须为正')
         if self.condition.startswith('change_') and self.threshold< -100:raise ValueError('涨跌幅不能低于负百分之百')
+        if self.condition.startswith('ma_') and not (2<=self.threshold<=250 and float(self.threshold)==int(self.threshold)):raise ValueError('均线周期须为2至250的整数')
         if bool(self.dnd_start)!=bool(self.dnd_end):raise ValueError('请同时设置免打扰起止时间')
         if self.dnd_start:
             from backend.config import Settings
@@ -62,7 +65,7 @@ def prepare(store,uid,value,previous=None):
         if not any(c['instrument_id']==item['id'] for c in payload.get('candidates',[])):raise ValueError('所选报告没有该证券候选')
         data['report_version']=report['version']
     bars=market.bars_for(store,item['id'],limit=1);last=bars[-1] if bars else None
-    if value.condition.startswith('change_'):
+    if value.condition.startswith('change_') and value.change_basis!='prev_close':
         if previous and previous.get('instrument_id')==item['id'] and previous.get('condition')==value.condition and previous.get('reference'):
             data['reference']=previous['reference']
         else:
@@ -109,6 +112,21 @@ def expire_rules(store,uid,at=None):
     return changed
 
 
+def _positive(value):
+    try:number=float(value)
+    except (TypeError,ValueError):return None
+    return number if math.isfinite(number) and number>0 else None
+
+
+# 取比日线更新的最新价。没有或更旧时返回空，调用方继续用收盘价。
+def _live_quote(store,ident,bar):
+    row=store.one("SELECT payload_json FROM market_quotes WHERE instrument_id=?",(ident,))
+    if not row:return None
+    try:payload=json.loads(row["payload_json"])
+    except (TypeError,ValueError):return None
+    return newer_spot({"ts":bar["ts"]} if bar else None,payload)
+
+
 # 从带来源的行情与风险事实计算条件，证据不足时保留未知状态。
 def sample(store,uid,data,at=None):
     at=at or now();item=market.instrument(store,data['instrument_id']);prefs=get_preferences(store,uid);kind=data['condition']
@@ -129,12 +147,36 @@ def sample(store,uid,data,at=None):
                 if not budget_check(bar['close'],item['rules'],item['asset_class'],prefs.fees,prefs.budget,candidate['quantity'])['within_budget']:reasons.append('原候选数量按当前费用已超预算')
             except ValueError:reasons.append('当前产品规则或价格口径已变化')
         return {**result,'quality':'valid','satisfied':bool(reasons),'reasons':reasons,'report_id':data['report_id'],'report_version':data.get('report_version'),'quote_time':bar['ts'] if bar else None,'source_url':bar['source_url'] if bar else item.get('source_url')}
-    bars=market.bars_for(store,item['id'],limit=1);bar=bars[-1] if bars else None
+    if kind.startswith('ma_'):
+        period=int(data['threshold']);history=market.bars_for(store,item['id'],'1d',period)
+        if len(history)<period:return {**result,'reason':'REFERENCE_NOT_COMPARABLE','reasons':['均线样本不足']}
+        average=sum(row['close'] for row in history[-period:])/period
+        spot=_live_quote(store,item['id'],history[-1])
+        price=float(spot['price']) if spot else history[-1]['close']
+        satisfied=price>=average if kind=='ma_above' else price<=average
+        return {**result,'quality':'valid','satisfied':satisfied,'value':price,'ma':average,'threshold':period,'quote_time':spot['quote_time'] if spot else history[-1]['ts'],'collected_at':spot.get('fetched_at') if spot else history[-1]['fetched_at'],'source_url':(spot or history[-1]).get('source_url'),'source':(spot or history[-1]).get('source')}
+    bars=market.bars_for(store,item['id'],limit=2);bar=bars[-1] if bars else None
+    spot=_live_quote(store,item['id'],bar)
+    if spot:
+        number=float(spot['price']);ref=data.get('reference');prev_close=_positive(spot.get('prev_close'))
+        if kind.startswith('change_') and data.get('change_basis')=='prev_close' and prev_close:
+            number=(number/prev_close-1)*100
+        elif kind.startswith('change_') and data.get('change_basis')=='prev_close':
+            spot=None
+        elif kind.startswith('change_'):
+            if not ref or ref.get('adjustment') not in (None,'none'):return {**result,'reason':'REFERENCE_NOT_COMPARABLE'}
+            number=(number/ref['close']-1)*100
+        if spot:
+            satisfied=number>=data['threshold'] if kind.endswith('above') else number<=data['threshold']
+            return {**result,'quality':'valid','satisfied':satisfied,'value':number,'quote_time':spot['quote_time'],'collected_at':spot.get('fetched_at'),'source_url':spot.get('source_url'),'source':spot.get('source'),'reference':ref}
     if item['market'] not in {'SH','SZ'}:return {**result,'reason':'MARKET_CALENDAR_UNVERIFIED'}
     reasons=fresh_reasons(bar,market.calendar(store,at))
     if reasons:return {**result,'reasons':reasons,'reason':'QUOTE_UNVERIFIED'}
     number=bar['close']
-    if kind.startswith('change_'):
+    if kind.startswith('change_') and data.get('change_basis')=='prev_close':
+        if len(bars)<2 or bars[-2]['close']<=0:return {**result,'reason':'REFERENCE_NOT_COMPARABLE'}
+        number=(bar['close']/bars[-2]['close']-1)*100
+    elif kind.startswith('change_'):
         ref=data.get('reference')
         if not ref or ref['adjustment']!=bar['adjustment'] or not bar['metadata'].get('corporate_actions_verified'):
             return {**result,'reason':'REFERENCE_NOT_COMPARABLE'}
@@ -202,8 +244,13 @@ def _evaluate(store,uid,at=None):
 
 # 把事件事实转换为含触发条件和来源信息的通知文本。
 def event_text(event):
-    v=json.loads(event['facts_json']);label={'price_above':'价格达到上阈值','price_below':'价格达到下阈值','change_above':'涨幅达到阈值','change_below':'跌幅达到阈值','risk_changed':'风险状态发生变化','candidate_invalid':'报告候选已失效'}[v['condition']]
-    numeric=f"；当前 {v.get('value')} / 阈值 {v.get('threshold')} {v.get('currency','')} {v.get('unit','')}" if v.get('value') is not None else ''
+    v=json.loads(event['facts_json'])
+    labels={'price_above':'价格达到上阈值','price_below':'价格达到下阈值','change_above':'涨幅达到阈值','change_below':'跌幅达到阈值','risk_changed':'风险状态发生变化','candidate_invalid':'报告候选已失效'}
+    if v['condition'] in ('ma_above','ma_below') and v.get('threshold') is not None:
+        label=('上穿' if v['condition']=='ma_above' else '跌破')+f"{int(float(v['threshold']))}日均线"
+    else:
+        label=labels[v['condition']]
+    numeric=f"；最新价 {v.get('value')} / 均线 {v.get('ma')}" if str(v['condition']).startswith('ma_') and v.get('value') is not None else f"；当前 {v.get('value')} / 阈值 {v.get('threshold')} {v.get('currency','')} {v.get('unit','')}" if v.get('value') is not None else ''
     report=f"；来源报告 {v['report_id']} 版本 {v.get('report_version','未知')}" if v.get('report_id') else ''
     return f"{v['name']} {v['instrument_id']}：{label}{numeric}{report}；触发 {event['triggered_at']}；报价 {v.get('quote_time') or '不适用'}；来源 {v.get('source_url') or '资料缺失'}"+('；'+ '；'.join(v['reasons']) if v.get('reasons') else '')
 

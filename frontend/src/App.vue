@@ -55,7 +55,8 @@ async function guard(){return !modal.value||await confirmForUser('当前有未�
 defineExpose({guard,searchSecurities,get dirty(){return !!modal.value}})
 // 回测参数包含明确虚拟本金及严格证据模式，不推断用户真实资产。
 const testParams = ref<any>({ instrument_id: 'SH:603126', initial_cash: 10000, fast: 5, slow: 20, train_ratio: 0.7, stop_loss_pct: 0.05, strict: true, start_date: '', end_date: '' })
-let timer: ReturnType<typeof setInterval>, toastTimer: ReturnType<typeof setTimeout>
+let timer: ReturnType<typeof setInterval>, toastTimer: ReturnType<typeof setTimeout>, minuteSyncing = false, notificationsReady = false
+const seenNotice = new Set<string>()
 // 根据运行模式与会话角色控制个人数据编辑入口。
 const canEdit = computed(() => props.publicMode || role.value === 'admin')
 // 区分个人编辑权限与共享市场维护权限，公网维护要求站点管理员。
@@ -137,7 +138,47 @@ async function action(fn: () => Promise<any>, success = '') { busy.value = true;
 async function refreshBase() {
   const read = ++dashboardRead
   const next = await api('/dashboard')
-  if (read === dashboardRead) dashboard.value = next
+  if (read !== dashboardRead) return
+  announceNotifications(next?.notifications)
+  dashboard.value = next
+}
+// 第一次只记住已有通知。之后新的提醒在页面上直接弹出，不必先打开铃铛。
+function announceNotifications(list: any[]) {
+  const rows = Array.isArray(list) ? list : []
+  if (!notificationsReady) { rows.forEach(n => seenNotice.add(String(n.id))); notificationsReady = true; return }
+  const fresh = rows.filter(n => !n.read && n.level === 'warning' && !seenNotice.has(String(n.id)))
+  rows.forEach(n => seenNotice.add(String(n.id)))
+  if (fresh.length) notify(fresh.map(n => String(n.message).split('；触发')[0].slice(0, 80)).join('；'))
+}
+// 打开 15 分或 60 分时去拉新 K 线，拉完再重画。日 K 和周 K 不在这里更新。
+async function refreshMinuteChart() {
+  const id = detailId.value, tf = timeframe.value
+  if (!id || !['15m', '60m'].includes(tf) || minuteSyncing) return
+  minuteSyncing = true
+  try {
+    if (detailId.value === id) await refreshOpenDetail()
+    if (props.publicMode) {
+      await post('/me/instruments/' + encodeURIComponent(id) + '/minute-sync', { timeframe: tf })
+      for (let i = 0; i < 20; i++) {
+        await new Promise(resolve => setTimeout(resolve, 400))
+        if (detailId.value !== id || timeframe.value !== tf) return
+        const job = await api<any>('/me/instruments/' + encodeURIComponent(id) + '/minute-sync?timeframe=' + encodeURIComponent(tf))
+        if (['success', 'partial', 'failed', 'none'].includes(job?.status)) break
+      }
+    } else {
+      await post('/instruments/' + encodeURIComponent(id) + '/sync', { timeframe: tf })
+    }
+    if (detailId.value === id && timeframe.value === tf) await refreshOpenDetail()
+  } catch { /* 采集失败时保留图上已有的分钟线。 */ }
+  finally { minuteSyncing = false }
+}
+// 打开的证券详情只替换数据，不把页面清回加载态。K 线仍是已入库的周期。
+async function refreshOpenDetail() {
+  const id = detailId.value
+  if (!id) return
+  const read = detailRead
+  const result = await api('/instruments/' + encodeURIComponent(id) + '?timeframe=' + encodeURIComponent(timeframe.value))
+  if (read === detailRead && detailId.value === id) detail.value = result
 }
 // 先改当前自选的置顶状态，避免等待整页总览；同时作废进行中的旧总览响应。
 function applyPinned(id: string, pinned: boolean) {
@@ -344,12 +385,25 @@ async function exportData(path: string, name: string) { await action(() => downl
 // 页面与指数选择变化时仅刷新对应数据。
 watch(page, loadPage)
 watch(activeIndex, loadIndex)
-// 挂载后引导会话并定期刷新；隐藏页面或编辑弹窗打开时跳过轮询。
-onMounted(async () => { if (!nav.some(n => n.id === page.value)) page.value = 'dashboard'; await initialize(); timer = setInterval(async () => { if (!ready.value || requiresLogin.value || modal.value || document.hidden) return; try { await refreshBase(); if (page.value === 'jobs') jobData.value = await api('/jobs'); if (page.value === 'simulation') portfolio.value = await api('/simulation'); if (['reports', 'review'].includes(page.value)) reports.value = await api('/reports' + (page.value === 'review' ? '?mode=full' : '')) } catch { /* 自动刷新失败时保留最近成功的视图，手动刷新时再展示错误。 */ } }, 15000) })
+// 页面可见时刷新列表和打开的图。编辑弹窗使用单独副本，背后的行情可以继续更新。
+async function pollLive() {
+  if (!ready.value || requiresLogin.value || document.hidden) return
+  try {
+    await refreshBase()
+    if (detailId.value) { if (['15m', '60m'].includes(timeframe.value)) await refreshMinuteChart(); else await refreshOpenDetail() }
+    if (modal.value) return
+    if (page.value === 'jobs') jobData.value = await api('/jobs')
+    if (page.value === 'simulation') portfolio.value = await api('/simulation')
+    if (['reports', 'review'].includes(page.value)) reports.value = await api('/reports' + (page.value === 'review' ? '?mode=full' : ''))
+  } catch { /* 自动刷新失败时保留最近成功的视图。 */ }
+}
+function onPageVisible() { if (!document.hidden) void pollLive() }
+// 挂载后引导会话并定期刷新。页面在后台时不轮询，回到前台立即补一次。
+onMounted(async () => { if (!nav.some(n => n.id === page.value)) page.value = 'dashboard'; await initialize(); timer = setInterval(() => { void pollLive() }, 15000); window.addEventListener('visibilitychange', onPageVisible) })
 // 监听浏览器历史导航，使页面选择与地址哈希保持一致。
 onMounted(() => window.addEventListener('hashchange', syncHash))
 // 卸载时清理计时器和事件监听，并完成未结束的确认流程。
-onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.removeEventListener('hashchange', syncHash); settleConfirm(false); ++detailRead; ++indexRead; closeReport(); emit('security-context',null) })
+onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.removeEventListener('hashchange', syncHash); window.removeEventListener('visibilitychange', onPageVisible); settleConfirm(false); ++detailRead; ++indexRead; closeReport(); emit('security-context',null) })
 </script>
 
 <template>
@@ -387,7 +441,7 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
           <div class="metal-card-grid"><section v-for="(m, idx) in dashboard?.metals" :key="m.id" class="panel metal-card"><div class="metal-card-top"><span :class="['metal-symbol', { silver: Number(idx) % 2 === 1 }]">{{ Number(idx) % 2 ? 'Ag' : 'Au' }}</span><span class="tag">{{ Number(idx) < 2 ? '国际现货' : '期货连续合约' }}</span></div><h2>{{ metalNames[m.id] }}</h2><p>{{ m.id }}</p><div class="metal-card-price">{{ fmt(m.price) }}<span>{{ m.currency || (Number(idx) < 2 ? 'USD' : 'CNY') }}</span></div><div class="metal-meta"><span>计价单位</span><strong>{{ m.unit || (Number(idx) < 2 ? '美元/金衡盎司' : Number(idx) === 2 ? '元/克' : '元/千克') }}</strong><span>报价时间</span><strong>{{ dt(m.quote_time) }}</strong><span>采集时间</span><strong>{{ dt(m.fetched_at) }}</strong><span>延迟说明</span><strong>{{ m.delay_type || '数据不可用' }}</strong><span>来源</span><a v-if="m.source_url" :href="m.source_url" target="_blank" rel="noopener">{{ m.source }}</a><strong v-else>未获取</strong></div><div :class="['data-status', { warning: m.stale }]">{{ m.price ? m.stale ? '报价已超过24小时，请重新同步' : '已取得来源报价' : m.message }}</div></section></div><section class="panel prose-panel"><h2>同是金银，报价口径不同</h2><p>伦敦现货以美元/金衡盎司计价；沪金以元/克、沪银以元/千克计价。期货连续合约包含换月与期限结构影响，不能当作现货价格直接比较。金银比仅在同币种、同单位、同一报价时点下计算。</p><h3>贵金属关联 A 股</h3><div class="related-chips"><button v-for="r in watchlist.filter(r => r.group_name === '贵金属关联')" :key="r.id" @click="openDetail(r.id)">{{ r.name }}<small>{{ r.symbol }}</small><ArrowUpRight :size="14" /></button></div></section>
         </template>
 
-        <IdeaPool v-else-if="page === 'ideas'" :can-edit="canEdit" @arm="openRule({ instrument_id: $event.instrument_id, source_kind: 'idea', source_id: $event.id, source_note: '进场 ' + ($event.entry || '') + '\n离场 ' + ($event.exit || '') + '\n错在哪 ' + ($event.wrong || '') })" />
+        <IdeaPool v-else-if="page === 'ideas'" :can-edit="canEdit" :public-mode="!!props.publicMode" @arm="openRule({ instrument_id: $event.instrument_id, source_kind: 'idea', source_id: $event.id, source_note: '进场 ' + ($event.entry || '') + '\n离场 ' + ($event.exit || '') + '\n错在哪 ' + ($event.wrong || '') })" />
 
         <template v-else-if="page === 'candidates'">
           <div class="info-strip"><ShieldCheck :size="19" /><span>交易状态、官方公告、行情新鲜度、流动性与单只含费预算全部通过，才进入候选。评分为规则匹配程度，不是上涨概率。</span></div><div v-if="!dashboard?.candidates.length" class="panel large-empty"><ShieldCheck :size="37" /><h2>今日无合格模拟候选</h2><p>宁可保留观察，也不把未知写成安全。先同步行情，并在证券详情核验官方证据。</p><button class="secondary" @click="go('watchlist')">查看观察池 <ArrowRight :size="15" /></button></div><div v-else class="candidate-grid"><section v-for="c in dashboard.candidates" :key="c.instrument_id" class="panel candidate-card"><div class="panel-heading"><h2>{{ c.name }} <small>{{ c.symbol }}</small></h2><b class="score">{{ c.score }}</b></div><div class="candidate-cost"><span>模拟 {{ c.quantity }} 股/份</span><strong>¥{{ fmt(c.budget.total) }}<small>含买入费用 ¥{{ fmt(c.budget.fees.total) }}</small></strong></div><h3>研究理由</h3><p>{{ c.rationale }}</p><h3>反方观点</h3><p>{{ c.counterargument }}</p><h3>失效条件</h3><p>{{ c.invalidation }}</p><small>{{ dt(c.quote_time) }} · <a :href="c.source_url" target="_blank" rel="noopener">行情来源</a></small><button class="secondary" :disabled="!canEdit" @click="prepareOrder(c.instrument_id)">创建模拟计划 <ArrowRight :size="15" /></button><button class="text-button" :disabled="!canEdit" @click="openRule({ instrument_id: c.instrument_id, quantity: c.quantity, source_kind: 'candidate', source_id: c.instrument_id, kind: 'close_at_or_below' })">预填价格规则</button></section></div><section v-if="reports.length" class="panel prose-panel"><h2>查看完整排除依据</h2><p>报告逐只保留未入选原因与当时的事实快照。</p><button class="text-button" @click="reportRoute(reports[0].id)">打开最近报告 <ArrowRight :size="14" /></button></section>

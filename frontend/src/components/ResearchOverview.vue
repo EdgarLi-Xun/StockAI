@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { ArrowRight, ArrowUpRight, Bell, ChartCandlestick, Database, FileText, RefreshCw, ShieldCheck, Sparkles, Star } from 'lucide-vue-next'
-import { number as fmt, percent as pct, direction, dateTime, preferHoldings } from '../workspaceFormat'
+import { number as fmt, percent as pct, direction, dateTime, preferHoldings, withLiveBar } from '../workspaceFormat'
 
 const ResearchChart = defineAsyncComponent(() => import('./ResearchChart.vue'))
 const props = defineProps<{ dashboard: any, indexData: any, indices: any[], activeIndex: string, canEdit: boolean, canMaintain: boolean, busy: boolean, publicMode: boolean }>()
@@ -13,7 +13,7 @@ const currentIndex = computed(() => props.indices.find(row => row.id === props.a
 // 切换指数后，在对应行情到达前不展示上一指数的曲线。
 const indexBars = computed(() => props.indexData?.instrument?.id === props.activeIndex ? props.indexData.bars || [] : [])
 // 只取窗口尾部，30 期与 90 期共用同一份已对齐的 K 线。
-const visibleBars = computed(() => indexBars.value.slice(-range.value))
+const visibleBars = computed(() => withLiveBar(indexBars.value, currentIndex.value?.observation, '1d').slice(-range.value))
 const modes: Record<string, string> = { standard: '标准版早报', full: '完整版复盘', closing: '收盘跟踪' }
 // 分母无效时返回空，界面显示占位符，不把 0 只自选画成 0%。
 const coverage = (count: unknown, total: unknown) => {
@@ -86,10 +86,10 @@ const readiness = computed(() => [
           </div>
           <div class="pulse-range" aria-label="显示范围"><button v-for="period in [30,90]" :key="period" :aria-pressed="range===period" @click="range=period">{{ period }} 期</button></div>
         </div>
-        <div class="pulse-price"><strong>{{ fmt(currentIndex?.quote?.close) }}</strong><span :class="['pulse-change',direction(currentIndex?.change_pct)]">{{ pct(currentIndex?.change_pct) }}</span><small>最近收盘</small></div>
+        <div class="pulse-price"><strong>{{ fmt(currentIndex?.quote?.close) }}</strong><span :class="['pulse-change',direction(currentIndex?.change_pct)]">{{ pct(currentIndex?.change_pct) }}</span><small>{{ currentIndex?.quote?.kind==='spot' ? '最新价' : '最近收盘' }}</small></div>
         <ResearchChart v-if="visibleBars.length" :bars="visibleBars" kind="trend"/>
         <div v-else class="overview-blank pulse-blank"><span class="overview-empty-icon"><ChartCandlestick :size="25"/></span><h3>等待市场的下一条线索</h3><p>同步指数行情后，在这里查看收盘走势。</p><button v-if="canMaintain" class="text-button" :disabled="busy" @click="emit('job','sync')">同步市场行情<ArrowRight :size="14"/></button></div>
-        <footer class="pulse-source"><span class="pulse-source-dot"></span>{{ currentIndex?.quote ? (currentIndex.quote.source || '来源未标注')+' · '+dateTime(currentIndex.quote.ts)+' · 不复权收盘' : '数据来源与报价时间将在同步后显示' }}</footer>
+        <footer class="pulse-source"><span class="pulse-source-dot"></span>{{ currentIndex?.quote ? (currentIndex.quote.source || '来源未标注')+' · '+dateTime(currentIndex.quote.ts)+' · '+(currentIndex.quote.kind==='spot'?'最新价':'不复权收盘') : '数据来源与报价时间将在同步后显示' }}</footer>
       </section>
 
       <section class="overview-card insights-card" aria-labelledby="insights-heading">
@@ -128,7 +128,7 @@ const readiness = computed(() => [
         <tr v-for="row in rows" :key="row.id"><td><button class="security-name" @click="emit('instrument',row.id)">{{ row.name }}</button><small>{{ row.symbol }} · {{ row.market }}</small></td><td class="number mono">{{ fmt(row.quote?.close ?? row.quote?.price, row.asset_class === 'etf' ? 3 : 2) }}</td><td :class="['number mono',direction(row.change_pct)]">{{ pct(row.change_pct) }}</td><template v-if="publicMode"><td class="number mono">{{ fmt(row.position?.cost_price, 4) }}</td><td class="number mono">{{ row.position?.quantity ?? '—' }}</td><td class="number mono">{{ fmt(row.position?.market_value) }}</td><td :class="['number mono',direction(row.position?.daily_pnl)]">{{ fmt(row.position?.daily_pnl) }}</td><td :class="['number mono',direction(row.position?.daily_return_pct)]">{{ pct(row.position?.daily_return_pct) }}</td><td :class="['number mono',direction(row.position?.total_pnl)]">{{ fmt(row.position?.total_pnl) }}</td><td :class="['number mono',direction(row.position?.total_return_pct)]">{{ pct(row.position?.total_return_pct) }}</td></template><td><span :class="['tag',row.observation_only?'':row.exclusion_reasons?.length?'amber':'green']">{{ row.observation_only ? '仅观察' : row.exclusion_reasons?.length ? '待核验' : '已核验' }}</span></td></tr>
       </tbody></table></div>
       <div v-else class="overview-blank watchlist-blank"><span class="overview-empty-icon"><Star :size="25"/></span><div><h3>你的研究，从关注开始</h3><p>添加感兴趣的证券，集中查看行情、持仓与研究状态。</p></div><button v-if="canEdit" class="secondary" @click="emit('add')">添加自选<ArrowRight :size="14"/></button></div>
-      <p v-if="rows.length && publicMode" class="overview-footnote">持仓收益按已存日 K 与记录成本计算，不含费用；缺失行情保留「—」。</p>
+      <p v-if="rows.length && publicMode" class="overview-footnote">持仓收益按最近价与记录成本计算，不含费用；没有最近价时用已存日 K。缺失行情保留「—」。</p>
     </section>
 
     <section v-if="dashboard?.metals?.length" class="overview-metals-strip" aria-label="贵金属行情">

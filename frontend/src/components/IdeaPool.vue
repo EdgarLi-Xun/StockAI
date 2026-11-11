@@ -4,14 +4,21 @@ import { computed, onMounted, ref } from 'vue'
 import { NotebookPen, Trash2 } from 'lucide-vue-next'
 import { api } from '../api'
 
-defineProps<{ canEdit: boolean }>()
+const props = defineProps<{ canEdit: boolean, publicMode?: boolean }>()
 const emit = defineEmits<{ arm: [item: any] }>()
 const items = ref<any[]>([])
 const watchlist = ref<any[]>([])
 const error = ref('')
 const busy = ref(false)
 const ready = ref(false)
-const form = ref({ instrument_id: '', sentence: '', entry: '', exit: '', wrong: '', counterparty: '拥挤之后的回归', parameters: '5, 20', max_risk: '', sensitive_to: '' })
+const form = ref({ instrument_id: '', sentence: '', entry: '', exit: '', wrong: '', counterparty: '拥挤之后的回归', parameters: '5, 20', max_risk: '', sensitive_to: '', alert_condition: '', alert_threshold: '' })
+const alertChoices = [
+  { id: '', label: '不设盘中提醒' },
+  { id: 'price_above', label: '价格达到或高于' },
+  { id: 'price_below', label: '价格达到或低于' },
+  { id: 'change_above', label: '相对昨收涨跌幅达到或高于' },
+  { id: 'change_below', label: '相对昨收涨跌幅达到或低于' },
+]
 const counterparties = ['被动抛售或强平', '拥挤之后的回归', '流动性变薄造成的过度波动', '大事前后的情绪错杀']
 const series = ['', '黄金', '白银', '观察指数', '新公告', '已过期大事']
 const rules = [
@@ -51,18 +58,49 @@ async function load() {
   }
 }
 
+function inferAlert(text: string) {
+  const maAbove = text.match(/上穿\s*([0-9]{1,3})\s*日/)
+  if (maAbove) return { condition: 'ma_above', threshold: maAbove[1] }
+  const maBelow = text.match(/(?:跌破|下穿)\s*([0-9]{1,3})\s*日/)
+  if (maBelow && !/[0-9](?:\.[0-9]+)?\s*元/.test(text)) return { condition: 'ma_below', threshold: maBelow[1] }
+  const priceBelow = text.match(/(?:跌破|跌到|低于|小于|下穿)\s*([0-9]+(?:\.[0-9]+)?)\s*元/)
+  if (priceBelow) return { condition: 'price_below', threshold: priceBelow[1] }
+  const priceAbove = text.match(/(?:涨到|高于|突破|上穿|超过)\s*([0-9]+(?:\.[0-9]+)?)\s*元/)
+  if (priceAbove) return { condition: 'price_above', threshold: priceAbove[1] }
+  const changeBelow = text.match(/(?:跌幅|下跌)\s*([0-9]+(?:\.[0-9]+)?)\s*%/)
+  if (changeBelow) return { condition: 'change_below', threshold: changeBelow[1] }
+  const changeAbove = text.match(/(?:涨幅|上涨)\s*([0-9]+(?:\.[0-9]+)?)\s*%/)
+  if (changeAbove) return { condition: 'change_above', threshold: changeAbove[1] }
+  return null
+}
+
 async function save() {
   error.value = ''
   busy.value = true
   try {
     const parameters = form.value.parameters.split(/[,，\s]+/).filter(Boolean).map(item => Number(item))
-    await api('/ideas', { method: 'POST', body: JSON.stringify({ ...form.value, parameters, sensitive_to: form.value.sensitive_to }) })
+    const { alert_condition, alert_threshold, ...idea } = form.value
+    const inferred = inferAlert([form.value.sentence, form.value.entry, form.value.exit].join('\n'))
+    const condition = alert_condition || inferred?.condition || ''
+    const threshold = alert_threshold !== '' ? alert_threshold : inferred?.threshold
+    await api('/ideas', { method: 'POST', body: JSON.stringify({ ...idea, parameters, sensitive_to: form.value.sensitive_to }) })
+    let alertError = ''
+    if (props.publicMode && condition && threshold !== '' && threshold != null) {
+      try {
+        await api('/alerts', { method: 'POST', body: JSON.stringify({ client_key: crypto.randomUUID(), data: { name: form.value.sentence.slice(0, 100), instrument_id: form.value.instrument_id, condition, threshold: Number(threshold), change_basis: condition.startsWith('change_') ? 'prev_close' : 'reference', cooldown_minutes: 60, email: false, enabled: true } }) })
+      } catch (exc: any) {
+        alertError = exc.message || '条件提醒没有建成'
+      }
+    }
     form.value.sentence = ''
+    form.value.alert_condition = ''
+    form.value.alert_threshold = ''
     form.value.entry = ''
     form.value.exit = ''
     form.value.wrong = ''
     form.value.max_risk = ''
     await load()
+    if (alertError) error.value = '想法已保存。' + alertError
   } catch (exc: any) {
     error.value = exc.message || '没有保存'
   } finally {
@@ -139,9 +177,14 @@ onMounted(load)
         <label>数值参数<input v-model="form.parameters" placeholder="最多三个，用逗号分开" /></label>
         <label>对照项<select v-model="form.sensitive_to"><option v-for="name in series" :key="name" :value="name">{{ name || '不指定' }}</option></select></label>
         <label class="span-two">最大风险<input v-model="form.max_risk" maxlength="200" placeholder="不填则记为未知" /></label>
+        <template v-if="publicMode">
+          <p class="idea-group">盘中提醒</p>
+          <label>条件<select v-model="form.alert_condition"><option v-for="item in alertChoices" :key="item.id" :value="item.id">{{ item.label }}</option></select></label>
+          <label v-if="form.alert_condition">阈值<input v-model="form.alert_threshold" inputmode="decimal" :placeholder="form.alert_condition.startsWith('change_') ? '百分比，例如 3' : '价格'" required /></label>
+        </template>
       </fieldset>
       <div class="form-actions">
-        <small>{{ watchlist.length ? '保存后才会进入早报评审。' : '先到观察池添加证券，再写想法。' }}</small>
+        <small>{{ watchlist.length ? (publicMode ? '保存后进入早报评审。写了价格、涨跌幅或几日均线时，会自动创建条件提醒。' : '保存后才会进入早报评审。') : '先到观察池添加证券，再写想法。' }}</small>
         <button class="primary" :disabled="!canEdit || busy || !watchlist.length">{{ busy ? '正在保存' : '保存到想法池' }}</button>
       </div>
     </form>

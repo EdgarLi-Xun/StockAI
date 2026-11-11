@@ -336,6 +336,23 @@ def create_app(cfg=None):
         store=rt(request).store;data=market.detail(store,a.id,ident,"1d" if timeframe=="1w" else timeframe)
         bars=resample_weekly(data["bars"]) if timeframe=="1w" else data["bars"]
         return {"instrument":{k:v for k,v in data.items() if k not in {"bars","indicators","quote","observation","budget","exclusion_reasons"}},"bars":bars,"indicators":analytics.indicators(bars),"observation":data["observation"],"risk_reasons":market.risk_reasons(data,get_preferences(store,a.id)),"events":store.query("SELECT id,event_type,severity,title,source_url,verified_at FROM risk_events WHERE instrument_id=? ORDER BY verified_at DESC LIMIT 100",(ident,))}
+    # 自选成员可以刷新正在查看的分钟图。日线仍由收盘同步写入，这里不接收。
+    @app.post("/api/me/instruments/{ident}/minute-sync")
+    def minute_sync(ident:str,payload:dict,request:Request,a:Actor=Depends(user)):
+        tf=str((payload or {}).get("timeframe") or "")
+        if tf not in {"15m","60m"}:raise ValueError("只自动更新15分和60分")
+        store=rt(request).store
+        if not store.one("SELECT 1 FROM user_watchlist WHERE user_id=? AND instrument_id=?",(a.id,ident)):raise AuthError("NOT_FOUND","不在自选中",404)
+        market.instrument(store,ident)
+        return collector.enqueue(store,"instrument",ident,tf)
+    @app.get("/api/me/instruments/{ident}/minute-sync")
+    def minute_sync_status(ident:str,request:Request,timeframe:str="15m",a:Actor=Depends(user)):
+        if timeframe not in {"15m","60m"}:raise ValueError("只自动更新15分和60分")
+        store=rt(request).store
+        if not store.one("SELECT 1 FROM user_watchlist WHERE user_id=? AND instrument_id=?",(a.id,ident)):raise AuthError("NOT_FOUND","不在自选中",404)
+        key=f"instrument:{ident}:{timeframe}"
+        row=store.one("SELECT id,status FROM site_jobs WHERE kind='instrument' AND (logical_key=? OR logical_key LIKE ?) ORDER BY created_at DESC LIMIT 1",(key,key+":%"))
+        return row or {"status":"none"}
     # 结合产品规则与本人费用设置估算含费预算和合法数量。
     @app.post("/api/me/budget")
     def estimate_budget(payload:dict,request:Request,a:Actor=Depends(user)):

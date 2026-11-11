@@ -307,3 +307,284 @@ def announcements(ident: str):
                 c.execute("UPDATE instruments SET risk_flag='warning' WHERE id=?", (ident,))
             out.append({"title": title, "source_url": url, "severity": severity})
     return out
+
+
+# 自选里的股票、ETF、指数和基金，外加总览要展示的沪深指数。日线任务不走这里。
+def _spot_targets() -> list[dict]:
+    names = {row["name"] for row in db.query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('user_watchlist','users')")}
+    if {"user_watchlist", "users"} <= names:
+        return db.query("""SELECT DISTINCT id,symbol,market,asset_class FROM (
+            SELECT i.id,i.symbol,i.market,i.asset_class FROM instruments i
+            JOIN user_watchlist w ON w.instrument_id=i.id JOIN users u ON u.id=w.user_id
+            WHERE u.status='active' AND i.market IN ('SH','SZ','HK','US','FUND') AND i.asset_class IN ('stock','etf','index','fund')
+            UNION
+            SELECT id,symbol,market,asset_class FROM instruments WHERE asset_class='index' AND market IN ('SH','SZ'))""")
+    return db.query("""SELECT id,symbol,market,asset_class FROM instruments
+        WHERE market IN ('SH','SZ','HK','US','FUND') AND asset_class IN ('stock','etf','index','fund')
+        AND (watched=1 OR (asset_class='index' AND market IN ('SH','SZ')))""")
+
+
+# 东方财富批量行情的证券编号。美股交易所不在代码里，三处都问，有价的写回。
+def _secids(item: dict) -> list[str]:
+    market, symbol = item["market"], item["symbol"]
+    if market == "SH":
+        return ["1." + symbol]
+    if market == "SZ":
+        return ["0." + symbol]
+    if market == "HK":
+        return ["116." + symbol.zfill(5)]
+    if market == "US":
+        return [prefix + "." + symbol for prefix in ("105", "106", "107")]
+    return []
+
+
+# 向东方财富批量要最新价。不导入 AKShare，避免每 15 秒拉起整套行情库。
+def fetch_spots(secids: list[str]) -> list[dict]:
+    import requests
+    response = requests.get(
+        "https://push2.eastmoney.com/api/qt/ulist.np/get",
+        params={"fltt": "2", "invt": "2", "fields": "f12,f13,f14,f2,f3,f5,f6,f15,f16,f17,f18,f124", "secids": ",".join(secids)},
+        headers={"Referer": "https://quote.eastmoney.com/", "User-Agent": "Mozilla/5.0"},
+        timeout=12,
+    )
+    response.raise_for_status()
+    diff = ((response.json() or {}).get("data") or {}).get("diff") or []
+    if isinstance(diff, dict):
+        diff = list(diff.values())
+    return [row for row in diff if isinstance(row, dict)]
+
+
+# 提供方时间转成上海时间。缺失或明显超前时不编造报价时点。
+def _spot_time(raw) -> str | None:
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    if value > 10**12:
+        value //= 1000
+    if value <= 0:
+        return None
+    moment = datetime.fromtimestamp(value, TZ)
+    if moment > now() + timedelta(minutes=5):
+        return None
+    return moment.isoformat(timespec="seconds")
+
+
+# 最新价比已完成日线更晚时，列表才改用它。研究仍读日线。
+def newer_spot(quote, spot) -> dict | None:
+    if not isinstance(spot, dict) or spot.get("kind") != "spot" or not spot.get("quote_time"):
+        return None
+    try:
+        price = float(spot["price"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    if not math.isfinite(price) or price <= 0:
+        return None
+    bar_ts = str((quote or {}).get("ts") or "")
+    if bar_ts and str(spot["quote_time"]) <= bar_ts:
+        return None
+    return spot
+
+
+# 把一批最新价写入观察报价，不改 K 线。
+def _prefer_us(rows: list[dict], item: dict | None = None) -> dict | None:
+    priced = []
+    for row in rows:
+        try:
+            price = float(row.get("f2"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(price) and price > 0:
+            priced.append(row)
+    if not priced:
+        return None
+    item = item or {}
+    name = str(item.get("name") or "")
+    upper = name.upper()
+    prefer = "105" if any(word in upper or word in name for word in ("NASDAQ", "纳斯达克")) else "106" if any(word in upper or word in name for word in ("NYSE", "纽交所")) else "107" if any(word in upper or word in name for word in ("AMEX", "美交所")) else ""
+    folded = "".join(ch.lower() for ch in name if ch.isalnum())
+    def amount(row):
+        try:
+            value = float(row.get("f6") or 0)
+        except (TypeError, ValueError):
+            return 0
+        return value if math.isfinite(value) and value > 0 else 0
+    def score(row):
+        quote = "".join(ch.lower() for ch in str(row.get("f14") or "") if ch.isalnum())
+        named = 3 if folded and quote and (folded in quote or quote in folded) else 1 if folded[:4] and quote.startswith(folded[:4]) else 0
+        return (named, 2 if prefer and str(row.get("f13")) == prefer else 0, amount(row))
+    return max(priced, key=score)
+
+
+def _match_spot(row: dict, by_key: dict) -> dict | None:
+    code = str(row.get("f12") or "")
+    if code.endswith(".0"):
+        code = code[:-2]
+    if code.isdigit():
+        code = code.zfill(6)
+    market = {"1": "SH", "0": "SZ", "116": "HK", "105": "US", "106": "US", "107": "US"}.get(str(row.get("f13")))
+    item = by_key.get((market, code)) if market else None
+    if item is None:
+        matches = [value for (item_market, symbol), value in by_key.items() if symbol == code or symbol.lstrip("0") == code.lstrip("0")]
+        item = matches[0] if len(matches) == 1 else None
+    return item
+
+
+def _store_spots(rows: list[dict], by_key: dict, fetched: str) -> int:
+    updated = 0
+    us_rows: dict[str, list[dict]] = {}
+    for row in rows:
+        item = _match_spot(row, by_key)
+        if not item:
+            continue
+        if item["market"] == "US":
+            us_rows.setdefault(item["id"], []).append(row)
+            continue
+        if _store_spot(item, row, fetched):
+            updated += 1
+    for ident, choices in us_rows.items():
+        item = next(value for value in by_key.values() if value["id"] == ident)
+        chosen = _prefer_us(choices, item)
+        if chosen and _store_spot(item, chosen, fetched):
+            updated += 1
+    return updated
+
+
+def _store_spot(item: dict, row: dict, fetched: str) -> bool:
+    try:
+        price = float(row.get("f2"))
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(price) or price <= 0 or str(row.get("f12") or "").lstrip("0") != item["symbol"].lstrip("0"):
+        return False
+    try:
+        prev = float(row.get("f18"))
+        if not math.isfinite(prev) or prev <= 0:
+            prev = None
+    except (TypeError, ValueError):
+        prev = None
+    try:
+        change = float(row.get("f3"))
+        if not math.isfinite(change):
+            change = None
+    except (TypeError, ValueError):
+        change = None
+    def optional(key):
+        try:
+            value = float(row.get(key))
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value > 0 else None
+    provider_time = _spot_time(row.get("f124"))
+    if item["asset_class"] == "index":
+        unit, url, currency = "点", f"https://quote.eastmoney.com/zs{item['symbol']}.html", "CNY"
+    elif item["market"] == "HK":
+        unit, url, currency = "港元/股", f"https://quote.eastmoney.com/hk/{item['symbol'].zfill(5)}.html", "HKD"
+    elif item["market"] == "US":
+        unit, url, currency = "美元/股", f"https://quote.eastmoney.com/us/{item['symbol']}.html", "USD"
+    else:
+        unit, url, currency = "元/股", f"https://quote.eastmoney.com/{item['market'].lower()}{item['symbol']}.html", "CNY"
+    payload = {
+        "id": item["id"], "price": price, "prev_close": prev, "change_pct": change,
+        "open": optional("f17"), "high": optional("f15"), "low": optional("f16"), "volume": optional("f5"),
+        "quote_time": provider_time or fetched, "fetched_at": fetched,
+        "source": "东方财富最新价", "source_url": url,
+        "currency": currency, "unit": unit, "kind": "spot", "status": "success",
+        "timestamp_basis": "提供方最新价时点" if provider_time else "采集时刻，提供方未返回逐笔时间",
+    }
+    db.execute("INSERT INTO market_quotes VALUES(?,?) ON CONFLICT(instrument_id) DO UPDATE SET payload_json=excluded.payload_json", (item["id"], db.dumps(payload)))
+    return True
+
+
+# 场外基金用盘中估算，没有估算时用最近公布净值。不写日 K。
+def _fetch_fund(item: dict) -> dict | str:
+    import requests
+    try:
+        return _read_fund(item, requests)
+    except Exception as exc:
+        return str(exc)[:200]
+
+
+def _read_fund(item: dict, requests) -> dict | str:
+    response = requests.get(
+        f"https://fundgz.1234567.com.cn/js/{item['symbol']}.js",
+        headers={"Referer": "https://fund.eastmoney.com/"},
+        timeout=8,
+    )
+    response.raise_for_status()
+    text = response.text
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return "基金估值无数据"
+    data = json.loads(text[start:end + 1])
+    estimate, nav = data.get("gsz"), data.get("dwjz")
+    try:
+        price = float(estimate or nav)
+    except (TypeError, ValueError):
+        return "基金价格无效"
+    if not math.isfinite(price) or price <= 0:
+        return "基金价格无效"
+    try:
+        prev = float(nav) if estimate else None
+        if prev is not None and (not math.isfinite(prev) or prev <= 0):
+            prev = None
+    except (TypeError, ValueError):
+        prev = None
+    raw_time = str(data.get("gztime") or "")
+    quote_time = None
+    if len(raw_time) >= 16 and raw_time[4] == "-" and raw_time[10] == " ":
+        quote_time = raw_time[:10] + "T" + raw_time[11:16] + ":00+08:00"
+    elif str(data.get("jzrq") or "")[:10]:
+        quote_time = str(data["jzrq"])[:10] + "T00:00:00+08:00"
+    try:
+        change = float(data["gszzl"]) if data.get("gszzl") not in (None, "") else None
+    except (TypeError, ValueError):
+        change = None
+    return {"price": price, "prev_close": prev, "change_pct": change, "quote_time": quote_time, "estimated": bool(estimate)}
+
+
+def _save_fund(item: dict, value: dict, fetched: str) -> None:
+    quote_time = value.get("quote_time") or fetched
+    payload = {
+        "id": item["id"], "price": value["price"], "prev_close": value.get("prev_close"), "change_pct": value.get("change_pct"),
+        "quote_time": quote_time, "fetched_at": fetched, "source": "东方财富基金估值" if value.get("estimated") else "东方财富基金净值",
+        "source_url": f"https://fund.eastmoney.com/{item['symbol']}.html", "currency": "CNY", "unit": "元/份",
+        "kind": "spot", "status": "success",
+        "timestamp_basis": "盘中估算时点" if value.get("estimated") else "最近公布净值日期",
+    }
+    db.execute("INSERT INTO market_quotes VALUES(?,?) ON CONFLICT(instrument_id) DO UPDATE SET payload_json=excluded.payload_json", (item["id"], db.dumps(payload)))
+
+
+# 每轮刷新自选和总览指数的最新价。失败时保留上一笔，不改日 K。
+def sync_spots() -> dict:
+    targets = _spot_targets()
+    if not targets:
+        return {"status": "success", "updated": 0}
+    quoted = [item for item in targets if item["asset_class"] != "fund"]
+    funds = [item for item in targets if item["asset_class"] == "fund"]
+    by_key = {(item["market"], item["symbol"]): item for item in quoted}
+    secids, seen = [], set()
+    for item in quoted:
+        for secid in _secids(item):
+            if secid not in seen:
+                seen.add(secid)
+                secids.append(secid)
+    updated, errors, fetched = 0, [], timestamp()
+    for start in range(0, len(secids), 40):
+        chunk = secids[start:start + 40]
+        try:
+            updated += _store_spots(fetch_spots(chunk), by_key, fetched)
+        except Exception as exc:
+            errors.append(str(exc)[:200])
+    if funds:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            fetched_funds = list(pool.map(lambda item: (item, _fetch_fund(item)), funds))
+        for item, value in fetched_funds:
+            if isinstance(value, str):
+                errors.append(value)
+            else:
+                _save_fund(item, value, fetched)
+                updated += 1
+    status = "success" if updated and not errors else "partial" if updated else "unavailable" if errors else "success"
+    return {"status": status, "updated": updated, "errors": errors}

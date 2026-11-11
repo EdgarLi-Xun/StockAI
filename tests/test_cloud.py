@@ -793,3 +793,76 @@ def test_rules_skip_without_write_lease_and_inert_orders_do_not_fill(cloud,bars,
     store.execute('UPDATE sim_orders SET created_at=? WHERE id=? AND user_id=?',(bars[0]['ts'][:10]+'T10:00:00+08:00',queued['id'],uid))
     store.execute('INSERT INTO sync_inert_orders VALUES(?,?)',(queued['id'],uid))
     assert simulation.match(store,uid)==[]
+
+
+# 最新价只进入观察报价。自选列表改显示这笔价格，日线收盘保持不动。
+def test_watchlist_shows_spot_newer_than_daily_close(cloud):
+    from test_assistant_lookup import daily_bar, listed_stock
+    from backend.cloud import market
+    store,*_,uid=cloud
+    ident=listed_stock(store)
+    daily_bar(store,ident,'2026-11-09T15:00:00+08:00',9)
+    daily_bar(store,ident,'2026-11-10T15:00:00+08:00',10)
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at,cost_price,quantity) VALUES(?,?,?,?,?,?,?)',(uid,ident,'原有自选',0,stamp(),'8',100))
+    store.execute('INSERT INTO market_quotes VALUES(?,?)',(ident,json.dumps({"id":ident,"price":12,"prev_close":10,"change_pct":20,"quote_time":"2026-11-11T11:03:00+08:00","fetched_at":"2026-11-11T11:03:05+08:00","source":"东方财富最新价","source_url":"https://quote.eastmoney.com/sh600519.html","kind":"spot"})))
+    row=market.watch_rows(store,uid)[0]
+    assert row["quote"]["close"]==12 and row["quote"]["ts"]=="2026-11-11T11:03:00+08:00"
+    assert row["change_pct"]==20
+    assert row["position"]["market_value"]==1200 and row["position"]["daily_pnl"]==200 and row["position"]["total_pnl"]==400
+    assert market.bars_for(store,ident,limit=1)[-1]["close"]==10
+    store.execute('UPDATE market_quotes SET payload_json=? WHERE instrument_id=?',(json.dumps({"id":ident,"price":4,"prev_close":10,"quote_time":"2026-11-10T14:00:00+08:00","kind":"spot","source":"东方财富最新价","source_url":"https://quote.eastmoney.com/sh600519.html"}),ident))
+    again=market.watch_rows(store,uid)[0]
+    assert again["quote"]["close"]==10 and again["quote"].get("kind")!="spot"
+
+
+def test_sync_spots_saves_latest_price_without_touching_bars(monkeypatch):
+    from backend import collectors, db
+    db.execute("UPDATE instruments SET watched=0")
+    db.execute("INSERT INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES('SH:689001','689001','SH','最新价测试','stock','',1,'{}')")
+    monkeypatch.setattr(collectors,"fetch_spots",lambda secids:[{"f12":"689001","f13":1,"f2":1400.5,"f3":1.25,"f18":1383.2,"f124":None}] if "1.689001" in secids else [])
+    before=db.one("SELECT COUNT(*) n FROM bars")["n"]
+    result=collectors.sync_spots()
+    assert result["updated"]==1 and result["status"]=="success"
+    assert db.one("SELECT COUNT(*) n FROM bars")["n"]==before
+    saved=json.loads(db.one("SELECT payload_json FROM market_quotes WHERE instrument_id='SH:689001'")["payload_json"])
+    assert saved["kind"]=="spot" and saved["price"]==1400.5 and saved["prev_close"]==1383.2
+
+
+def test_spot_targets_cover_index_hk_us_and_fund():
+    from backend import collectors, db
+    db.execute("UPDATE instruments SET watched=0")
+    for ident, symbol, market, name, asset, watched in (
+        ("SH:999991","999991","SH","测试指数","index",0),
+        ("HK:00700","00700","HK","腾讯","stock",1),
+        ("US:AAPL","AAPL","US","苹果","stock",1),
+        ("FUND:110022","110022","FUND","测试基金","fund",1),
+    ):
+        db.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',?,?)",(ident,symbol,market,name,asset,watched,'{}'))
+        db.execute("UPDATE instruments SET asset_class=?,watched=?,name=? WHERE market=? AND symbol=?",(asset,watched,name,market,symbol))
+    found={(row["market"],row["symbol"],row["asset_class"]) for row in collectors._spot_targets()}
+    assert ("SH","999991","index") in found
+    assert ("HK","00700","stock") in found
+    assert ("US","AAPL","stock") in found
+    assert ("FUND","110022","fund") in found
+    assert collectors._secids({"market":"HK","symbol":"00700"})==["116.00700"]
+    assert collectors._secids({"market":"US","symbol":"AAPL"})==["105.AAPL","106.AAPL","107.AAPL"]
+    assert collectors._secids({"market":"FUND","symbol":"110022"})==[]
+    assert collectors._prefer_us([{"f2":10,"f6":5,"f13":105},{"f2":99,"f6":50,"f13":106}])["f2"]==99
+    assert collectors._prefer_us([{"f2":10,"f6":1,"f13":105,"f14":"Apple"},{"f2":99,"f6":50,"f13":106,"f14":"Other"}],{"name":"苹果 NASDAQ"})["f13"]==105
+
+
+def test_owner_can_queue_minute_chart_refresh(cloud):
+    from test_assistant_lookup import listed_stock
+    store,*_,uid=cloud
+    ident=listed_stock(store)
+    store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,0,?)',(uid,ident,'观察',stamp()))
+    with TestClient(create_app(store.cfg)) as c:
+        login(c)
+        assert c.post('/api/me/instruments/'+ident+'/minute-sync',json={'timeframe':'1d'}).status_code==400
+        queued=c.post('/api/me/instruments/'+ident+'/minute-sync',json={'timeframe':'15m'})
+        assert queued.status_code==200,queued.text
+        assert queued.json()['status']=='queued' and queued.json()['reused'] is False
+        again=c.post('/api/me/instruments/'+ident+'/minute-sync',json={'timeframe':'15m'})
+        assert again.json()['reused'] is True
+        assert c.get('/api/me/instruments/'+ident+'/minute-sync',params={'timeframe':'15m'}).json()['status']=='queued'
+        assert c.post('/api/me/instruments/SH:000000/minute-sync',json={'timeframe':'60m'}).status_code==404
