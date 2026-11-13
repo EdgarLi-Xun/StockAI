@@ -339,8 +339,11 @@ small { font-size: 12px; }
   .watch-table td strong { font-size: 13px; }
   .watch-table td small { font-size: 11px; }
   .watch-full .filter-toolbar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-  .watch-full .filter-toolbar .search-box { grid-column: 1 / -1; }
+  .watch-full .filter-toolbar .search-box { grid-column: span 3; min-width: 0; }
   .watch-full .filter-toolbar > select { grid-column: span 3; width: 100%; font-size: 12px; }
+  .watch-full .filter-toolbar > .segmented { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; margin: 0; }
+  .watch-full .filter-toolbar > .segmented > button { min-width: 0; padding-inline: 4px; }
+  .watch-full .filter-toolbar > .toolbar-spacer { display: none; }
   .watch-full .filter-toolbar > .small { grid-column: span 2; width: 100%; padding-inline: 8px; font-size: 12px; }
   .watchlist-empty { padding: 24px 20px; min-height: 215px; }
   .candidate-panel .candidate-empty { min-height: 215px !important; }
