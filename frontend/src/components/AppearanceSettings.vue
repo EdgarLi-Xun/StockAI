@@ -4,7 +4,7 @@ import { Check, Monitor, Moon, Palette, RotateCcw, Sun } from 'lucide-vue-next'
 import { accentPresets, appearance, appearanceSaved, resetAppearance, resolvedTheme, updateAppearance, type ThemeMode } from '../appearance'
 
 const themes = [
-  { id: 'light' as ThemeMode, name: '浅色', description: '明亮、清晰的研究空间', icon: Sun },
+  { id: 'light' as ThemeMode, name: '浅色', description: '暖灰底色与白色面板', icon: Sun },
   { id: 'dark' as ThemeMode, name: '深色', description: '适合夜间与低光环境', icon: Moon },
   { id: 'system' as ThemeMode, name: '跟随系统', description: '随设备外观自动切换', icon: Monitor },
 ]
@@ -62,8 +62,8 @@ function reset() { resetAppearance(); colorInput.value = appearance.accent; inva
         </div>
         <div class="appearance-live-preview" aria-label="当前外观预览">
           <div class="appearance-preview-heading"><span>效果预览</span><span class="tag">{{ colorName }}</span></div>
-          <strong>让研究空间适合你</strong>
-          <p>按钮、导航和图表随你的选择更新。</p>
+          <strong>行情与控件</strong>
+          <p>预览主题色和行情涨跌色。</p>
           <div class="appearance-quote-preview"><span>上涨示例<b class="up">+2.36%</b></span><span>下跌示例<b class="down">−1.28%</b></span></div>
           <span class="appearance-sample-button"><Check :size="15" />当前主题色</span>
           <small>示例数值仅用于配色预览</small>
@@ -88,7 +88,7 @@ function reset() { resetAppearance(); colorInput.value = appearance.accent; inva
 .appearance-theme.selected { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }
 .appearance-theme > input, .appearance-swatch > input { position: absolute; width: 1px; height: 1px; min-height: 0; opacity: 0; }
 .appearance-theme:focus-within, .appearance-swatch:focus-within { outline: 3px solid var(--accent-text); outline-offset: 4px; }
-.appearance-theme-preview { display: flex; height: 84px; gap: 10px; border: 1px solid #e3ebe6; border-radius: 5px; overflow: hidden; background: #eef3f0; }
+.appearance-theme-preview { display: flex; height: 84px; gap: 10px; border: 1px solid #e3ebe6; border-radius: 5px; overflow: hidden; background: #f5f4f0; }
 .appearance-theme-preview > i { width: 24%; background: #fff; border-right: 1px solid #e3ebe6; }
 .appearance-theme-preview > span { flex: 1; display: grid; gap: 7px; padding: 12px 12px 12px 0; }
 .appearance-theme-preview b { height: 9px; width: 55%; border-radius: 2px; background: #c6d1c9; }
@@ -98,7 +98,7 @@ function reset() { resetAppearance(); colorInput.value = appearance.accent; inva
 .preview-dark > i { background: #18211e; border-color: #31423b; }
 .preview-dark b { background: #3d5248; }
 .preview-dark b:last-child { background: #212b27; }
-.preview-system { background: linear-gradient(110deg, #eef3f0 50%, #101816 50%); }
+.preview-system { background: linear-gradient(110deg, #f5f4f0 50%, #101816 50%); }
 .preview-system b:last-child { background: linear-gradient(110deg, #fff 44%, #212b27 44%); }
 .appearance-theme-name { display: flex; align-items: center; gap: 7px; margin: 12px 0 5px; color: var(--dark); font-size: 13px; }
 .appearance-theme-name > svg:last-child:not(:first-child) { margin-left: auto; color: var(--accent-text); }
@@ -119,9 +119,9 @@ function reset() { resetAppearance(); colorInput.value = appearance.accent; inva
 .appearance-market label { display: inline-flex; align-items: center; gap: 7px; margin: 0 20px 9px 0; font-size: 13px; cursor: pointer; }
 .appearance-market input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--accent); }
 .appearance-market small { display: block; color: var(--muted); font-size: 12px; }
-.appearance-live-preview { padding: 22px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+.appearance-live-preview { padding: 8px 0 8px 28px; border-left: 1px solid var(--border); }
 .appearance-preview-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; font-size: 12px; color: var(--muted); }
-.appearance-live-preview > strong { display: block; font-size: 18px; color: var(--dark); }
+.appearance-live-preview > strong { display: block; font-size: 16px; font-weight: 500; color: var(--dark); }
 .appearance-live-preview > p { margin: 9px 0 20px; font-size: 12px; color: var(--muted); }
 .appearance-quote-preview { display: flex; gap: 30px; font-size: 11px; color: var(--muted); }
 .appearance-quote-preview b { display: block; margin-top: 4px; font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -137,6 +137,7 @@ function reset() { resetAppearance(); colorInput.value = appearance.accent; inva
   .appearance-theme > small { display: none; }
   .appearance-theme-name { gap: 5px; font-size: 12px; flex-wrap: wrap; }
   .appearance-color-layout { grid-template-columns: 1fr; gap: 22px; }
+  .appearance-live-preview { padding: 22px 0 0; border-left: 0; border-top: 1px solid var(--border); }
   .appearance-swatches { gap: 9px; }
 }
 </style>

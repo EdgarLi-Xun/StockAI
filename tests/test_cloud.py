@@ -800,6 +800,24 @@ def test_rules_skip_without_write_lease_and_inert_orders_do_not_fill(cloud,bars,
     assert simulation.match(store,uid)==[]
 
 
+# 一只证券的收盘价对不齐最小变动价位时，只留空这只的预算，其余自选仍返回。
+def test_watchlist_survives_one_price_off_tick(cloud):
+    from test_assistant_lookup import daily_bar, listed_stock
+    from backend.cloud import market
+    store,*_,uid=cloud
+    good=listed_stock(store,'600519','贵州茅台')
+    bad=listed_stock(store,'600031','三一重工')
+    daily_bar(store,good,'2026-11-10T15:00:00+08:00',10)
+    daily_bar(store,bad,'2026-11-10T15:00:00+08:00',10.001)
+    for ident in (good,bad):
+        store.execute('INSERT INTO user_watchlist(user_id,instrument_id,group_name,pinned,created_at) VALUES(?,?,?,?,?)',(uid,ident,'原有自选',0,stamp()))
+    rows={row['id']:row for row in market.watch_rows(store,uid)}
+    assert set(rows)=={good,bad}
+    assert rows[good]['budget']['price']==10
+    assert rows[bad]['budget'] is None
+    assert '价格不符合该产品最小变动单位' in rows[bad]['exclusion_reasons']
+
+
 # 最新价只进入观察报价。自选列表改显示这笔价格，日线收盘保持不动。
 def test_watchlist_shows_spot_newer_than_daily_close(cloud):
     from test_assistant_lookup import daily_bar, listed_stock

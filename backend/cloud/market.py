@@ -161,7 +161,11 @@ def detail(store,uid,ident,timeframe="1d",prefs=None):
     item["exclusion_reasons"]=risk_reasons(item,prefs)+fresh_reasons(last,calendar(store))
     item["budget"]=None
     if last and item["asset_class"] in {"stock","etf"}:
-        item["budget"]=budget_check(last["close"],item["rules"],item["asset_class"],prefs.fees,prefs.budget)
+        # 单只报价对不齐最小变动价位时留空预算，避免整份自选列表失败。
+        try:
+            item["budget"]=budget_check(last["close"],item["rules"],item["asset_class"],prefs.fees,prefs.budget)
+        except ValueError as exc:
+            item["exclusion_reasons"].append(str(exc))
     _show_spot(item)
     return item
 

@@ -1,5 +1,16 @@
 # 更新记录
 
+## [3.2.20] - 2026-11-14
+
+- 自选里某只证券的价格对不齐最小变动价位时，只留空这只的预算并记下原因，其余自选仍正常显示。
+- 候选、研究报告和模型配置的空状态改为更短的说明；报告列表按日期和标题排列。
+- 外观设置的浅色预览改回暖纸色，效果预览与选项分开。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.20-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.19] - 2026-11-14
 
 - 今日总览调整为主次双栏：市场指数与自选列表集中展示，研究提示、就绪情况和最近报告放在侧栏。浅色主题、导航和控件样式同步调整。
@@ -318,6 +329,8 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.20]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.20
+[3.2.19]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.19
 [3.2.18]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.18
 [3.2.17]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.17
 [3.2.16]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.16
