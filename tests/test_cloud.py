@@ -405,7 +405,7 @@ def test_personal_account_backtest_profile_idor_matrix(cloud,bars):
 def test_twenty_distinct_credentials_two_concurrent_ai_jobs(cloud):
     import time
     store,keys,auth,journal,admin,uid=cloud;users=[uid]+[auth.new_user(f"parallel{n}@example.test",PASSWORD,verified=True) for n in range(19)]
-    expected={};active=0;peak=0;lock=threading.Lock();received=[]
+    expected={};active=0;peak=0;lock=threading.Lock();received=[];first_pair=threading.Barrier(2,timeout=15)
     for n,user in enumerate(users):
         key=f'test-owner-key-{n:04d}'
         p=models.save_profile(store,keys,user,models.ProfileInput(name='本人模型',api_key=key));models.set_default(store,user,p['id']);expected[p['id']]=key
@@ -426,11 +426,16 @@ def test_twenty_distinct_credentials_two_concurrent_ai_jobs(cloud):
         nonlocal active,peak
         with lock:
             active+=1;peak=max(peak,active);received.append((fixed['profile_id'],key))
-        assert key==expected[fixed['profile_id']]
-        time.sleep(.1)
-        with lock:
-            active-=1
-        return GOOD,{'total_tokens':10},'test-owned'
+            wait_for_peer=len(received)<=2
+        try:
+            assert key==expected[fixed['profile_id']]
+            # 首对调用明确重叠，不依赖数据库准备恰好落入 100ms 响应窗口。
+            if wait_for_peer:first_pair.wait()
+            time.sleep(.1)
+            return GOOD,{'total_tokens':10},'test-owned'
+        finally:
+            with lock:
+                active-=1
     started=time.perf_counter();latencies=[]
     # 循环领取并执行测试队列，模拟实际后台工作线程。
     def worker(name):

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
-import { ArrowRight, ArrowUpRight, Bell, ChartCandlestick, Database, FileText, RefreshCw, ShieldCheck, Sparkles, Star } from 'lucide-vue-next'
+import { ArrowRight, ArrowUpRight, Bell, ChartCandlestick, Database, FileText, RefreshCw, ShieldCheck, Star } from 'lucide-vue-next'
 import { number as fmt, percent as pct, direction, dateTime, preferHoldings, withLiveBar } from '../workspaceFormat'
 
 const ResearchChart = defineAsyncComponent(() => import('./ResearchChart.vue'))
@@ -48,35 +48,44 @@ const readiness = computed(() => [
   <div class="research-overview">
     <div class="overview-stat-grid" aria-label="研究概况">
       <article class="overview-stat">
-        <div class="stat-label">自选证券</div>
-        <div class="stat-number">{{ stats?.watch_count ?? '—' }}<small>只</small></div>
-        <button class="stat-link stat-watchlist-link" @click="emit('navigate','watchlist')">查看我的自选<ArrowRight :size="14"/></button>
-        <p class="stat-note">持仓优先 · 集中跟踪</p>
+        <div class="stat-label"><span>自选证券</span><Star :size="15"/></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ stats?.watch_count ?? '—' }}<small>只证券</small></div>
+          <button class="stat-link" @click="emit('navigate','watchlist')">查看我的自选<ArrowUpRight :size="14"/></button>
+        </div>
+        <p class="stat-note"><span class="stat-note-dot"></span>持仓优先 · 集中跟踪</p>
       </article>
       <article class="overview-stat">
-        <div class="stat-label">行情覆盖</div>
-        <div class="stat-number">{{ quoteCoverage === null ? '—' : quoteCoverage + '%' }}</div>
-        <div class="stat-progress" aria-hidden="true"><i :style="{width:(quoteCoverage ?? 0)+'%'}"></i></div>
-        <p class="stat-note">{{ stats ? (stats.quote_count ?? '—') + ' / ' + (stats.watch_count ?? '—') + ' 有报价' : '等待数据' }}</p>
+        <div class="stat-label"><span>行情覆盖</span><Database :size="15"/></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ quoteCoverage === null ? '—' : quoteCoverage + '%' }}</div>
+          <div class="stat-progress" aria-hidden="true"><i :style="{width:(quoteCoverage ?? 0)+'%'}"></i></div>
+        </div>
+        <p class="stat-note">{{ stats ? (stats.quote_count ?? '—') + ' / ' + (stats.watch_count ?? '—') + ' 只已有报价' : '等待数据' }}</p>
       </article>
       <article class="overview-stat">
-        <div class="stat-label">核验通过</div>
-        <div class="stat-number">{{ verifiedCoverage === null ? '—' : verifiedCoverage + '%' }}</div>
-        <div class="stat-progress sand" aria-hidden="true"><i :style="{width:(verifiedCoverage ?? 0)+'%'}"></i></div>
-        <p class="stat-note">{{ verifiedCoverage === null ? '等待核验' : (stats?.verified_count ?? '—') + ' / ' + (stats?.watch_count ?? '—') + ' 只通过' }}</p>
+        <div class="stat-label"><span>核验通过</span><ShieldCheck :size="15"/></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ verifiedCoverage === null ? '—' : verifiedCoverage + '%' }}</div>
+          <div class="stat-progress sand" aria-hidden="true"><i :style="{width:(verifiedCoverage ?? 0)+'%'}"></i></div>
+        </div>
+        <p class="stat-note">{{ verifiedCoverage === null ? '等待核验' : (stats?.verified_count ?? '—') + ' / ' + (stats?.watch_count ?? '—') + ' 只证据有效' }}</p>
       </article>
       <article class="overview-stat stat-candidates">
-        <div class="stat-label">候选名额</div>
-        <div class="stat-number">{{ stats?.candidate_count ?? '—' }}<small>/ 3</small></div>
-        <div class="candidate-slots" aria-hidden="true"><span v-for="slot in 3" :key="slot" :class="{filled:slot<=(stats?.candidate_count || 0)}"><Sparkles :size="14"/></span></div>
-        <button class="stat-link" @click="emit('navigate','candidates')">查看候选与依据<ArrowRight :size="14"/></button>
+        <div class="stat-label"><span>研究候选</span><ChartCandlestick :size="15"/></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ stats?.candidate_count ?? '—' }}<small>/ 3 个名额</small></div>
+          <div class="candidate-slots" aria-hidden="true"><span v-for="slot in 3" :key="slot" :class="{filled:slot<=(stats?.candidate_count || 0)}"></span></div>
+        </div>
+        <button class="stat-link stat-footer-link" @click="emit('navigate','candidates')">查看候选与依据<ArrowRight :size="13"/></button>
       </article>
     </div>
 
-    <div class="overview-top-grid">
-      <section class="overview-card pulse-card" aria-labelledby="market-heading">
+    <div class="overview-content-grid">
+      <div class="overview-primary-column">
+        <section class="overview-card pulse-card" aria-labelledby="market-heading">
         <header class="overview-card-heading">
-          <h2 id="market-heading">市场脉搏</h2>
+          <h2 id="market-heading">市场指数</h2>
           <button class="overview-round-button" aria-label="进入市场行情" @click="emit('navigate','market')"><ArrowUpRight :size="18"/></button>
         </header>
         <div class="pulse-toolbar">
@@ -88,48 +97,46 @@ const readiness = computed(() => [
         </div>
         <div class="pulse-price"><strong>{{ fmt(currentIndex?.quote?.close) }}</strong><span :class="['pulse-change',direction(currentIndex?.change_pct)]">{{ pct(currentIndex?.change_pct) }}</span><small>{{ currentIndex?.quote?.kind==='spot' ? '最新价' : '最近收盘' }}</small></div>
         <ResearchChart v-if="visibleBars.length" :bars="visibleBars" kind="trend"/>
-        <div v-else class="overview-blank pulse-blank"><span class="overview-empty-icon"><ChartCandlestick :size="25"/></span><h3>等待市场的下一条线索</h3><p>同步指数行情后，在这里查看收盘走势。</p><button v-if="canMaintain" class="text-button" :disabled="busy" @click="emit('job','sync')">同步市场行情<ArrowRight :size="14"/></button></div>
+        <div v-else class="overview-blank pulse-blank"><span class="overview-empty-icon"><ChartCandlestick :size="25"/></span><h3>暂无指数行情</h3><p>同步行情后查看指数走势。</p><button v-if="canMaintain" class="text-button" :disabled="busy" @click="emit('job','sync')">同步市场行情<ArrowRight :size="14"/></button></div>
         <footer class="pulse-source"><span class="pulse-source-dot"></span>{{ currentIndex?.quote ? (currentIndex.quote.source || '来源未标注')+' · '+dateTime(currentIndex.quote.ts)+' · '+(currentIndex.quote.kind==='spot'?'最新价':'不复权收盘') : '数据来源与报价时间将在同步后显示' }}</footer>
       </section>
-
-      <section class="overview-card insights-card" aria-labelledby="insights-heading">
+        <section class="overview-card holdings-card" aria-labelledby="holdings-heading">
+      <header class="overview-card-heading"><h2 id="holdings-heading">我的自选 <span class="overview-caption">{{ rows.length ? '持仓优先 · 显示 '+rows.length+' 只' : '持仓优先' }}</span></h2><button class="text-button" @click="emit('navigate','watchlist')">管理自选<ArrowUpRight :size="14"/></button></header>
+      <div v-if="rows.length" class="table-scroll"><table class="watch-table overview-table"><thead><tr><th>证券 / 代码</th><th class="number">最近价格</th><th class="number">涨跌幅</th><template v-if="publicMode"><th class="number">持仓价</th><th class="number">持仓数量</th><th class="number">持仓金额</th><th class="number">当天收益</th><th class="number">当天收益率</th><th class="number">总收益</th><th class="number">总收益率</th></template><th>研究状态</th></tr></thead><tbody>
+        <tr v-for="row in rows" :key="row.id"><td><button class="security-name" @click="emit('instrument',row.id)">{{ row.name }}</button><small>{{ row.symbol }} · {{ row.market }}</small></td><td class="number mono">{{ fmt(row.quote?.close ?? row.quote?.price, row.asset_class === 'etf' ? 3 : 2) }}</td><td :class="['number mono',direction(row.change_pct)]">{{ pct(row.change_pct) }}</td><template v-if="publicMode"><td class="number mono">{{ fmt(row.position?.cost_price, 4) }}</td><td class="number mono">{{ row.position?.quantity ?? '—' }}</td><td class="number mono">{{ fmt(row.position?.market_value) }}</td><td :class="['number mono',direction(row.position?.daily_pnl)]">{{ fmt(row.position?.daily_pnl) }}</td><td :class="['number mono',direction(row.position?.daily_return_pct)]">{{ pct(row.position?.daily_return_pct) }}</td><td :class="['number mono',direction(row.position?.total_pnl)]">{{ fmt(row.position?.total_pnl) }}</td><td :class="['number mono',direction(row.position?.total_return_pct)]">{{ pct(row.position?.total_return_pct) }}</td></template><td><span :class="['tag',row.observation_only?'':row.exclusion_reasons?.length?'amber':'green']">{{ row.observation_only ? '仅观察' : row.exclusion_reasons?.length ? '待核验' : '已核验' }}</span></td></tr>
+      </tbody></table></div>
+      <div v-else class="overview-blank watchlist-blank"><span class="overview-empty-icon"><Star :size="25"/></span><div><h3>尚未添加自选</h3><p>添加证券，查看行情与持仓。</p></div><button v-if="canEdit" class="secondary" @click="emit('add')">添加自选<ArrowRight :size="14"/></button></div>
+      <p v-if="rows.length && publicMode" class="overview-footnote">持仓收益按最近价与记录成本计算，不含费用；没有最近价时用已存日 K。缺失行情保留「—」。</p>
+    </section>
+      </div>
+      <div class="overview-secondary-column">
+        <section class="overview-card insights-card" aria-labelledby="insights-heading">
         <header class="overview-card-heading"><h2 id="insights-heading">研究提醒</h2><span class="overview-count">{{ attention.length }}</span></header>
         <div class="insight-list">
           <button v-for="item in attention" :key="item.title" class="insight-item" @click="emit('navigate',item.route)"><span class="insight-icon"><component :is="item.icon" :size="17"/></span><span class="insight-copy"><strong>{{ item.title }}</strong><small>{{ item.note }}</small></span><span class="insight-action">{{ item.action }}</span></button>
         </div>
         <div v-if="!attention.length" class="overview-blank"><span class="overview-empty-icon"><ShieldCheck :size="24"/></span><h3>{{ stats?.watch_count ? '暂无待处理事项' : '从第一只自选开始' }}</h3><p>{{ stats?.watch_count ? '行情缺失、核验与任务异常会显示在这里。' : '添加自选后，在这里关注数据与核验状态。' }}</p><button v-if="!stats?.watch_count && canEdit" class="text-button" @click="emit('add')">添加自选<ArrowRight :size="14"/></button></div>
       </section>
-    </div>
-
-    <div class="overview-bottom-grid">
-      <section class="overview-card readiness-card" aria-labelledby="readiness-heading">
+        <section class="overview-card readiness-card" aria-labelledby="readiness-heading">
         <header class="overview-card-heading"><h2 id="readiness-heading">研究准备度</h2><button class="overview-round-button" aria-label="查看数据与核验状态" @click="emit('navigate',publicMode?'readiness':'watchlist')"><ArrowUpRight :size="17"/></button></header>
         <div class="readiness-chart">
           <div v-for="item in readiness" :key="item.label" :class="['readiness-column',item.tone]">
+            <div class="readiness-label"><span>{{ item.label }}</span><strong>{{ item.value===null?'—':item.value+'%' }}</strong></div>
             <div class="readiness-bar" role="meter" :aria-label="item.label" :aria-valuenow="item.value ?? undefined" aria-valuemin="0" aria-valuemax="100" :aria-valuetext="item.value===null?'暂无数据':item.value+'%'">
-              <div class="readiness-bar-fill" :style="{height:(item.value ?? 0)+'%'}"></div><strong>{{ item.value===null?'—':item.value+'%' }}</strong>
-            </div><span>{{ item.label }}</span><small>{{ item.count ?? '—' }} / {{ stats?.watch_count ?? '—' }} 只</small>
+              <div class="readiness-bar-fill" :style="{width:(item.value ?? 0)+'%'}"></div>
+            </div>
+            <small>{{ item.count ?? '—' }} / {{ stats?.watch_count ?? '—' }} 只证券</small>
           </div>
-          <div class="readiness-explanation"><ShieldCheck :size="23"/><strong>先看证据<br/>再做研究</strong><p>按自选证券统计<br/>不代表投资评级</p></div>
         </div>
-        <div class="readiness-footer"><span class="status-dot"></span>核验与行情覆盖分别统计</div>
+        <div class="readiness-footer"><span class="status-dot"></span>依据自选数据统计 · 不代表投资评级</div>
       </section>
-
-      <section class="overview-card research-feed" aria-labelledby="reports-heading">
+        <section class="overview-card research-feed" aria-labelledby="reports-heading">
         <header class="overview-card-heading"><h2 id="reports-heading">最近研究</h2><button class="text-button" @click="emit('navigate','reports')">全部<ArrowUpRight :size="14"/></button></header>
         <button v-for="report in dashboard?.reports?.slice(0,3)" :key="report.id" class="research-feed-item" @click="emit('report',report.id)"><span class="feed-icon"><FileText :size="18"/></span><span class="feed-copy"><span class="feed-meta">{{ modes[report.mode] || report.mode }}<small>{{ report.report_date || dateTime(report.generated_at).slice(0,10) }}</small></span><strong>{{ report.summary }}</strong><small>{{ report.candidate_count ?? '—' }} 只候选 · 阅读报告</small></span><ArrowUpRight :size="15"/></button>
-        <div v-if="!dashboard?.reports?.length" class="overview-blank"><span class="overview-empty-icon"><FileText :size="24"/></span><h3>让研究留下记录</h3><p>同步行情后，生成第一份研究报告。<br/>已保存的报告会按时间出现在这里。</p></div>
+        <div v-if="!dashboard?.reports?.length" class="overview-blank"><span class="overview-empty-icon"><FileText :size="24"/></span><h3>暂无研究报告</h3><p>同步行情后，可生成首份报告。</p></div>
       </section>
+      </div>
     </div>
-
-    <section class="overview-card holdings-card" aria-labelledby="holdings-heading">
-      <header class="overview-card-heading"><h2 id="holdings-heading">我的自选 <span class="overview-caption">{{ rows.length ? '持仓优先 · 显示 '+rows.length+' 只' : '持仓优先' }}</span></h2><button class="text-button" @click="emit('navigate','watchlist')">管理自选<ArrowUpRight :size="14"/></button></header>
-      <div v-if="rows.length" class="table-scroll"><table class="watch-table overview-table"><thead><tr><th>证券 / 代码</th><th class="number">最近价格</th><th class="number">涨跌幅</th><template v-if="publicMode"><th class="number">持仓价</th><th class="number">持仓数量</th><th class="number">持仓金额</th><th class="number">当天收益</th><th class="number">当天收益率</th><th class="number">总收益</th><th class="number">总收益率</th></template><th>研究状态</th></tr></thead><tbody>
-        <tr v-for="row in rows" :key="row.id"><td><button class="security-name" @click="emit('instrument',row.id)">{{ row.name }}</button><small>{{ row.symbol }} · {{ row.market }}</small></td><td class="number mono">{{ fmt(row.quote?.close ?? row.quote?.price, row.asset_class === 'etf' ? 3 : 2) }}</td><td :class="['number mono',direction(row.change_pct)]">{{ pct(row.change_pct) }}</td><template v-if="publicMode"><td class="number mono">{{ fmt(row.position?.cost_price, 4) }}</td><td class="number mono">{{ row.position?.quantity ?? '—' }}</td><td class="number mono">{{ fmt(row.position?.market_value) }}</td><td :class="['number mono',direction(row.position?.daily_pnl)]">{{ fmt(row.position?.daily_pnl) }}</td><td :class="['number mono',direction(row.position?.daily_return_pct)]">{{ pct(row.position?.daily_return_pct) }}</td><td :class="['number mono',direction(row.position?.total_pnl)]">{{ fmt(row.position?.total_pnl) }}</td><td :class="['number mono',direction(row.position?.total_return_pct)]">{{ pct(row.position?.total_return_pct) }}</td></template><td><span :class="['tag',row.observation_only?'':row.exclusion_reasons?.length?'amber':'green']">{{ row.observation_only ? '仅观察' : row.exclusion_reasons?.length ? '待核验' : '已核验' }}</span></td></tr>
-      </tbody></table></div>
-      <div v-else class="overview-blank watchlist-blank"><span class="overview-empty-icon"><Star :size="25"/></span><div><h3>你的研究，从关注开始</h3><p>添加感兴趣的证券，集中查看行情、持仓与研究状态。</p></div><button v-if="canEdit" class="secondary" @click="emit('add')">添加自选<ArrowRight :size="14"/></button></div>
-      <p v-if="rows.length && publicMode" class="overview-footnote">持仓收益按最近价与记录成本计算，不含费用；没有最近价时用已存日 K。缺失行情保留「—」。</p>
-    </section>
 
     <section v-if="dashboard?.metals?.length" class="overview-metals-strip" aria-label="贵金属行情">
       <button class="metals-strip-label" @click="emit('navigate','metals')">黄金与白银<ArrowUpRight :size="14"/></button>

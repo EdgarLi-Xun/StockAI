@@ -44,7 +44,7 @@
   border-color: var(--accent);
   color: var(--on-accent);
 }
-:root[data-theme] :is(.primary, .secondary) { border-radius: 999px; }
+:root[data-theme] :is(.primary, .secondary) { border-radius: var(--radius-control); }
 :root[data-theme] :is(.primary, .public-main .primary, .assistant-launcher):hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 :root[data-theme] .workspace-nav-section > button.active { background: var(--accent-soft); color: var(--accent-text); }
 :root[data-theme] :is(.workspace-nav-section > button.active > svg, .workspace-nav-section > button.active:hover) { color: var(--accent-text); }
@@ -120,7 +120,7 @@
 :root[data-theme='dark'] .modal-scrim { background: #050b13b8; }
 
 /* 摘要与侧栏按栏目排版，主题切换时仍沿用同一套语义色。 */
-:root[data-theme] .public-workspace #primary-workspace-navigation { background: var(--surface-soft); }
+:root[data-theme] .public-workspace #primary-workspace-navigation { background: var(--canvas); }
 :root[data-theme] .workspace-nav-section > button.active,
 :root[data-theme] .workspace-nav-section > button.active:hover { background: var(--accent-soft); color: var(--accent-text); }
 :root[data-theme] .public-workspace .workspace-nav-section > button.active > svg { color: inherit; }

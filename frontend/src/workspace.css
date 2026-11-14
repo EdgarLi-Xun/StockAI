@@ -1,8 +1,8 @@
 /* 共享工作台：统一导航、排版、表面层级和响应式布局。 */
 :root {
   --font-display: "Segoe UI Variable Display", "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  --radius-panel: 16px;
-  --radius-control: 8px;
+  --radius-panel: 12px;
+  --radius-control: 7px;
   font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   font-size: 14px;
   color: #233b32;

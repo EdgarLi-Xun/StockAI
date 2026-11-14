@@ -40,7 +40,7 @@ const upgradeHeadline=computed(()=>{
   if(!current)return ''
   const running=upgrade.value?.current_version
   const installed=current.actual_version||current.target_version
-  if(current.status==='succeeded'&&running&&installed&&running!==installed)return '正在退出并打开新版本'
+  if(current.status==='succeeded'&&props.desktop&&running&&running===current.from_version&&installed&&running!==installed)return '正在退出并打开新版本'
   return upgradeStates[current.status]||current.status
 })
 const configured=computed(()=>sync.value.status!=='unconfigured'&&sync.value.status!=='loading')

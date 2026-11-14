@@ -396,10 +396,10 @@
 }
 @media (prefers-reduced-motion:reduce) { .workspace-nav { transition: none; } }
 
-/* 导航使用轻底色与白色选中层，沿用外观设置中的主题变量。 */
+/* 中性侧栏、白色选中层与克制的主题色，保留深色模式和窄屏布局。 */
 :root[data-theme] .public-workspace > .workspace-nav,
 :root[data-theme] .app-shell > .sidebar {
-  background: var(--surface);
+  background: var(--canvas);
   border-right-color: var(--border);
 }
 .workspace-nav-brand { min-height: 82px; padding-inline: 21px; }
@@ -407,41 +407,43 @@
 .workspace-brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px; }
 :root[data-theme] .workspace-nav-brand .workspace-brand-mark,
 :root[data-theme] .sidebar .brand .brand-mark {
-  color: var(--on-accent);
-  background: var(--accent);
-  box-shadow: 0 2px 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--surface);
+  background: var(--dark);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dark) 10%, transparent);
 }
 :root[data-theme] .workspace-nav-brand .workspace-brand-mark svg { color: inherit; }
-.workspace-nav-caption { gap: 6px; margin: 0 15px 25px; padding: 10px 8px; border-block: 1px solid var(--border); font-size: 11px; }
+.workspace-nav-caption { gap: 6px; margin: 0 15px 25px; padding: 10px 8px; border-block: 1px solid var(--border); font-size: 11px; line-height: 1.6; }
 .workspace-nav-caption .status-dot { width: 5px; height: 5px; }
 .workspace-private-badge { margin-left: auto; font-size: 8px; letter-spacing: .7px; color: var(--muted); }
 .workspace-nav-sections { padding-inline: 12px; }
-.workspace-nav-section h2 { margin: 0 12px 9px; font-size: 10px; letter-spacing: 1.2px; }
+.workspace-nav-section h2 { margin: 0 12px 9px; font-size: 11px; letter-spacing: .6px; font-weight: 500; }
 .workspace-nav-section + .workspace-nav-section { margin-top: 26px; }
 .workspace-nav-section > button { min-height: 43px; margin-block: 4px; gap: 11px; padding: 9px 12px; border: 1px solid transparent; border-radius: 8px; font-size: 13px; transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }
 .workspace-nav-section > button > svg { stroke-width: 1.65; }
 :root[data-theme] .workspace-nav .workspace-nav-section > button.active,
 :root[data-theme] .sidebar .sidebar-navigation .nav-item.active {
-  color: var(--accent-text);
-  background: var(--accent-soft);
-  border-color: transparent;
-  box-shadow: none;
+  color: var(--dark);
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--dark) 7%, transparent), inset 0 1px 0 color-mix(in srgb, var(--surface) 70%, transparent);
   font-weight: 600;
 }
 :root[data-theme] .workspace-nav .workspace-nav-section > button.active > svg,
 :root[data-theme] .sidebar .sidebar-navigation .nav-item.active > svg { color: var(--accent-text); }
 :root[data-theme] .workspace-nav .workspace-nav-section > button:hover,
-:root[data-theme] .sidebar .sidebar-navigation .nav-item:hover { background: var(--accent-soft); color: var(--accent-text); }
+:root[data-theme] .sidebar .sidebar-navigation .nav-item:hover { background: var(--surface-soft); color: var(--dark); }
+:root[data-theme] .workspace-nav .workspace-nav-section > button.active:hover,
+:root[data-theme] .sidebar .sidebar-navigation .nav-item.active:hover { background: var(--surface); border-color: color-mix(in srgb, var(--accent-text) 28%, var(--border)); }
 .workspace-nav-active-mark { width: 5px; height: 5px; }
 .workspace-nav-admin { padding-top: 12px; }
 .workspace-nav-footer { margin-inline: 20px; padding: 17px 2px 80px; font-size: 11px; gap: 5px 8px; }
 .workspace-nav-footer small { font-size: 10px; font-variant-numeric: tabular-nums; }
 .workspace-search { border-radius: 8px; transition: border-color .15s ease, box-shadow .15s ease; }
 .workspace-search:focus-within { border-color: var(--accent-text); box-shadow: 0 0 0 3px var(--accent-soft); }
-.workspace-tabs { gap: 6px; padding-top: 10px; padding-bottom: 10px; }
-.workspace-tabs > button { min-height: 34px; padding: 7px 12px; border: 1px solid transparent; border-radius: 7px; font-size: 12px; }
+.workspace-tabs { gap: 16px; padding-top: 10px; padding-bottom: 0; }
+.workspace-tabs > button { min-height: 44px; padding: 7px 4px 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
 .workspace-tabs > button:hover { background: var(--surface-soft); color: var(--dark); }
-.workspace-tabs > button[aria-current] { border-color: var(--border); background: var(--surface-soft); color: var(--accent-text); }
+.workspace-tabs > button[aria-current] { border-bottom-color: var(--accent-text); background: transparent; color: var(--accent-text); }
 
 /* 本地入口与账号工作台保持相同的导航层次，不改变侧栏占用宽度。 */
 .sidebar .brand { padding-left: 8px; }
@@ -452,13 +454,13 @@
 .sidebar .workspace strong { font-size: 12px; line-height: 1.6; }
 .sidebar .workspace small { font-size: 8px; margin-top: 3px; letter-spacing: 1px; }
 .sidebar-navigation { scrollbar-color: var(--border) transparent; }
-.sidebar .nav-caption { font-size: 10px; letter-spacing: 1.3px; margin-bottom: 10px; }
+.sidebar .nav-caption { font-size: 11px; letter-spacing: .6px; font-weight: 500; margin-bottom: 10px; }
 .sidebar .nav-caption.separated { margin-top: 25px; }
 .sidebar .nav-item { min-height: 43px; margin-block: 4px; border: 1px solid transparent; border-radius: 8px; padding: 9px 11px; }
 .sidebar .nav-item svg { width: 17px; height: 17px; }
 .sidebar .nav-count { min-width: 21px; padding: 2px 5px; text-align: center; border-radius: 5px; font-variant-numeric: tabular-nums; }
 .sidebar .sidebar-bottom { padding-top: 12px; }
-.sidebar .local-model { padding: 12px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); gap: 9px; }
+.sidebar .local-model { padding: 12px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); gap: 9px; box-shadow: 0 1px 2px color-mix(in srgb, var(--dark) 4%, transparent); }
 :root[data-theme] .sidebar .local-model .model-icon { color: var(--accent-text); background: var(--accent-soft); border-radius: 8px; }
 .sidebar .local-model strong { font-size: 12px; }
 .sidebar .local-model small { font-size: 10px; line-height: 1.6; }
@@ -481,8 +483,8 @@
   .workspace-mobile-nav > button > svg { box-sizing: content-box; padding: 4px 16px; border-radius: 9px; }
   .workspace-mobile-nav > button[aria-current] { font-weight: 600; }
   .workspace-mobile-nav > button[aria-current] > svg { background: var(--accent-soft); }
-  .workspace-tabs { gap: 5px; padding: 8px 12px; }
-  .workspace-tabs > button { min-height: 40px; padding-inline: 10px; }
+  .workspace-tabs { gap: 10px; padding: 8px 14px 0; }
+  .workspace-tabs > button { min-height: 48px; padding-inline: 4px; padding-bottom: 14px; }
   .sidebar .nav-item { min-height: 44px; }
   :root[data-theme] .sidebar .sidebar-close { color: var(--muted); }
   :root[data-theme] .sidebar .sidebar-close:hover { color: var(--accent-text); background: var(--accent-soft); }

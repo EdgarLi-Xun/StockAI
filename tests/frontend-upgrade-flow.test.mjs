@@ -6,12 +6,19 @@ import vm from 'node:vm'
 
 const require=createRequire(new URL('../frontend/package.json',import.meta.url))
 const ts=require('typescript')
+const {computed,ref}=require('vue')
 const source=readFileSync(new URL('../frontend/src/SystemSettings.vue',import.meta.url),'utf8').split('</script>')[0]
 const parsed=ts.createSourceFile('settings.ts',source.slice(source.indexOf('>')+1),ts.ScriptTarget.Latest,true)
 const names=['act','load','loadUpgrade','prepareLocal','downloadLocalPlan','downloadUpgrade','pauseDownload','stopUpgradeFlow']
 const functions=parsed.statements.filter(node=>ts.isFunctionDeclaration(node)&&names.includes(node.name?.text)).map(node=>node.getText(parsed)).join('\n')
 const code=ts.transpileModule(functions,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText
+const headlineDeclarations=parsed.statements.filter(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(declaration=>['upgradeStates','tx','upgradeHeadline'].includes(declaration.name.getText(parsed)))).map(node=>node.getText(parsed)).join('\n')
+const headlineCode=ts.transpileModule(headlineDeclarations,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText
 const plan=changes=>({id:'update-one',component:'desktop',trust:'github-sha256',status:'planned',from_version:'3.2.4',target_version:'3.2.5',confirmation:'bound-to-update-one',release:{package:{size:100}},...changes})
+
+function headline({desktop=true,running='3.2.4',transaction=plan({status:'succeeded'})}={}){
+  return vm.runInNewContext(headlineCode+'\nupgradeHeadline.value',{computed,props:{desktop},upgrade:ref({current_version:running,transaction})})
+}
 
 function client(options={}){
   const requests=[],intervals=new Map(),ref=value=>({value})
@@ -176,4 +183,26 @@ test('the desktop update action cannot start a local install plan on a Web serve
   const c=client();c.state.props.desktop=false;await c.state.prepare()
   assert.equal(c.requests.length,0)
   assert.match(c.state.error.value,/本机桌面/)
+})
+
+test('the old desktop process shows the successful update handoff',()=>{
+  assert.equal(headline(),'正在退出并打开新版本')
+})
+
+test('a successful Web upgrade does not claim that the desktop is restarting',()=>{
+  assert.equal(headline({desktop:false}),'升级成功')
+})
+
+test('a newer desktop does not claim to restart for a historical successful upgrade',()=>{
+  assert.equal(headline({running:'3.2.18',transaction:plan({status:'succeeded',from_version:'3.2.13',target_version:'3.2.14',actual_version:'3.2.14'})}),'升级成功')
+})
+
+test('the installed desktop version shows a completed upgrade',()=>{
+  assert.equal(headline({running:'3.2.5'}),'升级成功')
+  assert.equal(headline({transaction:plan({status:'succeeded',actual_version:'3.2.4'})}),'升级成功')
+})
+
+test('upgrade headlines retain the current transaction state',()=>{
+  assert.equal(headline({transaction:null}),'')
+  assert.equal(headline({transaction:plan({status:'exit_requested'})}),'正在退出并交接升级')
 })
