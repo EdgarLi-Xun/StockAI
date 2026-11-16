@@ -78,6 +78,44 @@
 .report-reader-versions, .report-reader-supplement { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 18px; font-size: 13px; }
 .report-reader-supplement small { font-size: 12px; line-height: 1.8; }
 
+/* 实验先展示记录与比较入口，课题表单按需展开。 */
+.experiment-topic-create { padding: 0 24px; border-bottom: 1px solid var(--border); }
+.experiment-topic-create > summary { width: fit-content; padding: 15px 0; color: var(--accent-text); font-size: 13px; cursor: pointer; }
+.experiment-topic-create .research-topic-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 16px; padding: 0 0 20px; margin: 0; border: 0; }
+.experiment-topic-create .research-topic-form label { min-width: 0; font-size: 12px; }
+.experiment-topic-create .research-topic-form :is(input, button) { min-height: 40px; }
+.records-panel .research-filters.experiment-filters { grid-template-columns: minmax(0, 1fr) auto; }
+.experiment-list-head, .records-panel .experiment-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) 80px 90px 80px; align-items: center; gap: 16px; padding: 18px 24px; }
+.experiment-list-head { padding-block: 12px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.experiment-list-head > span:nth-child(4) { text-align: right; }
+.records-panel .experiment-row { border-top: 0; border-bottom: 1px solid var(--border); }
+.records-panel .experiment-row:last-child { border-bottom: 0; }
+.records-panel .experiment-row.is-selected { background: var(--accent-soft); }
+.experiment-select { display: flex; align-items: center; justify-content: center; align-self: stretch; min-height: 44px; cursor: pointer; }
+.experiment-select input { margin: 0; }
+.experiment-row .experiment-open { padding: 0; color: var(--dark); }
+.experiment-open b { font-size: 15px; font-weight: 500; line-height: 1.7; overflow-wrap: anywhere; }
+.experiment-open small { margin-top: 5px; font-size: 12px; line-height: 1.8; }
+.experiment-status { justify-self: start; }
+.experiment-return { text-align: right; font-variant-numeric: tabular-nums; }
+.experiment-return b { font-size: 15px; font-weight: 500; }
+.experiment-return > small { display: none; }
+.experiment-row .experiment-action { justify-self: end; min-height: 44px; }
+@media (max-width: 760px) {
+  .experiment-topic-create { padding-inline: 16px; }
+  .experiment-topic-create > summary { min-height: 44px; padding-block: 12px; }
+  .experiment-topic-create .research-topic-form { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .experiment-topic-create .research-topic-form button { justify-self: start; min-height: 44px; }
+  .experiment-list-head { display: none; }
+  .records-panel .experiment-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 18px 16px; }
+  .experiment-select { grid-column: 1; grid-row: 1 / 3; }
+  .experiment-row .experiment-open { grid-column: 2 / -1; }
+  .experiment-status { grid-column: 2; }
+  .experiment-return { grid-column: 2; grid-row: 3; display: flex; align-items: center; gap: 10px; text-align: left; }
+  .experiment-return > small { display: inline; color: var(--muted); font-size: 12px; }
+  .experiment-row .experiment-action { grid-column: 3; grid-row: 3; }
+}
+
 /* 日志与提醒采用同一套列表层级，通知设置放在次要位置。 */
 .public-main .research-section.records-panel { padding: 0; }
 .public-main .records-panel > .panel-heading { align-items: flex-start; gap: 16px; padding: 22px 24px; border-bottom: 1px solid var(--border); }
