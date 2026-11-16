@@ -78,6 +78,56 @@
 .report-reader-versions, .report-reader-supplement { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 18px; font-size: 13px; }
 .report-reader-supplement small { font-size: 12px; line-height: 1.8; }
 
+/* 数据问题以原因和证券为主，详细证据保留在原生展开区。 */
+.readiness-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-bottom: 24px; border-block: 1px solid var(--border); }
+.readiness-summary > article { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 20px 24px; margin: 0; border-right: 1px solid var(--border); }
+.readiness-summary > article:first-child { padding-left: 0; }
+.readiness-summary > article:last-child { border-right: 0; }
+.readiness-summary small, .readiness-summary span { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.readiness-summary strong { color: var(--dark); font-size: 27px; font-weight: 600; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.readiness-summary em { color: var(--muted); font-size: 16px; font-style: normal; font-weight: 400; }
+.readiness-records .readiness-row { grid-template-columns: 160px minmax(0, 1fr) auto; align-items: start; gap: 20px; padding: 22px 24px; border-top: 0; border-bottom: 1px solid var(--border); }
+.readiness-identity b { font-size: 14px; font-weight: 500; line-height: 1.8; overflow-wrap: anywhere; }
+.readiness-records .readiness-identity small { margin-top: 5px; font-size: 12px; }
+.readiness-problem-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 10px; }
+.readiness-records .readiness-problem-heading h3 { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.8; overflow-wrap: anywhere; }
+.readiness-problem > p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.readiness-evidence { margin-top: 5px; }
+.readiness-evidence > summary { width: fit-content; padding: 5px 0; color: var(--muted); font-size: 12px; cursor: pointer; }
+.readiness-evidence dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 16px; margin: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.readiness-evidence dd { margin: 0; overflow-wrap: anywhere; }
+.readiness-evidence > p { margin: 8px 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.readiness-records .readiness-evidence > a { display: inline-block; margin: 0; color: var(--accent-text); font-size: 12px; }
+.readiness-records .readiness-evidence > a:visited { color: var(--muted); }
+.readiness-records .readiness-abilities { margin: 0; padding: 20px 24px; }
+.readiness-records .readiness-abilities > summary { width: fit-content; margin: 0; color: var(--dark); font-size: 13px; cursor: pointer; }
+.readiness-records .readiness-abilities[open] > summary { margin-bottom: 16px; }
+.readiness-records .readiness-calendar { margin: 0; padding: 16px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.readiness-archive { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px 24px; padding-top: 22px; border-top: 1px solid var(--border); }
+.readiness-archive h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
+.readiness-archive p { margin: 6px 0; font-size: 13px; }
+.readiness-archive > button { min-height: 44px; }
+@media (max-width: 1100px) {
+  .readiness-records .readiness-row { grid-template-columns: 130px minmax(0, 1fr); }
+  .readiness-records .readiness-row > button { grid-column: 2; justify-self: start; }
+}
+@media (max-width: 760px) {
+  .readiness-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 20px; }
+  .readiness-summary > article { padding: 16px; }
+  .readiness-summary > article:first-child { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-column: 1 / -1; padding: 16px 0; border-right: 0; border-bottom: 1px solid var(--border); }
+  .readiness-summary > article:first-child strong { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+  .readiness-summary > article:nth-child(2) { padding-left: 0; }
+  .readiness-summary strong { font-size: 24px; }
+  .readiness-records .readiness-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px 16px; }
+  .readiness-records .readiness-row > button { grid-column: 1; min-height: 44px; margin-top: 0; }
+  .readiness-records .readiness-identity { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .readiness-records .readiness-identity small { margin: 0; }
+  .readiness-evidence > summary { display: list-item; min-height: 44px; padding: 12px 0; }
+  .readiness-records .readiness-abilities { padding: 16px; }
+  .readiness-records .readiness-abilities > summary { min-height: 44px; padding: 12px 0; }
+  .readiness-records .readiness-calendar { padding: 16px; }
+}
+
 /* 实验先展示记录与比较入口，课题表单按需展开。 */
 .experiment-topic-create { padding: 0 24px; border-bottom: 1px solid var(--border); }
 .experiment-topic-create > summary { width: fit-content; padding: 15px 0; color: var(--accent-text); font-size: 13px; cursor: pointer; }
