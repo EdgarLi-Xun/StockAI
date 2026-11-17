@@ -18,7 +18,7 @@ const props = defineProps<{ view: string, user: any, context?: { kind: string, i
 const emit = defineEmits<{ navigate: [name: string], 'clear-context': [] }>()
 // 定义研究增强导航，与后端已实现的功能范围对应。
 const sections = [ ['readiness','数据就绪度'], ['usage','模型用量'], ['alerts','条件提醒'], ['journals','研究日志'], ['portfolio','组合风险'], ['experiments','历史实验'], ['assistant','AI 助手'] ]
-const descriptions: Record<string,string> = { readiness:'检查自选证券的数据缺口与可用研究能力。', usage:'报告、连接测试与项目对话，共用本人的调用上限。', alerts:'管理证券提醒，查看触发与投递记录。', journals:'保存研究判断，查看修订与后续表现。', portfolio:'以同一账户的现金与有效持仓估值，观察风险敞口。', experiments:'按课题整理参数与结果，比较不同实验。', assistant:'聊聊想法，查询研究结果，准备项目配置、自选和持仓记录。' }
+const descriptions: Record<string,string> = { readiness:'检查自选证券的数据缺口与可用研究能力。', usage:'查看模型调用记录，设置每日与每月上限。', alerts:'管理证券提醒，查看触发与投递记录。', journals:'保存研究判断，查看修订与后续表现。', portfolio:'以同一账户的现金与有效持仓估值，观察风险敞口。', experiments:'按课题整理参数与结果，比较不同实验。', assistant:'聊聊想法，查询研究结果，准备项目配置、自选和持仓记录。' }
 const labels: Record<string,string> = { empty:'暂无自选', read_failure:'读取失败', expired:'已到期', active:'启用', disabled:'停用', archived:'已归档', ready:'已就绪', hint:'提示', blocked:'受阻', unknown:'未知', not_applicable:'不适用', incomplete:'资料不完整', verified:'已核验', valid:'有效', queued:'排队中', running:'处理中', validating:'校验中', success:'已完成', failed:'失败', interrupted:'已中断', cancelled:'已停止', uncertain:'结果不确定', help:'项目帮助 · 静态资料', refused:'超出项目范围', clarification:'需要明确对象', permission_required:'需要数据授权', delivered:'已投递', pending_dnd:'免打扰暂存', cooldown:'冷却抑制', resolved:'条件已恢复', not_enabled:'邮件未开启', not_configured:'站点未配置邮件', retry:'等待重试', pending:'等待处理', calendar_unknown:'日历覆盖不足', baseline_missing:'起点价格缺失', pending_start:'等待开盘起点', not_due:'尚未到期', price_missing:'目标价格缺失', suspended:'当日停牌', corporate_actions_unverified:'公司行动未核验', observed:'已计算', closed:'成交已闭合', partial:'部分配对', unlinked:'未关联模拟成交', no_round_trip:'尚无闭合成交', EVIDENCE_OR_DATA_INSUFFICIENT:'历史数据或证据不足', INVALID_OUTPUT:'模型回答未通过结构、引用或事实校验', CONTEXT_TOO_LARGE:'上下文超过预算，请减少所选对象或缩短问题', USAGE_LIMIT:'本人的调用上限已用完', UNCERTAIN_TIMEOUT:'请求可能已送达，未自动重试', SUMMARY_PERMISSION_REQUIRED:'所选模型尚未授权模拟汇总', TRADE_PERMISSION_REQUIRED:'所选模型尚未授权逐笔成交', NO_PROFILE:'请先保存个人默认模型配置', CANCELLED:'请求已停止', SOURCE_DELETED:'来源已删除', OLLAMA_DISABLED:'站点尚未启用服务器 Ollama，可查阅项目帮助或配置其他服务', PROFILE_DISABLED:'所选模型配置已停用', PERMISSION_REVOKED:'数据授权已撤销，请使用当前授权重新提交', RECONNECT_REQUIRED:'恢复后需要重新连接个人凭据', KEY_REVOKED:'模型凭据已撤销', CONSENT_REVOKED:'数据授权已撤销', USAGE_UNAVAILABLE:'用量权威记录不可用，调用已暂停' }
 const conditionLabels: Record<string,string> = { price_above:'价格达到或高于', price_below:'价格达到或低于', change_above:'相对参考收盘涨跌幅 ≥', change_below:'相对参考收盘涨跌幅 ≤', ma_above:'上穿均线', ma_below:'跌破均线', risk_changed:'风险状态变化', candidate_invalid:'指定报告候选失效' }
 function alertCondition(row:any){const data=row.data||{};if(String(data.condition||'').startsWith('change_')&&data.change_basis==='prev_close')return data.condition==='change_above'?'相对昨收涨跌幅 ≥':'相对昨收涨跌幅 ≤';return conditionLabels[data.condition]||data.condition}
@@ -66,6 +66,8 @@ defineExpose({guard,dirty,pending,messageVersion,sessionId,newSession,focusQuest
 function unload(e:BeforeUnloadEvent){if(dirty.value||Object.values(editorDrafts).some(Boolean)||Object.values(settingsDirty.value).some(Boolean)||question.value.trim()){e.preventDefault();e.returnValue=''}}
 // 串行处理提交动作，版本冲突时保留草稿并显示重新读取提示。
 async function action(fn:()=>Promise<any>,message=''){if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const r=await fn();if(message)notice.value=message;return r}catch(e:any){error.value=e.code==='VERSION_CONFLICT'?'已有新版本。草稿已保留，请重新载入记录后再保存。':e.message;return null}finally{busy.value=false}}
+// 数字输入清空后会产生空字符串；在提交边界转为 null，同时保留 0 的暂停含义。
+async function saveUsageLimits(){await action(async()=>{const data={...limits.value,daily:limits.value.daily===''?null:limits.value.daily,monthly:limits.value.monthly===''?null:limits.value.monthly};usage.value=await api('/me/usage/limits',{method:'PUT',body:JSON.stringify(data)});limits.value={...usage.value.settings};settingsDirty.value.usage=false},'本人调用上限已更新，发出请求前会重新核对。')}
 // 读取本人研究对象的精简选项，供提醒、判断和助手引用表单使用。
 async function common(){const r=await api('/me/research/options');watchlist.value=r.watchlist;reports.value=r.reports;profiles.value=r.profiles;accounts.value=r.accounts;backtests.value=r.backtests}
 // 重新读取本人对象选项和当前页面，再应用一次性跳转上下文，并统一处理加载错误。
@@ -192,9 +194,28 @@ onBeforeUnmount(()=>{alive=false;sessionRead++;clearInterval(poll);window.remove
       </template>
 
       <template v-if="view==='usage'&&usage">
-        <div class="research-metrics"><article v-for="period in ['daily','monthly']" :key="period" class="panel"><small>{{period==='daily'?'今日调用':'本月调用'}} · {{usage[period].window}}</small><strong>{{usage[period].sent}} <em>/ {{usage[period].limit??'未设上限'}}</em></strong><span>预留 {{usage[period].reserved}} · 其中不确定 {{usage[period].uncertain}}</span><span>剩余 {{usage[period].remaining??'未限制'}} · 已知 Token {{fmt(usage[period].known_tokens,0)}}</span></article><article class="panel"><small>服务商余额与账单金额</small><strong>未提供</strong><span>未知用量 {{usage.monthly.unknown_usage}} 次</span><span>缺少 usage 的调用仍计入次数</span></article></div>
-        <form class="panel research-section" @input="settingsDirty.usage=true" @submit.prevent="action(async()=>{usage=await api('/me/usage/limits',{method:'PUT',body:JSON.stringify(limits)});limits={...usage.settings};settingsDirty.usage=false},'本人调用上限已更新，发出请求前会重新核对。')"><div class="panel-heading"><div><h2>本人的调用上限</h2><p>留空表示未设置，0 表示暂停该窗口内的全部模型调用。</p></div></div><div class="form-grid"><label>每日最多调用次数<input v-model="limits.daily" type="number" min="0" step="1" placeholder="未设置" @change="limits.daily=limits.daily===''?null:Number(limits.daily)"/></label><label>每月最多调用次数<input v-model="limits.monthly" type="number" min="0" step="1" placeholder="未设置" @change="limits.monthly=limits.monthly===''?null:Number(limits.monthly)"/></label></div><p class="research-footnote">按服务器上海时间计算。规则报告降级不消耗模型次数；请求发出后的失败和不确定结果占一次，重试另计一次。</p><button class="primary" :disabled="busy">保存上限</button></form>
-        <section class="panel research-section"><h2>本月调用分布</h2><div class="table-scroll"><table class="watch-table"><thead><tr><th>个人配置</th><th>用途</th><th>已发出</th><th>有效预留</th><th>已知 Token</th><th>未知 usage</th></tr></thead><tbody><tr v-for="g in usage.groups" :key="g.profile_id+g.purpose"><td>{{profiles.find(p=>p.id===g.profile_id)?.name||'历史配置'}}</td><td>{{{assistant:'项目对话',profile_test:'连接测试',standard:'标准早报',closing:'收盘跟踪',full:'深度复盘',supplement:'补充AI'}[g.purpose as string]||g.purpose}}</td><td>{{g.sent}}</td><td>{{g.reserved}}</td><td>{{fmt(g.known_tokens,0)}}</td><td>{{g.unknown_usage}}</td></tr></tbody></table></div><p v-if="!usage.groups.length" class="research-empty">本月暂无已发送或预留的模型请求。</p></section>
+        <section class="usage-summary" aria-label="模型调用概况">
+          <article v-for="period in ['daily','monthly']" :key="period">
+            <div class="usage-period"><h2>{{period==='daily'?'今日调用':'本月调用'}}</h2><span>{{usage[period].window}}</span></div>
+            <p class="usage-count"><strong>{{usage[period].sent}}</strong><span>/ {{usage[period].limit??'未设上限'}}<small>已发出 / 调用上限</small></span></p>
+            <dl><div><dt>剩余次数</dt><dd>{{usage[period].remaining??'未限制'}}</dd></div><div><dt>有效预留</dt><dd>{{usage[period].reserved}}</dd></div><div><dt>已知 Token</dt><dd>{{fmt(usage[period].known_tokens,0)}}</dd></div><div><dt>结果不确定</dt><dd>{{usage[period].uncertain}}</dd></div></dl>
+          </article>
+        </section>
+        <div class="usage-workspace">
+          <div class="usage-details">
+            <section class="panel research-section records-panel usage-distribution" aria-label="本月调用分布">
+              <div class="panel-heading"><div><h2>本月调用分布</h2><p>按个人模型配置与用途统计。</p></div></div>
+              <div v-if="usage.groups.length" class="table-scroll"><table class="watch-table"><thead><tr><th>个人配置</th><th>用途</th><th>已发出</th><th>有效预留</th><th>已知 Token</th><th>用量未知</th></tr></thead><tbody><tr v-for="g in usage.groups" :key="g.profile_id+g.purpose"><td>{{profiles.find(p=>p.id===g.profile_id)?.name||'历史配置'}}</td><td>{{{assistant:'项目对话',profile_test:'连接测试',standard:'标准早报',closing:'收盘跟踪',full:'深度复盘',supplement:'补充分析'}[g.purpose as string]||g.purpose}}</td><td>{{g.sent}}</td><td>{{g.reserved}}</td><td>{{fmt(g.known_tokens,0)}}</td><td>{{g.unknown_usage}}</td></tr></tbody></table></div>
+              <div v-else class="research-page-empty"><Activity :size="24"/><h3>本月暂无调用记录</h3><p>报告、连接测试或项目对话产生请求后，会在这里显示已发出与预留次数。</p></div>
+            </section>
+            <section class="usage-accounting"><h2>统计口径</h2><p>按上海时间计算。规则报告降级不消耗模型次数；请求发出后的失败和不确定结果占一次，重试另计一次。</p><p>本月有 <strong>{{usage.monthly.unknown_usage}}</strong> 次调用未返回用量，仍计入调用次数。服务商余额与账单金额暂未提供。</p></section>
+          </div>
+          <form class="panel research-section usage-limits" aria-label="调用上限设置" @input="settingsDirty.usage=true" @submit.prevent="saveUsageLimits">
+            <div class="panel-heading"><div><h2>调用上限</h2><p>报告、连接测试与项目对话共用。</p></div></div>
+            <div class="usage-limit-fields"><label>每日最多调用次数<input v-model.number="limits.daily" type="number" min="0" step="1" placeholder="未设置"/></label><label>每月最多调用次数<input v-model.number="limits.monthly" type="number" min="0" step="1" placeholder="未设置"/></label></div>
+            <p class="research-footnote">留空表示不设上限；填 0 则暂停对应时间范围内的全部模型调用。</p><button class="primary" :disabled="busy">保存上限</button>
+          </form>
+        </div>
       </template>
 
       <template v-if="view==='alerts'">

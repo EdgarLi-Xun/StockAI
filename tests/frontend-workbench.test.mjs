@@ -10,7 +10,7 @@ const ts = require('typescript')
 const source = readFileSync(new URL('../frontend/src/ResearchWorkbench.vue', import.meta.url), 'utf8').split('</script>')[0]
 const parsed = ts.createSourceFile('workbench.ts', source.slice(source.indexOf('>') + 1), ts.ScriptTarget.Latest, true)
 // Execute the component's real request functions with controlled network completion order.
-const functions = parsed.statements.filter(node => ts.isFunctionDeclaration(node) && ['refresh', 'openSession'].includes(node.name?.text)).map(node => node.getText(parsed)).join('\n')
+const functions = parsed.statements.filter(node => ts.isFunctionDeclaration(node) && ['refresh', 'openSession', 'action', 'saveUsageLimits'].includes(node.name?.text)).map(node => node.getText(parsed)).join('\n')
 const code = ts.transpileModule(functions, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 
 function client(view = 'journals') {
@@ -18,10 +18,10 @@ function client(view = 'journals') {
   const state = {
     props: { view }, generation: 0, alive: true, sessionRead: 0, location: { hash: '#dashboard' }, URLSearchParams,
     page: ref(1), size: ref(20), query: ref(''), status: ref(''), topicFilter: ref('original-topic'), sessionPage: ref(1), messagePage: ref(1),
-    loading: ref(false), error: ref(''), list: ref({ items: [], total: 0 }), topics: ref([]), readiness: ref(null), usage: ref(null),
+    loading: ref(false), busy: ref(false), error: ref(''), notice: ref(''), list: ref({ items: [], total: 0 }), topics: ref([]), readiness: ref(null), usage: ref(null),
     limits: ref({}), settingsDirty: ref({}), events: ref(null), notification: ref(null), selectedAccount: ref('account-1'), accounts: ref([]),
     risk: ref(null), sessions: ref({ items: [] }), session: ref(null), help: ref(null),
-    api: path => new Promise((resolve, reject) => requests.push({ path, resolve, reject }))
+    api: (path, options) => new Promise((resolve, reject) => requests.push({ path, options, resolve, reject }))
   }
   vm.runInNewContext(code + '\nglobalThis.invoke = refresh;', state)
   function take(prefix) {
@@ -30,7 +30,7 @@ function client(view = 'journals') {
     return requests.splice(index, 1)[0]
   }
   async function respond(prefix, value) { take(prefix).resolve(value); await nextTurn() }
-  return { state, requests, take, respond, refresh: () => state.invoke() }
+  return { state, requests, take, respond, refresh: () => state.invoke(), saveLimits: () => state.saveUsageLimits() }
 }
 
 test('late journal rows cannot replace the experiment page after navigation', async () => {
@@ -87,4 +87,37 @@ test('experiment requests retain the topic and pagination captured when they sta
   assert.equal(params.get('topic_id'), 'original-topic')
   assert.equal(params.get('page'), '1')
   result.resolve({ items: [] }); await pending
+})
+
+for (const [name, draft, expected] of [
+  ['cleared daily cap and zero monthly cap', { daily: '', monthly: 0 }, { daily: null, monthly: 0 }],
+  ['zero daily cap and cleared monthly cap', { daily: 0, monthly: '' }, { daily: 0, monthly: null }],
+  ['two cleared caps', { daily: '', monthly: '' }, { daily: null, monthly: null }],
+  ['positive caps', { daily: 20, monthly: 200 }, { daily: 20, monthly: 200 }],
+]) {
+  test('saving usage limits accepts ' + name, async () => {
+    const c = client('usage')
+    c.state.limits.value = { ...draft, version: 4 }
+    c.state.settingsDirty.value.usage = true
+    const pending = c.saveLimits(), request = c.take('/me/usage/limits')
+    assert.equal(request.options.method, 'PUT')
+    assert.deepEqual(JSON.parse(request.options.body), { ...expected, version: 4 })
+    request.resolve({ settings: { ...expected, version: 5 } }); await pending
+    assert.deepEqual(JSON.parse(JSON.stringify(c.state.limits.value)), { ...expected, version: 5 })
+    assert.equal(c.state.settingsDirty.value.usage, false)
+    assert.equal(c.state.error.value, '')
+  })
+}
+
+test('a rejected usage update preserves the draft, version, and dirty state', async () => {
+  const c = client('usage')
+  c.state.limits.value = { daily: '', monthly: 0, version: 4 }
+  c.state.settingsDirty.value.usage = true
+  const pending = c.saveLimits()
+  c.take('/me/usage/limits').reject(Object.assign(new Error('stale version'), { code: 'VERSION_CONFLICT' }))
+  await pending
+  assert.deepEqual(c.state.limits.value, { daily: '', monthly: 0, version: 4 })
+  assert.equal(c.state.settingsDirty.value.usage, true)
+  assert.equal(c.state.notice.value, '')
+  assert.match(c.state.error.value, /草稿已保留/)
 })

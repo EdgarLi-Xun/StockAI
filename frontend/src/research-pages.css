@@ -78,6 +78,61 @@
 .report-reader-versions, .report-reader-supplement { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 18px; font-size: 13px; }
 .report-reader-supplement small { font-size: 12px; line-height: 1.8; }
 
+/* 用量以日、月统计为主，额度设置与统计口径放在次要位置。 */
+.usage-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; border-block: 1px solid var(--border); }
+.usage-summary > article { min-width: 0; margin: 0; padding: 22px 28px; }
+.usage-summary > article:first-child { padding-left: 0; border-right: 1px solid var(--border); }
+.usage-summary > article:last-child { padding-right: 0; }
+.usage-period { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+.usage-summary .usage-period h2 { margin: 0; color: var(--dark); font-size: 14px; font-weight: 500; }
+.usage-period > span { color: var(--muted); font-size: 12px; }
+.usage-summary .usage-count { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 15px 0 20px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.usage-count > strong { color: var(--dark); font-size: 36px; font-weight: 600; }
+.usage-count > span { color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+.usage-count small { display: block; margin-top: 4px; font-size: 11px; }
+.usage-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 28px; margin: 0; }
+.usage-summary dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-width: 0; }
+.usage-summary dt { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.usage-summary dd { min-width: 0; margin: 0; color: var(--dark); font-size: 13px; line-height: 1.8; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.usage-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: start; gap: 24px; }
+.usage-details { min-width: 0; }
+.usage-details .usage-distribution { margin-bottom: 0; }
+.research-main .usage-distribution .table-scroll { margin: 0; }
+.research-main .usage-distribution .watch-table { min-width: 560px; }
+.usage-distribution .watch-table th { white-space: nowrap; }
+.usage-distribution .watch-table :is(th, td):first-child { padding-left: 24px; }
+.usage-distribution .watch-table :is(th, td):last-child { padding-right: 24px; }
+.usage-distribution .watch-table td:first-child { max-width: 180px; white-space: normal; overflow-wrap: anywhere; }
+.usage-accounting { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+.research-main .usage-accounting h2 { margin: 0 0 10px; font-size: 15px; font-weight: 500; }
+.usage-accounting p { margin: 8px 0; color: var(--muted); font-size: 13px; line-height: 1.9; }
+.usage-accounting strong { color: var(--dark); font-weight: 500; }
+.public-main .usage-limits { margin: 0; padding: 22px; }
+.usage-limits .usage-limit-fields { display: grid; gap: 18px; }
+.usage-limits .usage-limit-fields label { display: grid; gap: 8px; font-size: 13px; }
+.usage-limits .usage-limit-fields input { min-height: 44px; }
+.usage-limits .research-footnote { margin: 16px 0 20px; font-size: 12px; }
+.usage-limits > button { min-height: 44px; }
+@media (max-width: 1200px) {
+  .usage-workspace { grid-template-columns: minmax(0, 1fr); }
+  .usage-limits .usage-limit-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .usage-summary > article { padding: 18px 16px; }
+  .usage-summary .usage-period h2 { font-size: 14px; }
+  .usage-period > span { font-size: 11px; }
+  .usage-summary .usage-count { gap: 6px 8px; margin-block: 12px 18px; }
+  .usage-count > strong { font-size: 30px; }
+  .usage-count > span { font-size: 13px; }
+  .usage-summary dl { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .usage-summary dt { font-size: 11px; }
+  .usage-summary dd { font-size: 12px; }
+  .usage-workspace { gap: 22px; }
+  .public-main .usage-limits { padding: 20px 16px; }
+  .usage-limits .usage-limit-fields { grid-template-columns: minmax(0, 1fr); }
+  .usage-accounting { margin-top: 22px; padding-top: 18px; }
+}
+
 /* 数据问题以原因和证券为主，详细证据保留在原生展开区。 */
 .readiness-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-bottom: 24px; border-block: 1px solid var(--border); }
 .readiness-summary > article { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 20px 24px; margin: 0; border-right: 1px solid var(--border); }
