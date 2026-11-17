@@ -1,5 +1,15 @@
 # 更新记录
 
+## [3.2.21] - 2026-11-17
+
+- 模型用量的每日、每月上限可以清空。清空表示不设上限；填写 0 仍表示暂停。
+- 研究报告先展示结论。研究日志、条件提醒、实验记录和数据问题的标题、日期与状态更清楚。
+
+### 发布说明
+
+- 发布 `StockAI-3.2.21-Setup.exe`、同版 Public / Hub ZIP、各自 SHA-256 和安装包构建元数据。
+- 沿用每用户安装与原工作区。Web / Hub 仍通过各自部署流程更新。
+
 ## [3.2.20] - 2026-11-14
 
 - 自选里某只证券的价格对不齐最小变动价位时，只留空这只的预算并记下原因，其余自选仍正常显示。
@@ -329,6 +339,7 @@
 - 公网部署可使用 Public ZIP，或使用仓库源码单独执行 `npm run build:public`；不随本次 GitHub 发布自动上线。
 - 真实域名 TLS、SMTP / 付费模型接入和其他设备安装的验证范围见 [首发验证记录](docs/RELEASE-2.0.0.md)。
 
+[3.2.21]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.21
 [3.2.20]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.20
 [3.2.19]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.19
 [3.2.18]: https://github.com/EdgarLi-Xun/StockAI/releases/tag/v3.2.18
