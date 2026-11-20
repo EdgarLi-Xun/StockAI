@@ -81,7 +81,13 @@ async function refresh(){const token=++generation,view=props.view,topic=topicFil
   else if(view==='usage'){const value=await api('/me/usage');if(!current())return;usage.value=value;if(!settingsDirty.value.usage)limits.value={...value.settings}}
   else if(view==='alerts'){const r=await Promise.all([api('/me/alerts?'+params),api('/me/alerts/events?'+params),api('/me/alerts/settings')]);if(!current())return;list.value=r[0];events.value=r[1];if(!settingsDirty.value.alerts)notification.value=r[2]}
   else if(view==='journals'){const value=await api('/me/journals?'+params);if(current())list.value=value}
-  else if(view==='portfolio'){if(!selectedAccount.value)selectedAccount.value=accounts.value[0]?.id||'';const account=selectedAccount.value;const value=account?await api('/me/portfolio/'+account+'/risk'):null;if(current())risk.value=value}
+  else if (view === 'portfolio') {
+    if (!selectedAccount.value) selectedAccount.value = accounts.value[0]?.id || ''
+    const account = selectedAccount.value
+    if (risk.value?.account_id !== account) risk.value = null
+    const value = account ? await api('/me/portfolio/' + account + '/risk') : null
+    if (current()) risk.value = value
+  }
   else if(view==='experiments'){const nextTopics=await api('/me/experiment-topics?size=50');if(!current())return;const value=await api('/me/experiments?'+params+'&topic_id='+encodeURIComponent(topic));if(!current())return;topics.value=nextTopics.items;list.value=value}
   else if(view==='assistant'){const nextSessions=await api('/me/assistant/sessions?'+sessionQuery);if(!current())return;const nextHelp=await api('/me/assistant/help');if(!current())return;const requested=hash.split('?')[0]==='#assistant'?new URLSearchParams(hash.split('?')[1]).get('session'):null;sessions.value=nextSessions;help.value=nextHelp;if(requested&&session.value?.id!==requested){session.value=null;messagePage.value=1;await openSession(requested,current)}else if(!session.value&&nextSessions.items[0])await openSession(nextSessions.items[0].id,current);if(!current())return;const value=await api('/me/experiments?size=50');if(current())list.value=value}
 }catch(e:any){if(current())error.value=e.message}finally{if(current())loading.value=false}}

@@ -89,6 +89,28 @@ test('experiment requests retain the topic and pagination captured when they sta
   result.resolve({ items: [] }); await pending
 })
 
+test('switching accounts clears the previous valuation before the new account loads', async () => {
+  const c = client('portfolio')
+  const first = c.refresh()
+  await c.respond('/me/portfolio/account-1/risk', { account_id: 'account-1', cash: 100000 })
+  await first
+  assert.equal(c.state.risk.value.account_id, 'account-1')
+
+  c.state.selectedAccount.value = 'account-2'
+  const second = c.refresh()
+  assert.equal(c.state.risk.value, null)
+  c.take('/me/portfolio/account-2/risk').reject(new Error('account unavailable'))
+  await second
+  assert.equal(c.state.risk.value, null)
+  assert.equal(c.state.error.value, 'account unavailable')
+
+  const retry = c.refresh()
+  await c.respond('/me/portfolio/account-2/risk', { account_id: 'account-2', cash: 200000 })
+  await retry
+  assert.equal(c.state.risk.value.account_id, 'account-2')
+  assert.equal(c.state.error.value, '')
+})
+
 for (const [name, draft, expected] of [
   ['cleared daily cap and zero monthly cap', { daily: '', monthly: 0 }, { daily: null, monthly: 0 }],
   ['zero daily cap and cleared monthly cap', { daily: 0, monthly: '' }, { daily: 0, monthly: null }],
