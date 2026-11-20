@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 共享研究界面：连接本地或个人公网 API，展示自选、报告、模拟交易和回测。
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, FileText, FlaskConical, Globe2, LayoutDashboard, ListFilter, LoaderCircle, LockKeyhole, Menu, MoreHorizontal, NotebookPen, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star, Terminal, Trash2, Wallet, X, Zap } from 'lucide-vue-next'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, ChartCandlestick, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, FileText, FlaskConical, Globe2, LayoutDashboard, ListFilter, LoaderCircle, LockKeyhole, Menu, MoreHorizontal, NotebookPen, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star, Trash2, Wallet, X, Zap } from 'lucide-vue-next'
 import { api, post, download, setToken } from './api'
 import { preferHoldings } from './workspaceFormat'
 import ConfirmDialog from './components/ConfirmDialog.vue'
@@ -34,6 +34,14 @@ const error = ref(''), toast = ref(''), showNotifications = ref(false), requires
 const dashboard = ref<any>(null), model = ref<any>({ available: false, message: '正在检查模型' }), config = ref<any>(null), runtime = ref<any>(null)
 const reports = ref<any[]>([]), jobData = ref<any>({ jobs: [], logs: [], schedule: { plans: [] } }), portfolio = ref<any>({ accounts: [], orders: [], ledger: [], rules: [] }), experiments = ref<any[]>([]), backups = ref<any[]>([])
 const taskStatus=ref(''),taskScope=ref(''),taskSearch=ref(''),selectedTaskKey=ref('')
+function clearTaskFilters() {
+  taskStatus.value = ''
+  taskScope.value = ''
+  taskSearch.value = ''
+}
+function isPlanEnabled(plan: { enabled?: boolean }) {
+  return Boolean(jobData.value.schedule.enabled && plan.enabled !== false)
+}
 const allTasks=computed<any[]>(()=>[...(jobData.value.jobs||[]).map((j:any)=>({...j,scope:'personal',key:'personal:'+j.id})),...(jobData.value.shared_jobs||[]).map((j:any)=>({...j,scope:'shared',key:'shared:'+j.id}))].sort((a,b)=>b.created_at.localeCompare(a.created_at)))
 const visibleTasks=computed(()=>allTasks.value.filter(j=>(!taskStatus.value||j.status===taskStatus.value)&&(!taskScope.value||j.scope===taskScope.value)&&(!taskSearch.value||[modeNames[j.kind],j.id,j.error,j.logical_key].join(' ').toLowerCase().includes(taskSearch.value.toLowerCase()))))
 const selectedTask=computed(()=>allTasks.value.find(j=>j.key===selectedTaskKey.value))
@@ -533,14 +541,63 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
         <template v-else-if="page === 'jobs'">
           <div class="task-center">
             <div class="task-summary" aria-label="任务状态概览"><article v-for="state in ['running','queued','success','failed']" :key="state"><span>{{statuses[state]}}</span><strong>{{allTasks.filter(j=>j.status===state).length}}</strong></article></div>
-            <div class="schedule-grid"><section v-for="p in jobData.schedule.plans" :key="p.kind" class="panel schedule-card"><span :class="['schedule-icon', { gold: p.kind === 'full' }]"><component :is="p.kind === 'full' ? BookOpen : p.kind === 'standard' ? Sparkles : ChartCandlestick" :size="20" /></span><strong>{{ p.label }}</strong><div class="schedule-time">{{ p.time }}<small>北京时间</small></div><p>{{ p.rule }}</p><div class="button-row"><span :class="['tag',p.enabled===false?'':'green']">{{p.enabled===false?'自动计划未开启':jobData.schedule.enabled?'自动计划已开启':'自动计划未开启'}}</span><button class="text-button" :disabled="busy || !canEdit" @click="runJob(p.kind)">立即运行 <ArrowRight :size="14" /></button></div></section></div>
-            <div class="info-strip"><Clock3 :size="18" /><span>内建调度 · {{ jobData.schedule.enabled ? '已开启自动计划' : '自动计划未开启，仍可手动运行' }}。只补跑当天到期任务；同日同类报告复用已有归档。{{props.publicMode?'桌面关闭且后台退出后不执行本机任务。':''}}</span><button class="text-button" @click="go('settings')">配置计划</button></div>
-            <section class="panel"><div class="panel-heading"><div><h2>任务记录</h2><p>研究报告、模型测试、助手和历史实验{{canMaintain?'，以及共享资料采集':''}}</p></div><div class="button-row"><button v-if="canMaintain" class="secondary small" :disabled="busy" @click="runJob('sync')"><RefreshCw :size="14" />数据同步</button><button class="secondary small" :disabled="busy" @click="loadPage"><RefreshCw :size="14" />刷新</button></div></div>
+            <details class="task-plans" :open="!allTasks.length">
+              <summary>自动研究计划 <span>{{ jobData.schedule.enabled ? '已开启' : '未开启' }} · {{ jobData.schedule.plans.length }} 项计划</span></summary>
+              <div class="task-plan-list">
+                <section v-for="plan in jobData.schedule.plans" :key="plan.kind" class="task-plan-row">
+                  <div><h2>{{ plan.label }}</h2><p>{{ plan.rule }}</p></div>
+                  <div class="task-plan-time">{{ plan.time }}<small>北京时间</small></div>
+                  <span :class="['tag', { green: isPlanEnabled(plan) }]">{{ isPlanEnabled(plan) ? '自动运行' : '仅手动运行' }}</span>
+                  <button class="text-button" :disabled="busy || !canEdit" @click="runJob(plan.kind)">立即运行 <ArrowRight :size="14" /></button>
+                </section>
+              </div>
+              <div class="task-plan-note">
+                <p>只补跑当天到期任务，同日同类报告复用已有归档。{{ props.publicMode ? '桌面关闭且后台退出后不执行本机任务。' : '' }}</p>
+                <button class="text-button" @click="go('settings')">配置计划</button>
+              </div>
+            </details>
+            <section class="panel task-records" aria-label="任务记录"><div class="panel-heading"><div><h2>任务记录</h2><p>研究报告、模型测试、助手和历史实验{{canMaintain?'，以及共享资料采集':''}}</p></div><div class="button-row"><button v-if="canMaintain" class="secondary small" :disabled="busy" @click="runJob('sync')"><RefreshCw :size="14" />数据同步</button><button class="secondary small" :disabled="busy" @click="loadPage"><RefreshCw :size="14" />刷新</button></div></div>
               <div class="filter-toolbar"><div class="search-box"><Search :size="15"/><input v-model="taskSearch" aria-label="搜索任务" placeholder="搜索任务、错误或编号"/></div><select v-model="taskStatus" aria-label="任务状态"><option value="">全部状态</option><option v-for="state in ['queued','running','success','partial','failed','cancelled','interrupted','missed']" :key="state" :value="state">{{statuses[state]}}</option></select><select v-if="canMaintain&&props.publicMode" v-model="taskScope" aria-label="任务范围"><option value="">全部任务</option><option value="personal">我的任务</option><option value="shared">共享资料任务</option></select></div>
-              <div class="table-scroll"><table class="watch-table task-table"><thead><tr><th>任务 / 创建时间</th><th>状态</th><th>开始 / 完成</th><th>模型调用</th><th>结果 / 原因</th><th>操作</th></tr></thead><tbody><tr v-for="j in visibleTasks" :key="j.key" :class="{'task-selected':selectedTaskKey===j.key}"><td><strong>{{modeNames[j.kind]||j.kind}}</strong><small>{{dt(j.created_at)}} · {{j.scope==='shared'?'共享资料':j.automatic?'自动计划':'手动任务'}}</small></td><td><span :class="['tag',['failed','interrupted','missed'].includes(j.status)?'red':j.status==='success'?'green':'amber']"><LoaderCircle v-if="j.status==='running'" class="spin" :size="11"/>{{statuses[j.status]||j.status}}</span></td><td>{{j.started_at?dt(j.started_at):'等待执行'}}<small>{{j.finished_at?dt(j.finished_at):'尚未结束'}}</small></td><td>{{j.scope==='shared'?'不调用模型':j.attempts??'—'}}</td><td class="error-cell">{{j.error||taskResult(j)?.message||(j.status==='success'?'执行完成':j.status==='running'?'正在处理':j.status==='queued'?'等待执行':j.retry_reason||'查看任务详情')}}<small v-if="j.retry_reason&&['failed','cancelled'].includes(j.status)">{{j.retry_reason}}</small></td><td><div class="button-row"><button class="text-button" @click="selectedTaskKey=selectedTaskKey===j.key?'':j.key">{{selectedTaskKey===j.key?'收起':'详情 / 日志'}}</button><button v-if="j.result_route" class="text-button" @click="openTaskResult(j)">{{j.result_label}}</button><button v-if="canRetryTask(j)" class="text-button" :disabled="busy||!canEdit" @click="retryTask(j)">{{j.retry_label||'重试'}}</button></div></td></tr></tbody></table></div><p v-if="!visibleTasks.length" class="empty-table">{{allTasks.length?'没有符合筛选条件的任务':'尚无任务，点击上方「立即运行」创建第一项研究任务。'}}</p>
+              <div v-if="visibleTasks.length" class="table-scroll" role="region" aria-label="执行记录表格" tabindex="0">
+                <table class="watch-table task-table">
+                  <thead><tr><th>任务 / 创建时间</th><th>状态</th><th>开始 / 完成</th><th>模型调用</th><th>结果 / 原因</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="j in visibleTasks" :key="j.key" :class="{ 'task-selected': selectedTaskKey === j.key }">
+                      <td><strong>{{ modeNames[j.kind] || j.kind }}</strong><small>{{ dt(j.created_at) }} · {{ j.scope === 'shared' ? '共享资料' : j.automatic ? '自动计划' : '手动任务' }}</small></td>
+                      <td><span :class="['tag', ['failed', 'interrupted', 'missed'].includes(j.status) ? 'red' : j.status === 'success' ? 'green' : 'amber']"><LoaderCircle v-if="j.status === 'running'" class="spin" :size="11" />{{ statuses[j.status] || j.status }}</span></td>
+                      <td>{{ j.started_at ? dt(j.started_at) : '等待执行' }}<small>{{ j.finished_at ? dt(j.finished_at) : '尚未结束' }}</small></td>
+                      <td>{{ j.scope === 'shared' ? '不调用模型' : j.attempts ?? '—' }}</td>
+                      <td class="error-cell">
+                        {{ j.error || taskResult(j)?.message || (j.status === 'success' ? '执行完成' : j.status === 'running' ? '正在处理' : j.status === 'queued' ? '等待执行' : j.retry_reason || '查看任务详情') }}
+                        <small v-if="j.retry_reason && ['failed', 'cancelled'].includes(j.status)">{{ j.retry_reason }}</small>
+                      </td>
+                      <td><div class="button-row">
+                        <button class="text-button" :aria-expanded="selectedTaskKey === j.key" @click="selectedTaskKey = selectedTaskKey === j.key ? '' : j.key">{{ selectedTaskKey === j.key ? '收起' : '详情 / 日志' }}</button>
+                        <button v-if="j.result_route" class="text-button" @click="openTaskResult(j)">{{ j.result_label }}</button>
+                        <button v-if="canRetryTask(j)" class="text-button" :disabled="busy || !canEdit" @click="retryTask(j)">{{ j.retry_label || '重试' }}</button>
+                      </div></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="task-empty">
+                <p>{{ allTasks.length ? '没有符合筛选条件的任务。' : '暂无任务记录。可在自动研究计划中手动运行任务。' }}</p>
+                <button v-if="taskSearch || taskStatus || taskScope" class="text-button" @click="clearTaskFilters">清除筛选</button>
+              </div>
             </section>
             <section v-if="selectedTask" class="panel task-detail"><div class="panel-heading"><h2>{{modeNames[selectedTask.kind]||selectedTask.kind}} · 任务详情</h2><button class="text-button" @click="selectedTaskKey=''">收起详情</button></div><dl><dt>任务编号</dt><dd>{{selectedTask.id}}</dd><dt>逻辑标识</dt><dd>{{selectedTask.logical_key}}</dd><dt>状态</dt><dd>{{statuses[selectedTask.status]||selectedTask.status}}</dd><dt v-if="selectedTask.error">执行说明</dt><dd v-if="selectedTask.error">{{selectedTask.error}}</dd></dl><details v-if="taskResult(selectedTask)"><summary>查看已保存的任务结果</summary><pre>{{JSON.stringify(taskResult(selectedTask),null,2)}}</pre></details></section>
-            <section class="panel"><div class="panel-heading"><h2>{{selectedTask?'当前任务运行日志':'最近运行日志'}}</h2><div class="button-row"><button v-if="selectedTask" class="text-button" @click="selectedTaskKey=''">查看全部日志</button><Terminal :size="17" class="muted"/></div></div><div class="log-view"><p v-if="!taskLogs.length">尚无运行日志。任务创建、开始和完成后会在此记录。</p><div v-for="l in taskLogs" :key="l.scope+':'+l.id" :class="{'log-error':l.level==='error'}"><time>{{dt(l.ts)}}</time><span>{{l.level.toUpperCase()}}</span>{{l.message}}</div></div></section>
+            <section class="panel task-log">
+              <div class="panel-heading">
+                <h2>{{ selectedTask ? '当前任务运行日志' : '最近运行日志' }}</h2>
+                <button v-if="selectedTask" class="text-button" @click="selectedTaskKey = ''">查看全部日志</button>
+              </div>
+              <div class="log-view">
+                <p v-if="!taskLogs.length">尚无运行日志。</p>
+                <div v-for="l in taskLogs" :key="l.scope + ':' + l.id" :class="['task-log-entry', { 'log-error': l.level === 'error' }]">
+                  <time>{{ dt(l.ts) }}</time><span>{{ l.level.toUpperCase() }}</span><p>{{ l.message }}</p>
+                </div>
+              </div>
+            </section>
           </div>
         </template>
 

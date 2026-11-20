@@ -175,6 +175,49 @@
   .simulation-rules-content > .panel-heading { padding-inline: 0; }
 }
 
+/* 任务记录保留表格，自动计划收为可展开的列表。 */
+.task-plans { margin-bottom: 22px; border-block: 1px solid var(--border); }
+.task-plans > summary { min-height: 48px; padding: 14px 0; color: var(--dark); font-size: 14px; font-weight: 600; line-height: 1.7; cursor: pointer; }
+.task-plans > summary span { margin-left: 12px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.task-plan-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px 100px max-content; align-items: center; gap: 16px; min-width: 0; padding: 14px 0; border-top: 1px solid var(--border); }
+.task-plan-row h2 { font-size: 14px; font-weight: 600; }
+.task-plan-row p, .task-plan-note p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.85; }
+.task-plan-time { font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.task-plan-time small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.task-plan-row .tag { justify-self: start; }
+.task-plan-row > button, .task-plan-note > button { min-height: 40px; white-space: nowrap; }
+.task-plan-note { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 24px; padding: 12px 0; border-top: 1px solid var(--border); }
+.task-records .filter-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(2, auto); gap: 10px; border-color: var(--border); }
+.task-records .search-box { width: 100%; min-width: 0; height: 40px; }
+.task-records .search-box input { align-self: stretch; height: auto; min-width: 0; min-height: 0; }
+:root[data-theme] .task-records .search-box:focus-within { border-color: var(--accent-text); box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-theme] .task-records .search-box input:focus { box-shadow: none; }
+.task-records .filter-toolbar > select { min-width: 0; min-height: 40px; }
+.task-records .table-scroll:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.task-records .task-table td:last-child button { min-height: 36px; }
+.task-empty { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; padding: 18px 22px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.task-empty > button { min-height: 44px; }
+.task-center .task-log .log-view { padding: 0 22px; border-top: 1px solid var(--border); background: var(--surface); color: var(--dark); font: inherit; font-size: 12px; line-height: 1.75; }
+.task-log .log-view > p { padding: 16px 0; color: var(--muted); }
+.task-log-entry { display: grid; grid-template-columns: 144px 48px minmax(0, 1fr); gap: 6px 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.task-log-entry:last-child { border-bottom: 0; }
+.task-log .task-log-entry :is(time, span) { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.task-log .task-log-entry p { overflow-wrap: anywhere; white-space: pre-wrap; }
+.task-log .log-error p { color: var(--danger); }
+@media (max-width: 760px) {
+  .task-plan-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; }
+  .task-plan-time { text-align: right; }
+  .task-plan-row > button, .task-plan-note > button, .task-records .panel-heading button, .task-records .task-table td:last-child button, .task-log .panel-heading button { min-height: 44px; }
+  .task-plan-note { flex-wrap: wrap; }
+  .task-records .filter-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .task-records .search-box { grid-column: 1 / -1; height: 44px; }
+  .task-records .filter-toolbar > select { width: 100%; min-height: 44px; }
+  .task-empty { padding-inline: 18px; }
+  .task-center .task-log .log-view { padding-inline: 18px; }
+  .task-log-entry { grid-template-columns: max-content minmax(0, 1fr); }
+  .task-log-entry p { grid-column: 1 / -1; }
+}
+
 /* 用量以日、月统计为主，额度设置与统计口径放在次要位置。 */
 .usage-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; border-block: 1px solid var(--border); }
 .usage-summary > article { min-width: 0; margin: 0; padding: 22px 28px; }
