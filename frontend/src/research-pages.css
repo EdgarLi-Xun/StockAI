@@ -132,6 +132,49 @@
   .portfolio-analysis { gap: 22px; margin-top: 22px; }
 }
 
+/* 模拟账户保留资金口径，用分隔线组织数值与记录。 */
+.simulation-context { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 24px; padding: 16px 0; border-block: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.9; }
+.simulation-context > svg { flex: 0 0 auto; margin-top: 3px; }
+.simulation-context > span { flex: 1; }
+.simulation-context > button { min-height: 40px; margin-top: -8px; white-space: nowrap; }
+.simulation-workspace .account-panel > .panel-heading { flex-wrap: wrap; gap: 8px 24px; }
+.simulation-workspace .account-panel h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.simulation-workspace .account-panel .panel-heading .button-row { gap: 8px 18px; }
+.simulation-workspace .account-panel .panel-heading button { min-height: 40px; }
+.simulation-workspace .account-panel .panel-heading small { color: var(--muted); font-size: 12px; }
+.simulation-account-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 0; margin: 0 24px; padding: 4px 0 24px; }
+.simulation-account-metrics > div { min-width: 0; padding: 0 24px; border-right: 1px solid var(--border); }
+.simulation-account-metrics > div:nth-child(3n+1) { padding-left: 0; }
+.simulation-account-metrics > div:nth-child(3n) { border-right: 0; }
+.simulation-account-metrics span { display: block; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.simulation-account-metrics b { display: block; margin-top: 8px; color: var(--dark); font-size: 23px; font-weight: 600; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.simulation-workspace .table-scroll { border-top: 1px solid var(--border); }
+.simulation-workspace .simulation-empty-inline { margin: 0; padding: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; line-height: 1.9; text-align: left; }
+.simulation-history .filter-toolbar { flex-wrap: wrap; gap: 12px; }
+.simulation-history .segmented > button { min-height: 40px; font-size: 13px; }
+.simulation-history .filter-toolbar > button { min-height: 40px; }
+.simulation-rules { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
+.simulation-rules > summary { min-height: 48px; padding: 13px 0; color: var(--dark); font-size: 14px; font-weight: 500; cursor: pointer; }
+.simulation-rules > summary span { margin-left: 14px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.simulation-rules-content { padding-top: 8px; }
+.simulation-rules-content > .panel-heading { flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 16px 0; }
+.simulation-workspace .simulation-rules-content .simulation-empty-inline { padding: 12px 0; border: 0; }
+.simulation-rules-content .panel-heading p { max-width: 62ch; line-height: 1.9; }
+.simulation-rules-content button { min-height: 40px; }
+@media (max-width: 760px) {
+  .simulation-context { flex-wrap: wrap; margin-bottom: 20px; }
+  .simulation-context > span { flex-basis: calc(100% - 36px); }
+  .simulation-context > button { min-height: 44px; margin: 0 0 0 31px; }
+  .simulation-account-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-inline: 18px; gap: 18px 0; }
+  .simulation-account-metrics > div, .simulation-account-metrics > div:nth-child(3n+1) { padding: 0 0 0 16px; border-right: 0; }
+  .simulation-account-metrics > div:nth-child(2n+1) { padding: 0 16px 0 0; border-right: 1px solid var(--border); }
+  .simulation-account-metrics b { font-size: 20px; }
+  .simulation-workspace .simulation-empty-inline { padding: 20px 18px; }
+  .simulation-workspace .account-panel .panel-heading button, .simulation-workspace .security-name, .simulation-history .segmented > button, .simulation-history .filter-toolbar > button, .simulation-rules-content button { min-height: 44px; }
+  .simulation-history .filter-toolbar > button { width: 100%; justify-content: flex-start; }
+  .simulation-rules-content > .panel-heading { padding-inline: 0; }
+}
+
 /* 用量以日、月统计为主，额度设置与统计口径放在次要位置。 */
 .usage-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; border-block: 1px solid var(--border); }
 .usage-summary > article { min-width: 0; margin: 0; padding: 22px 28px; }
