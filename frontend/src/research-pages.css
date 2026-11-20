@@ -78,6 +78,60 @@
 .report-reader-versions, .report-reader-supplement { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 18px; font-size: 13px; }
 .report-reader-supplement small { font-size: 12px; line-height: 1.8; }
 
+/* 组合先看账户与持仓，再看估值历史和行业分布。 */
+.portfolio-toolbar { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px 24px; margin-bottom: 22px; }
+.portfolio-workspace .portfolio-toolbar h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.portfolio-toolbar p { color: var(--muted); font-size: 12px; }
+.portfolio-toolbar > label { display: grid; gap: 7px; min-width: 220px; max-width: 100%; font-size: 12px; }
+.portfolio-toolbar select { min-height: 44px; }
+.portfolio-valuation-note { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-block: 1px solid var(--border); }
+.portfolio-valuation-note p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.9; }
+.portfolio-valuation-note.is-incomplete { padding: 14px 16px; border: 1px solid var(--border); background: var(--warning-soft); border-radius: 6px; }
+.portfolio-valuation-note.is-incomplete p { color: var(--warning); }
+.portfolio-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 22px 0 0; }
+.portfolio-summary > div { display: grid; gap: 10px; min-width: 0; padding: 0 24px 22px; border-right: 1px solid var(--border); }
+.portfolio-summary > div:first-child { padding-left: 0; }
+.portfolio-summary > div:last-child { border-right: 0; }
+.portfolio-summary dt, .portfolio-summary small { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.portfolio-summary dd { margin: 0; color: var(--dark); font-size: 28px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.portfolio-cash { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0 0 24px; padding: 16px 0; border-block: 1px solid var(--border); }
+.portfolio-cash > div { display: flex; gap: 10px; align-items: baseline; }
+.portfolio-cash dt { color: var(--muted); font-size: 12px; }
+.portfolio-cash dd { margin: 0; color: var(--dark); font-size: 14px; font-variant-numeric: tabular-nums; }
+.portfolio-holdings > .panel-heading { border-bottom: 1px solid var(--border); }
+.portfolio-holdings > .panel-heading .muted { font-size: 12px; }
+.research-main .portfolio-workspace .table-scroll { margin: 0; }
+.portfolio-empty-inline { margin: 0; padding: 28px 24px; color: var(--muted); font-size: 13px; }
+.portfolio-data-gaps { padding: 16px 24px; border-top: 1px solid var(--border); }
+.portfolio-data-gaps p { margin: 4px 0; color: var(--warning); font-size: 12px; overflow-wrap: anywhere; }
+.portfolio-analysis { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(240px, 1fr); gap: 28px; margin-top: 28px; }
+.portfolio-analysis > section { min-width: 0; padding-top: 22px; border-top: 1px solid var(--border); }
+.portfolio-workspace .portfolio-analysis h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+.portfolio-analysis p { margin: 10px 0; font-size: 13px; }
+.portfolio-analysis .research-footnote, .portfolio-industry-ratios { color: var(--muted); font-size: 12px; }
+.portfolio-analysis .industry-bar { margin: 16px 0; font-size: 12px; }
+.portfolio-analysis .industry-bar i { background: var(--accent); }
+.portfolio-history .valuation-segments { margin-top: 16px; font-size: 13px; }
+.portfolio-history .valuation-segments > summary { min-height: 44px; padding: 12px 0; color: var(--accent-text); cursor: pointer; }
+.portfolio-actions { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.portfolio-actions > button { min-height: 44px; }
+@media (max-width: 1100px) {
+  .portfolio-analysis { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .portfolio-toolbar > label { width: 100%; min-width: 0; }
+  .portfolio-summary { grid-template-columns: minmax(0, 1fr); }
+  .portfolio-summary > div { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 16px 0; border-right: 0; border-bottom: 1px solid var(--border); }
+  .portfolio-summary dd { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 24px; }
+  .portfolio-summary > div:first-child { padding-top: 0; }
+  .portfolio-summary > div:last-child { border-bottom: 0; }
+  .portfolio-cash { display: grid; gap: 12px; }
+  .portfolio-cash > div { justify-content: space-between; }
+  .portfolio-data-gaps { padding: 14px 16px; }
+  .portfolio-empty-inline { padding: 24px 16px; }
+  .portfolio-analysis { gap: 22px; margin-top: 22px; }
+}
+
 /* 用量以日、月统计为主，额度设置与统计口径放在次要位置。 */
 .usage-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; border-block: 1px solid var(--border); }
 .usage-summary > article { min-width: 0; margin: 0; padding: 22px 28px; }
