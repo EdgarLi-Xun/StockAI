@@ -6,7 +6,7 @@ import math
 import statistics
 from datetime import date, datetime
 
-from . import analytics
+from . import analytics, trading_status
 from .collectors import SGE_HISTORY, SGE_HISTORY_URL, fresh_reasons, sge_last_closed_day
 from .config import TZ
 from .instruments import GOLD_REFERENCE_INSTRUMENTS, METAL_LINKED_SECURITIES, official_url
@@ -33,12 +33,14 @@ def add_source(sources, instrument_id, url, source, quote_time, collected_at):
     return source_id
 
 
-def excluded_security(item, reasons, last, sources):
+def excluded_security(item, reasons, last, sources, at):
     row = {"instrument_id": item["id"], "name": item["name"], "reasons": list(dict.fromkeys(reasons)),
            "price": last["close"] if last else None}
-    if event := item["evidence"].get("exchange_trading_status"):
+    planned = trading_status.scheduled_halt(item, at) if item["status"] == "active" else None
+    if event := planned or item["evidence"].get("exchange_trading_status"):
         label = "官方停复牌证据"
-        source = add_source(sources, item["id"], event["url"], label, event["effective_at"], event.get("fetched_at"))
+        collected = event.get("fetched_at")
+        source = add_source(sources, item["id"], event["url"], label, event.get("published_at") or collected, collected)
         row["trading_status_evidence"] = {"url": event["url"], "effective_at": event["effective_at"], "source_id": source}
     return row
 

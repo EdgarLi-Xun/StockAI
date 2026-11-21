@@ -50,7 +50,19 @@ const visibleTasks=computed(()=>allTasks.value.filter(j=>(!taskStatus.value||j.s
 const selectedTask=computed(()=>allTasks.value.find(j=>j.key===selectedTaskKey.value))
 const taskLogs=computed<any[]>(()=>{
   const own=(jobData.value.logs||[]).map((l:any)=>({...l,scope:'personal'}))
-  const shared=allTasks.value.filter(j=>j.scope==='shared').flatMap(j=>['created_at','started_at','finished_at'].filter(f=>j[f]).map(f=>({id:j.id+':'+f,job_id:j.id,scope:'shared',ts:j[f],level:f==='finished_at'&&j.status==='failed'?'error':'info',message:(modeNames[j.kind]||j.kind)+' · '+(f==='created_at'?'已加入队列':f==='started_at'?'开始执行':j.error||'已完成')})))
+  const shared = allTasks.value.filter(j => j.scope === 'shared').flatMap(j => {
+    const task = { job_id: j.id, scope: 'shared' }
+    const label = modeNames[j.kind] || j.kind
+    const milestones = ['created_at', 'started_at', 'finished_at'].filter(field => j[field]).map(field => ({
+      ...task, id: j.id + ':' + field, ts: j[field], level: field === 'finished_at' && j.status === 'failed' ? 'error' : 'info',
+      message: label + ' · ' + (field === 'created_at' ? '已加入队列' : field === 'started_at' ? '开始执行' : j.error || '已完成'),
+    }))
+    const retries = (j.result?.retry_history || []).map((entry: { ts: string, attempt: number, delay_seconds: number }) => ({
+      ...task, id: j.id + ':retry:' + entry.attempt, ts: entry.ts, level: 'warning',
+      message: label + ' · 第 ' + entry.attempt + ' 次采集失败，' + entry.delay_seconds + ' 秒后重试',
+    }))
+    return [...milestones, ...retries]
+  })
   return [...own,...shared].filter(l=>!selectedTask.value||(l.job_id===selectedTask.value.id&&l.scope===selectedTask.value.scope)).sort((a,b)=>b.ts.localeCompare(a.ts))
 })
 const selectedReport = ref<any>(null), selectedBacktest = ref<any>(null), detail = ref<any>(null), detailId = ref(''), timeframe = ref('1d'), lowerIndicator = ref('volume')
@@ -714,7 +726,7 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                       <td class="error-cell">
                         {{ j.next_attempt_at ? '等待自动重试' : j.error || taskResult(j)?.message || (j.status === 'success' ? '执行完成' : j.status === 'running' ? '正在处理' : j.status === 'queued' ? '等待执行' : j.retry_reason || '查看任务详情') }}
                         <small v-if="j.next_attempt_at">下次执行 {{ dt(j.next_attempt_at) }}</small>
-                        <small v-if="j.automatic && j.run_attempts > 1">已执行 {{ j.run_attempts }} 次</small>
+                        <small v-if="(j.scope === 'shared' || j.automatic) && j.run_attempts > 1">已执行 {{ j.run_attempts }} 次</small>
                         <small v-if="j.retry_reason && ['failed', 'cancelled', 'missed'].includes(j.status)">{{ j.retry_reason }}</small>
                         <small v-if="j.failure_mail_state">失败告警邮件{{ failureMailStatus[j.failure_mail_state] || j.failure_mail_state }}</small>
                       </td>

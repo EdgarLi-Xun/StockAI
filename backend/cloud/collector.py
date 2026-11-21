@@ -16,10 +16,13 @@ from .store import json_text,stamp
 from .auth import AuthError
 from backend.processes import module_command,hidden_process
 
+COLLECTION_RETRY_DELAYS = (15, 60)
+COLLECTION_KINDS = {"sync", "names", "metals", "instrument", "announcements", "context", "trading_status"}
+
 
 # 校验站点采集类型并按证券和周期构造幂等任务键。
 def enqueue(store,kind="sync",instrument_id=None,timeframe="1d",*,c=None,retry_of=None):
-    if kind not in {"sync","names","metals","instrument","announcements","context","trading_status"}:
+    if kind not in COLLECTION_KINDS:
         raise ValueError("不支持的站点任务")
     if c is None:
         with store.tx(immediate=True) as conn:
@@ -63,22 +66,39 @@ def queue_trading_status(store):
 def run_one(store):
     with store.tx(immediate=True) as c:
         if c.execute("SELECT value FROM cloud_meta WHERE key='maintenance'").fetchone()[0]!='0':return None
-        row=c.execute("SELECT * FROM site_jobs WHERE status='queued' AND kind!='backup' ORDER BY created_at LIMIT 1").fetchone()
+        at = stamp()
+        row=c.execute("""SELECT * FROM site_jobs WHERE status='queued' AND kind!='backup'
+            AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 1""", (at,)).fetchone()
         if not row:
             return False
-        c.execute("UPDATE site_jobs SET status='running',started_at=? WHERE id=?",(stamp(),row["id"]))
+        c.execute("""UPDATE site_jobs SET status='running',started_at=?,run_attempts=run_attempts+1,next_attempt_at=NULL
+            WHERE id=?""", (at,row["id"]))
         row=dict(row)
-    args=json.loads(row["result_json"] or "{}");env=os.environ.copy();env["STOCKAI_DATA_DIR"]=str(store.cfg.data)
+    saved = json.loads(row["result_json"] or "{}")
+    args = saved.get("_request", saved)
+    history = saved.get("retry_history", [])
+    env = {**os.environ, "STOCKAI_DATA_DIR": str(store.cfg.data)}
     try:
         result=subprocess.run(module_command("backend.cloud.collector",row["kind"],json_text(args)),cwd=ROOT,env=env,capture_output=True,text=True,encoding="utf-8",timeout=900,**hidden_process())
         value=json.loads(result.stdout)
         if result.returncode or not isinstance(value,dict):
             raise ValueError()
         status=result_status(value)
-        value['_request']=args
-        store.execute("UPDATE site_jobs SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=?",(status,stamp(),json_text(value),"SHARED_COLLECTION_PARTIAL" if status=='partial' else "SHARED_COLLECTION_FAILED" if status=='failed' else None,row["id"]))
     except Exception:
-        store.execute("UPDATE site_jobs SET status='failed',finished_at=?,error_code='SHARED_COLLECTION_FAILED',result_json=? WHERE id=?",(stamp(),json_text({'_request':args}),row["id"]))
+        status, value = "failed", {}
+    finished_at, next_attempt_at = stamp(), None
+    error = {"partial": "SHARED_COLLECTION_PARTIAL", "failed": "SHARED_COLLECTION_FAILED"}.get(status)
+    if status == "failed" and row["kind"] in COLLECTION_KINDS - {"names"} and row["run_attempts"] < len(COLLECTION_RETRY_DELAYS):
+        delay = COLLECTION_RETRY_DELAYS[row["run_attempts"]]
+        next_attempt_at = (datetime.fromisoformat(finished_at) + timedelta(seconds=delay)).isoformat(timespec="microseconds")
+        history.append({"ts": finished_at, "attempt": row["run_attempts"] + 1, "delay_seconds": delay})
+        status, finished_at = "queued", None
+    value["_request"] = args
+    if history:
+        value["retry_history"] = history
+    store.execute("""UPDATE site_jobs SET status=?,finished_at=?,result_json=?,error_code=?,next_attempt_at=?
+        WHERE id=? AND status='running'""",
+        (status,finished_at,json_text(value),error,next_attempt_at,row["id"]))
     return True
 
 
@@ -87,9 +107,11 @@ def result_status(value):
     if status in {'partial','unavailable','failed'}:return 'partial' if status=='partial' else 'failed'
     if status=='success':return 'success'
     results=value.get('result')
-    if isinstance(results,list) and results:
-        good=sum(isinstance(row,dict) and row.get('status')=='success' for row in results)
-        return 'success' if good==len(results) else 'partial' if good else 'failed'
+    if isinstance(results, list):
+        good = [row for row in results if isinstance(row, dict) and row.get("status") == "success"]
+        if not any(not row.get("cache_only") for row in good):
+            return "failed"
+        return "success" if len(good) == len(results) else "partial"
     return 'success'
 
 
@@ -97,8 +119,11 @@ def list_jobs(store):
     rows=store.query('SELECT * FROM site_jobs ORDER BY created_at DESC LIMIT 100')
     for row in rows:
         row['result']=json.loads(row.pop('result_json') or '{}')
+        if row["status"] != "queued":
+            row["next_attempt_at"] = None
         row['error']={'SHARED_COLLECTION_FAILED':'共享资料采集失败，请检查网络后重新运行','SHARED_COLLECTION_PARTIAL':'部分资料未能取得，保留已有缓存','PROCESS_RESTARTED':'服务重启中断了任务','ENCRYPTED_BACKUP_FAILED':'加密备份失败，请检查备份配置和磁盘空间'}.get(row['error_code'],row['error_code'])
-        row['can_retry']=row['status'] in {'failed','partial'} and row['kind'] in {'sync','names','metals','context','instrument','announcements','trading_status'} and (row['kind'] not in {'instrument','announcements'} or bool(row['result'].get('_request',{}).get('instrument_id')))
+        request = row["result"].get("_request", row["result"])
+        row['can_retry']=row['status'] in {'failed','partial'} and row['kind'] in COLLECTION_KINDS and (row['kind'] not in {'instrument','announcements'} or bool(request.get('instrument_id')))
         row['retry_label']='重新采集'
         row['retry_reason']='请在原证券页面重新同步' if row['kind'] in {'instrument','announcements'} and not row['can_retry'] else ''
     return rows
@@ -109,7 +134,8 @@ def retry(store,ident):
         row=c.execute('SELECT * FROM site_jobs WHERE id=?',(ident,)).fetchone()
         if not row:raise AuthError('NOT_FOUND','任务不存在',404)
         if row['status'] not in {'failed','partial'} or row['kind']=='backup':raise AuthError('JOB_NOT_RETRYABLE','此任务不能重试，请检查当前状态',409)
-        args=json.loads(row['result_json'] or '{}').get('_request',{})
+        saved = json.loads(row["result_json"] or "{}")
+        args = saved.get("_request", saved)
         if row['kind'] in {'instrument','announcements'} and not args.get('instrument_id'):raise AuthError('JOB_NOT_RETRYABLE','旧任务缺少采集参数，请在原证券页面重新同步',409)
         return enqueue(store,row['kind'],args.get('instrument_id'),args.get('timeframe','1d'),c=c,retry_of=ident)
 
@@ -178,7 +204,10 @@ def main():
     elif kind=="instrument":
         value=collectors.sync_instrument(instruments.get(args["instrument_id"]),args["timeframe"])
     elif kind=="announcements":
-        value={"announcements":collectors.announcements(args["instrument_id"])}
+        ident = args["instrument_id"]
+        rows = collectors.announcements(ident)
+        failure = instruments.get(ident)["evidence"].get("disclosure_failure")
+        value = {"announcements": rows, "status": "partial" if failure else "success"}
     elif kind=="trading_status":
         rows = db.query("""SELECT DISTINCT i.id FROM instruments i JOIN user_watchlist w ON w.instrument_id=i.id
             JOIN users u ON u.id=w.user_id WHERE u.status='active' AND i.market IN ('SH','SZ')

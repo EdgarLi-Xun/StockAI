@@ -12,7 +12,7 @@ from backend import analytics,trading_status
 from backend.budget import budget_check,dec,money
 from backend.config import now,timestamp
 from backend.collectors import fresh_reasons, newer_spot
-from backend.instruments import InstrumentInput,Rules,name_risk,official_url,review_evidence
+from backend.instruments import DISCLOSURE_UNVERIFIED,InstrumentInput,Rules,disclosure_unverified,name_risk,official_url,review_evidence
 from backend.report_facts import quote_stale
 from .auth import AuthError
 from .collector import queue_names
@@ -63,6 +63,8 @@ def risk_reasons(item,prefs,at=None):
         errors.append("今日已有官方公告安排停牌")
     if item["risk_flag"]!="clear" or name_risk(item["name"]):
         errors.append("风险警示或公告尚未核验")
+    if disclosure_unverified(item, at):
+        errors.append(DISCLOSURE_UNVERIFIED)
     try:
         verified=datetime.fromisoformat(item["verified_at"])
         if verified.tzinfo is None or verified>at or at-verified>timedelta(hours=prefs.max_risk_age_hours):

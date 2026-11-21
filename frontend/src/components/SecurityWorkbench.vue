@@ -83,7 +83,8 @@ watch(() => props.detail?.instrument.id, id => {
               </a>
               <a v-for="(url,key) in detail.instrument.evidence || {}" v-show="evidenceLabels[key] && typeof url==='string' && url.startsWith('https://')" :key="key" :href="String(url)" class="security-evidence-link" target="_blank" rel="noopener"><span>{{ evidenceLabels[key] }}</span><ArrowUpRight :size="14"/></a>
               <a v-if="detail.instrument.evidence?.exchange_delisting" :href="detail.instrument.evidence.exchange_delisting.url" target="_blank" rel="noopener" class="security-evidence-link"><span>交易所终止上市记录 · {{ detail.instrument.evidence.exchange_delisting.effective_date }}</span><ArrowUpRight :size="14"/></a>
-              <p v-if="detail.instrument.evidence?.disclosure_check" class="help-text">官方公告最近查询于 {{ dateTime(detail.instrument.evidence.disclosure_check.fetched_at) }}</p>
+              <p v-if="detail.instrument.evidence?.disclosure_failure" class="risk-line"><span class="tiny-dot amber"></span>官方公告查询未完成 · {{ dateTime(detail.instrument.evidence.disclosure_failure.fetched_at) }}</p>
+              <p v-else-if="detail.instrument.evidence?.disclosure_check" class="help-text">官方公告最近查询于 {{ dateTime(detail.instrument.evidence.disclosure_check.fetched_at) }}</p>
               <a v-for="link in officialLinks" :key="link.url" :href="link.url" class="security-evidence-link" target="_blank" rel="noopener"><span>{{ link.label }}</span><ArrowUpRight :size="14"/></a>
             </div>
           </section>

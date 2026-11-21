@@ -178,7 +178,29 @@ def test_disclosure_timeout_keeps_coverage_unknown(monkeypatch):
     assert errors[0]['instrument_id']==item['id']
     current=instruments.get(item['id'])
     assert 'disclosure_check' not in current['evidence']
+    assert current["evidence"]["disclosure_failure"]["status"] == "unavailable"
     assert current['status']=='unknown' and current['risk_flag']=='unknown'
+
+
+def test_unread_official_notice_requires_a_fresh_manual_or_source_check(monkeypatch, valid_item):
+    from datetime import datetime, timedelta
+    from backend import config, instruments
+
+    at = datetime.fromisoformat(valid_item["verified_at"]) + timedelta(seconds=2)
+    for module in (collectors, config, instruments):
+        monkeypatch.setattr(module, "now", lambda: at)
+    row = {"代码": valid_item["symbol"], "公告标题": "关于公司股票复牌的公告", "公告时间": at.isoformat(),
+           "公告链接": "https://www.cninfo.com.cn/new/disclosure/detail?announcementId=1234567801", "status_read_error": True}
+    monkeypatch.setattr(collectors, "call", lambda *a, **k: [row])
+    assert collectors.sync_announcements([valid_item])
+    item = instruments.get(valid_item["id"])
+    assert item["risk_flag"] == "clear"
+    assert item["evidence"]["disclosure_check"]["unread_status_notices"] == 1
+    assert instruments.DISCLOSURE_UNVERIFIED in instruments.risk_reasons(item, at)
+    at += timedelta(seconds=2)
+    checked = instruments.verify(item["id"], {field: item[field] for field in ("name", "status", "risk_flag", "rules", "evidence")})
+    assert checked["evidence"]["disclosure_failure"]["status"] == "partial"
+    assert instruments.DISCLOSURE_UNVERIFIED not in instruments.risk_reasons(checked, at)
 
 
 def test_official_notice_applies_effective_halt_and_resume_without_clearing_risk(monkeypatch, valid_item):

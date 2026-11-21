@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS admin_actions(
  id INTEGER PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,target_id TEXT,ts TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS site_jobs(
  id TEXT PRIMARY KEY,logical_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,
- started_at TEXT,finished_at TEXT,error_code TEXT,result_json TEXT);
+ started_at TEXT,finished_at TEXT,error_code TEXT,result_json TEXT,run_attempts INTEGER NOT NULL DEFAULT 0,next_attempt_at TEXT);
 CREATE INDEX IF NOT EXISTS ix_owned_reports ON personal_reports(user_id,generated_at DESC);
 CREATE INDEX IF NOT EXISTS ix_owned_jobs ON personal_jobs(user_id,status,created_at);
 CREATE INDEX IF NOT EXISTS ix_dispatch ON personal_jobs(status,created_at);
@@ -226,11 +226,12 @@ class Store:
             columns={r[1] for r in c.execute('PRAGMA table_info(user_watchlist)')}
             if 'cost_price' not in columns:c.execute('ALTER TABLE user_watchlist ADD COLUMN cost_price TEXT')
             if 'quantity' not in columns:c.execute('ALTER TABLE user_watchlist ADD COLUMN quantity INTEGER')
-            job_columns={r[1] for r in c.execute('PRAGMA table_info(personal_jobs)')}
-            if 'run_attempts' not in job_columns:
-                c.execute('ALTER TABLE personal_jobs ADD COLUMN run_attempts INTEGER NOT NULL DEFAULT 0')
-            if 'next_attempt_at' not in job_columns:
-                c.execute('ALTER TABLE personal_jobs ADD COLUMN next_attempt_at TEXT')
+            for table in ("personal_jobs", "site_jobs"):
+                job_columns={r[1] for r in c.execute(f'PRAGMA table_info({table})')}
+                if 'run_attempts' not in job_columns:
+                    c.execute(f'ALTER TABLE {table} ADD COLUMN run_attempts INTEGER NOT NULL DEFAULT 0')
+                if 'next_attempt_at' not in job_columns:
+                    c.execute(f'ALTER TABLE {table} ADD COLUMN next_attempt_at TEXT')
             from .research_schema import SCHEMA as RESEARCH_SCHEMA,upgrade
             c.executescript(RESEARCH_SCHEMA)
             upgrade(c)

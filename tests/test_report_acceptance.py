@@ -2,13 +2,14 @@
 import json
 import math
 import statistics
+import subprocess
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend import collectors, config, db, report_facts, research
+from backend import collectors, config, db, instruments, report_facts, research
 from backend.cloud import jobs, mail, market, models, simulation, workspace
 from backend.cloud.preferences import Preferences, save_preferences
 from backend.cloud.store import json_text, stamp
@@ -143,17 +144,22 @@ def test_full_report_archives_completed_gold_silver_returns_and_exact_session_pa
 
 def test_exchange_suspension_is_visible_in_watch_risk_and_report(cloud, monkeypatch):
     store, _, _, _, _, uid = cloud
-    at = datetime(2025, 1, 3, 10, tzinfo=config.TZ)
+    at = datetime(2025, 1, 3, 8, tzinfo=config.TZ)
     for module in (collectors, config, jobs, market, workspace):
         monkeypatch.setattr(module, "now", lambda: at)
     monkeypatch.setattr(db, "DATA", store.cfg.data)
     ident = "SH:601899"
     market.add_watch(store, uid, InstrumentInput(symbol="601899", market="SH", name="验收证券", asset_class="stock"))
+    store.execute("UPDATE instruments SET status='active' WHERE id=?", (ident,))
     for day in ("2025-01-03", "2025-01-06"):
         store.execute("INSERT INTO calendar VALUES(?,?,?)", (day, "交易日历样本", stamp()))
     raw = {"productCode":"601899","type":"LXTP","controlType":"TR","stopTime":"","startStopDate":"20250103",
            "endStopDate":"20250103","stopReason":"重要公告","endStopReason":"重要公告"}
     collectors._store_sse_status([raw])
+    pre_open = workspace.facts(store, uid, "standard")["excluded"][0]
+    assert "今日已有官方公告安排停牌" in pre_open["reasons"]
+    assert pre_open["trading_status_evidence"]["effective_at"] == "2025-01-03T09:30:00+08:00"
+    at += timedelta(hours=2)
     item = market.instrument(store, ident)
     assert item["status"] == "suspended" and item["risk_flag"] == "unknown"
     result = run_job(cloud, ai=False)
@@ -168,6 +174,52 @@ def test_exchange_suspension_is_visible_in_watch_risk_and_report(cloud, monkeypa
     resumed = market.instrument(store, ident)
     assert resumed["status"] == "active" and resumed["risk_flag"] == "unknown"
     assert market.risk_reasons(resumed, Preferences(), at)
+
+
+def test_unavailable_disclosure_blocks_a_previously_eligible_report_candidate(cloud, monkeypatch):
+    store, _, _, _, _, uid = cloud
+    rows = sample_bars(75)
+    at = datetime.fromisoformat(rows[-1]["ts"]) + timedelta(hours=1)
+    for module in (collectors, config, instruments, jobs, market, workspace):
+        monkeypatch.setattr(module, "now", lambda: at)
+    monkeypatch.setattr(db, "DATA", store.cfg.data)
+    ident = "SH:603126"
+    item = market.add_watch(store, uid, InstrumentInput(symbol="603126", market="SH"))
+    official = "https://www.sse.com.cn/"
+    market.verify(store, ident, {"name": "隔离验收", "status": "active", "risk_flag": "clear",
+                  "rules": {**item["rules"], "verified": True, "source_url": official},
+                  "evidence": {"listing_url": official, "status_url": official, "announcement_url": official,
+                               "review_note": "隔离样本"}})
+    for index, bar in enumerate(rows):
+        price = round(4 + index / 100, 2)
+        bar.update(open=price, close=price, high=price+0.05, low=price-0.05)
+        store.execute("INSERT INTO calendar VALUES(?,?,?)", (bar["ts"][:10], "样本日历", stamp()))
+    market.import_bars(store, ident, {"bars": rows})
+    assert [row["instrument_id"] for row in workspace.facts(store, uid, "standard")["candidates"]] == [ident]
+    delayed = workspace.facts(store, uid, "standard", market_update="pending")
+    assert not delayed["candidates"] and "本时段共享行情与公告核验未完成" in delayed["excluded"][0]["reasons"]
+    at += timedelta(minutes=1)
+
+    def offline(*args, **kwargs):
+        raise subprocess.TimeoutExpired("isolated-source", 25)
+
+    monkeypatch.setattr(collectors, "call", offline)
+    assert collectors.sync_announcements([instruments.get(ident)])
+    blocked = market.instrument(store, ident)
+    assert (blocked["status"], blocked["risk_flag"]) == ("active", "clear")
+    assert blocked["evidence"]["disclosure_failure"]["status"] == "unavailable"
+    assert instruments.DISCLOSURE_UNVERIFIED in market.risk_reasons(blocked, Preferences(), at)
+    assert instruments.DISCLOSURE_UNVERIFIED in instruments.risk_reasons(instruments.get(ident), at)
+    result = run_job(cloud, ai=False)
+    assert result["candidate_count"] == 0
+    saved = workspace.report_detail(store, uid, result["report_id"])["payload"]
+    assert instruments.DISCLOSURE_UNVERIFIED in saved["excluded"][0]["reasons"]
+    at += timedelta(seconds=20)
+    monkeypatch.setattr(collectors, "call", lambda *a, **k: [])
+    assert not collectors.sync_announcements([instruments.get(ident)])
+    assert "disclosure_failure" not in market.instrument(store, ident)["evidence"]
+    assert [row["instrument_id"] for row in workspace.facts(store, uid, "standard")["candidates"]] == [ident]
+    assert workspace.report_detail(store, uid, result["report_id"])["payload"]["candidates"] == []
 
 
 def test_recovered_morning_uses_previous_close_and_closing_tracks_original(cloud, monkeypatch):

@@ -1,6 +1,7 @@
 """Task-center retries preserve history, ownership, and truthful collection status."""
 import json
-from datetime import timedelta
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -80,8 +81,10 @@ def test_rule_report_retry_is_an_idempotent_new_version(cloud):
     ({'status': 'partial'}, 'partial'),
     ({'status': 'unavailable'}, 'failed'),
     ({'result': [{'status': 'unavailable'}]}, 'failed'),
+    ({'result': [{'status': 'success', 'cache_only': True}, {'status': 'unavailable'}]}, 'failed'),
     ({'result': [{'status': 'success'}, {'status': 'unavailable'}]}, 'partial'),
     ({'result': [{'status': 'success'}]}, 'success'),
+    ({'result': []}, 'failed'),
     ({'announcements': []}, 'success'),
 ])
 def test_market_collection_result_is_not_misreported_as_success(value, expected):
@@ -100,6 +103,84 @@ def test_shared_partial_collection_preserves_request_and_retry_is_idempotent(clo
     assert collector.retry(store, original['id'])['id'] == retry['id']
     args = store.one('SELECT result_json FROM site_jobs WHERE id=?', (retry['id'],))
     assert json.loads(args['result_json']) == {'instrument_id': 'SH:603126', 'timeframe': '15m'}
+
+
+def test_shared_collection_persists_backoff_and_request_through_restart(cloud, monkeypatch):
+    store, *_ = cloud
+    at = datetime.now(timezone.utc)
+    monkeypatch.setattr(collector, "stamp", lambda: at.isoformat(timespec="microseconds"))
+    calls = []
+
+    def offline(command, **kwargs):
+        calls.append(json.loads(command[-1]))
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"status": "unavailable", "errors": ["fixture offline"]}))
+
+    monkeypatch.setattr(collector.subprocess, "run", offline)
+    args = {"instrument_id": "SH:603126", "timeframe": "15m"}
+    original = collector.enqueue(store, "instrument", *args.values())
+    for attempt, seconds in enumerate(collector.COLLECTION_RETRY_DELAYS, start=1):
+        assert collector.run_one(store)
+        queued = collector.list_jobs(store)[0]
+        assert queued["status"] == "queued" and queued["id"] == original["id"]
+        assert queued["run_attempts"] == attempt and not queued["can_retry"]
+        assert datetime.fromisoformat(queued["next_attempt_at"]) == at + timedelta(seconds=seconds)
+        assert queued["result"]["_request"] == args
+        assert collector.enqueue(store, "instrument", *args.values())["id"] == original["id"]
+        jobs.recover(store)
+        assert not collector.run_one(store)
+        at += timedelta(seconds=seconds)
+    assert collector.run_one(store)
+    result = collector.list_jobs(store)[0]
+    assert result["status"] == "failed" and result["run_attempts"] == 3 and result["can_retry"]
+    assert [row["attempt"] for row in result["result"]["retry_history"]] == [1, 2]
+    assert result["next_attempt_at"] is None and calls == [args, args, args]
+    assert store.one("SELECT COUNT(*) n FROM site_jobs")["n"] == 1
+
+
+def test_interrupted_collection_can_be_retried_with_the_original_parameters(cloud):
+    store, *_ = cloud
+    original = collector.enqueue(store, "instrument", "SH:603126", "60m")
+    store.execute("UPDATE site_jobs SET status='running' WHERE id=?", (original["id"],))
+    jobs.recover(store)
+    row = collector.list_jobs(store)[0]
+    assert row["status"] == "failed" and row["can_retry"]
+    again = collector.retry(store, original["id"])
+    saved = store.one("SELECT result_json FROM site_jobs WHERE id=?", (again["id"],))
+    assert json.loads(saved["result_json"]) == {"instrument_id": "SH:603126", "timeframe": "60m"}
+
+
+def test_automatic_morning_uses_recovered_shared_refresh_and_archives_once(cloud, monkeypatch):
+    store, keys, _, _, _, uid = cloud
+    store.cfg = replace(store.cfg, background=True)
+    at = datetime.now(timezone.utc)
+    elapsed = 0
+    provider_calls = []
+
+    def collect(command, **kwargs):
+        provider_calls.append(command[-2])
+        value = {"status": "success" if len(provider_calls) > 1 else "unavailable"}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(value))
+
+    def pump(seconds):
+        nonlocal elapsed, at
+        assert seconds == 1
+        elapsed += 1
+        at += timedelta(seconds=1)
+        collector.run_one(store)
+
+    monkeypatch.setattr(collector.subprocess, "run", collect)
+    monkeypatch.setattr(collector, "stamp", lambda: at.isoformat(timespec="microseconds"))
+    monkeypatch.setattr(collector, "time", SimpleNamespace(monotonic=lambda: elapsed, sleep=pump))
+    original = jobs.enqueue(store, uid, automatic=True, ai=False)
+    task = jobs.claim(store, "recovered-shared-market")
+    report_id = jobs.run(store, keys, task)["report_id"]
+    assert provider_calls == ["sync", "sync"]
+    shared = collector.list_jobs(store)[0]
+    assert shared["status"] == "success" and shared["run_attempts"] == 2
+    assert shared["result"]["retry_history"][0]["delay_seconds"] == collector.COLLECTION_RETRY_DELAYS[0]
+    assert store.one("SELECT COUNT(*) n FROM site_jobs")["n"] == 1
+    assert jobs.enqueue(store, uid, automatic=True)["id"] == original["id"]
+    assert store.query("SELECT id FROM personal_reports WHERE job_id=?", (original["id"],)) == [{"id": report_id}]
 
 
 def test_shared_jobs_are_visible_only_to_admin_and_retry_checks_role(cloud):

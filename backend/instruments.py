@@ -15,6 +15,7 @@ GOLD_REFERENCE_INSTRUMENTS = (
     ("SGE", "AU99.99", "上金所 Au99.99", "metal"),
     ("SH", "518880", "华安黄金 ETF", "etf"),
 )
+DISCLOSURE_UNVERIFIED = "官方公告未能完成核验"
 METAL_LINKED_SECURITIES = {
     "SH:601899": "紫金矿业", "SH:600547": "山东黄金", "SH:600489": "中金黄金",
     "SZ:000603": "盛达资源", "SZ:002716": "湖南白银", "SZ:000426": "兴业银锡",
@@ -111,10 +112,23 @@ def review_evidence(previous,supplied,status):
         raise ValueError("需要三项官方 HTTPS 证据及人工核验结论")
     if previous.get("exchange_delisting") and status!="delisted":
         raise ValueError("证券仍在交易所终止上市记录中，请先同步核对是否重新上市")
-    evidence={k:previous[k] for k in ("exchange_delisting","exchange_listing_date","disclosure_check","trading_status_events") if k in previous}
+    evidence={k:previous[k] for k in ("exchange_delisting","exchange_listing_date","disclosure_check","disclosure_failure","trading_status_events") if k in previous}
     if evidence.get("trading_status_events"):
         evidence["manual_trading_status_at"] = timestamp()
     return {**evidence,**{k:supplied[k] for k in (*keys,"review_note")}}
+
+
+def disclosure_unverified(item, at):
+    evidence = item.get("evidence", {})
+    failure = evidence.get("disclosure_failure")
+    if not failure:
+        previous = evidence.get("disclosure_check", {})
+        if not previous.get("unread_status_notices"):
+            return False
+        failure = previous
+    failed_at = trading_status.parse_local(failure.get("started_at") or failure.get("fetched_at"))
+    verified_at = trading_status.parse_local(item.get("verified_at"))
+    return bool(failed_at and failed_at <= at and (not verified_at or not failed_at < verified_at <= at))
 
 
 # 按市场与代码生成稳定标识，新增或恢复证券的自选状态。
@@ -152,6 +166,8 @@ def risk_reasons(item: dict, at: datetime | None = None) -> list[str]:
         errors.append("今日已有官方公告安排停牌")
     if item["risk_flag"] != "clear" or name_risk(item["name"]):
         errors.append("风险警示或公告尚未核验")
+    if disclosure_unverified(item, at):
+        errors.append(DISCLOSURE_UNVERIFIED)
     if not item["verified_at"]:
         errors.append("缺少风险核验时间")
     else:

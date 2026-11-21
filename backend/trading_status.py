@@ -141,7 +141,10 @@ def apply_status_view(item, at):
 
 
 def scheduled_halt(item, at):
+    events = item.get("evidence", {}).get("trading_status_events")
+    if not events:
+        return None
     point = at.astimezone(TZ).isoformat(timespec="seconds")
-    return any(row["status"] == "suspended" and row.get("published_at", "") <= point
-               and point < row["effective_at"] and row["effective_at"][:10] == point[:10]
-               for row in item.get("evidence", {}).get("trading_status_events", []))
+    scheduled = (row for row in events if row["status"] == "suspended" and row.get("published_at", "") <= point
+                 and point < row["effective_at"] and row["effective_at"][:10] == point[:10])
+    return min(scheduled, key=lambda row: row["effective_at"], default=None)

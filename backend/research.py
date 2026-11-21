@@ -17,6 +17,7 @@ from .report_facts import METAL_NAMES, attach_metal_study, attach_metals, closin
 # 汇总行情、风险、预算和技术指标，筛选最多三只合格模拟候选。
 def build_facts(mode="standard") -> dict:
     cfg = db.settings()
+    risk_at = now()
     context = collectors.calendar_context()
     candidates, excluded, sources = [], [], []
     histories, latest_bars = {}, {}
@@ -25,7 +26,7 @@ def build_facts(mode="standard") -> dict:
         bars = collectors.bars_for(item["id"])
         last = bars[-1] if bars else None
         latest_bars[item["id"]] = last
-        reasons = instruments.risk_reasons(item) + collectors.fresh_reasons(last,context)
+        reasons = instruments.risk_reasons(item, risk_at) + collectors.fresh_reasons(last,context)
         stats = analytics.indicators(bars)
         reasons += stats["missing"]
         estimate = None
@@ -45,7 +46,7 @@ def build_facts(mode="standard") -> dict:
             reasons.append("趋势与成交量评分未达到60分（非上涨概率）")
         # 任一证据、行情、流动性或预算障碍都进入排除清单，不靠模型绕过规则。
         if reasons:
-            excluded.append(excluded_security(item, reasons, last, sources))
+            excluded.append(excluded_security(item, reasons, last, sources, risk_at))
             continue
         candidate = {"instrument_id":item["id"],"symbol":item["symbol"],"name":item["name"],"asset_class":item["asset_class"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"],"source_ids":[source_id],"quantity":estimate["max_quantity"],"budget":estimate,"score":points,"indicators":stats["latest"],"status":"verified","rules":item["rules"],"evidence":item["evidence"],"verified_at":item["verified_at"],"rationale":"趋势、成交量与预算规则同时通过；评分仅表示规则匹配程度。","counterargument":"历史技术形态不代表未来表现，费用和跳空会改变可执行性。","invalidation":"风险核验过期、出现风险公告、行情过期或成交总成本超过预算时失效。"}
         if mode == "full":

@@ -53,6 +53,7 @@ def report_detail(store,uid,ident):
 def facts(store,uid,mode,prefs=None,*,scheduled_for=None,context_update=None,market_at=None,market_update=None):
     from .simulation import portfolio
     prefs=prefs or get_preferences(store,uid)
+    risk_at = now()
     ctx=market.calendar(store,market_at) if market_at else market.calendar(store)
     candidates=[];excluded=[];sources=[];watch=[];aux=[];observations=[]
     histories, latest_bars = {}, {}
@@ -68,7 +69,9 @@ def facts(store,uid,mode,prefs=None,*,scheduled_for=None,context_update=None,mar
             if last:
                 aux.append({"instrument_id":item["id"],"name":item["name"],"symbol":item["symbol"],"market":item["market"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"]})
             continue
-        reasons=market.risk_reasons(item,prefs)+fresh_reasons(last,ctx);stats=analytics.indicators(bars);reasons+=stats["missing"]
+        reasons=market.risk_reasons(item,prefs,risk_at)+fresh_reasons(last,ctx);stats=analytics.indicators(bars);reasons+=stats["missing"]
+        if market_update in {"failed", "unavailable", "pending"}:
+            reasons.append("本时段共享行情与公告核验未完成")
         estimate=None;sid=None
         if last:
             sid="s"+str(len(sources)+1)
@@ -87,7 +90,7 @@ def facts(store,uid,mode,prefs=None,*,scheduled_for=None,context_update=None,mar
         if reasons:
             if mode=="full" and last and not fresh_reasons(last,ctx) and stats["latest"]:
                 observations.append({"instrument_id":item["id"],"name":item["name"],"score":points,"source_ids":[sid],"indicators":stats["latest"]})
-            excluded.append(excluded_security(item, reasons, last, sources));continue
+            excluded.append(excluded_security(item, reasons, last, sources, risk_at));continue
         c={"instrument_id":item["id"],"symbol":item["symbol"],"name":item["name"],"asset_class":item["asset_class"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"],"source_ids":[sid],"quantity":estimate["max_quantity"],"budget":estimate,"score":points,"indicators":stats["latest"],"status":"verified","rules":item["rules"],"evidence":item["evidence"],"verified_at":item["verified_at"],"rationale":"趋势、成交量与预算规则同时通过。","counterargument":"历史形态不代表未来表现，费用和跳空会改变可执行性。","invalidation":"风险、行情或预算条件变化时失效。"}
         if mode=="full":
             c["multi_timeframe"]={tf:analytics.indicators(market.bars_for(store,item["id"],tf))["latest"] for tf in ("15m","60m")};c["weekly"]=analytics.indicators(resample_weekly(bars))["latest"]
