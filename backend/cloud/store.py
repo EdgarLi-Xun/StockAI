@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS mail_outbox(
  expires_at TEXT NOT NULL,error_code TEXT,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS user_settings(
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,payload_json TEXT NOT NULL,default_profile_id TEXT);
+CREATE TABLE IF NOT EXISTS user_schedule_checks(
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,checked_day TEXT NOT NULL,
+ morning_time TEXT,closing_time TEXT,weekly_time TEXT);
 CREATE TABLE IF NOT EXISTS workspace_setup(
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,source TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS user_watchlist(
@@ -153,6 +156,7 @@ class Store:
         self._requests_lock=threading.Lock()
         self.research_cache_lock=threading.RLock()
         self.research_cache={}
+        self.readiness_write_lock=threading.Lock()
 
     # 显式指定用户后复用可重入锁，串行化同一用户的敏感更新。
     def user_lock(self,uid):
@@ -222,9 +226,10 @@ class Store:
             c.execute("INSERT OR IGNORE INTO cloud_meta VALUES('site_id',?)",(uuid.uuid4().hex,))
             c.execute("INSERT OR IGNORE INTO cloud_meta VALUES('schema_version','1')")
             c.execute("INSERT OR IGNORE INTO cloud_meta VALUES('maintenance','0')")
-            from backend.instruments import Rules
+            from backend.instruments import Rules,seed_gold_references
             for market,symbol,name,asset in (("SH","000001","上证指数","index"),("SZ","399001","深证成指","index"),("SZ","399006","创业板指","index"),("FX","XAUUSD","伦敦金现货","metal"),("FX","XAGUSD","伦敦银现货","metal"),("SHFE","AU0","沪金主力连续","future"),("SHFE","AG0","沪银主力连续","future")):
                 c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(market+":"+symbol,symbol,market,name,asset,Rules().model_dump_json()))
+            seed_gold_references(c)
         return self
 
     # 登记任务当前网络连接，供取消操作中断请求。

@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_cloud import cloud,PASSWORD,login
 from backend.cloud import models
+from backend.cloud.config import PRIVATE_LAN
 from backend.cloud.crypto import Keyring
 from backend.cloud.lifecycle import ErasureJournal
 from backend.cloud.store import Store
@@ -51,7 +52,8 @@ def test_local_first_run_two_clients_share_owner_and_private_data(tmp_path):
 def test_local_setup_rejects_remote_and_forwarded_clients(tmp_path,peer,headers):
     cfg,store=empty_local(tmp_path)
     with TestClient(create_app(cfg),base_url=cfg.public_url,client=(peer,41000)) as c:
-        csrf(c);r=c.post('/api/desktop/setup',json={'email':'owner@example.test','password':PASSWORD},headers=headers)
+        if peer=='127.0.0.1':csrf(c)
+        r=c.post('/api/desktop/setup',json={'email':'owner@example.test','password':PASSWORD},headers=headers)
         assert r.status_code==403 and not store.one('SELECT id FROM users')
 
 
@@ -86,7 +88,7 @@ def test_desktop_configuration_cannot_become_a_public_shortcut(tmp_path):
 def test_lan_login_shares_workspace_and_requires_its_own_origin(tmp_path,address):
     cfg,store=empty_local(tmp_path)
     origin=f'http://{address}:8891'
-    cfg=replace(cfg,desktop_origins=(origin,'http://localhost:8891'))
+    cfg=replace(cfg,desktop_origins=(origin,'http://localhost:8891'),desktop_lan_networks=('192.168.1.0/24',))
     with TestClient(create_app(cfg),base_url=cfg.public_url,client=('127.0.0.1',41000)) as local:
         lan=TestClient(local.app,base_url=origin,client=('192.168.1.3',41001))
         try:
@@ -106,6 +108,12 @@ def test_lan_login_shares_workspace_and_requires_its_own_origin(tmp_path,address
             logged=lan.post('/api/auth/login',json=owner)
             assert logged.status_code==200 and logged.json()['user']['id']==created.json()['user']['id']
             csrf(lan)
+            assert lan.post('/api/desktop/lan',json={'enabled':False}).status_code==403
+            excluded=TestClient(local.app,base_url=origin,client=('192.168.2.3',41002))
+            try:
+                assert excluded.get('/api/health').status_code==403
+            finally:
+                excluded.close()
             saved=lan.post('/api/me/model-profiles',json={'name':'LAN 模型配置','provider':'ollama','model':'test-lan-only'})
             assert saved.status_code==200,saved.text
             assert local.get('/api/me/model-profiles').json()[0]['id']==saved.json()['id']
@@ -120,7 +128,7 @@ def test_lan_login_shares_workspace_and_requires_its_own_origin(tmp_path,address
     'http://user@192.168.1.2:8891','http://192.168.1.2:8891/path',
 ])
 def test_desktop_origins_are_explicit_ipv4_addresses_on_the_service_port(tmp_path,origin):
-    cfg=replace(local_config(tmp_path,8891,False),desktop_origins=(origin,))
+    cfg=replace(local_config(tmp_path,8891,False),desktop_origins=(origin,),desktop_lan_networks=('192.168.1.0/24',))
     with pytest.raises(ValueError):cfg.validate()
     cfg=replace(cfg,desktop_mode=False,desktop_origins=('http://192.168.1.2:8891',))
     with pytest.raises(ValueError):cfg.validate()
@@ -128,10 +136,28 @@ def test_desktop_origins_are_explicit_ipv4_addresses_on_the_service_port(tmp_pat
 
 def test_desktop_real_http_accepts_loopback_and_lan_with_separate_sessions(tmp_path):
     addresses=socket.gethostbyname_ex(socket.gethostname())[2]
-    address=next((value for value in addresses if not ipaddress.ip_address(value).is_loopback),None)
+    address=next((value for value in addresses if any(ipaddress.IPv4Address(value) in network for network in PRIVATE_LAN)),None)
     if not address:pytest.skip('No LAN IPv4 address is available')
     with socket.socket() as probe:
         probe.bind(('0.0.0.0',0));preferred=probe.getsockname()[1]
+    host=Host(tmp_path,preferred,background=False).start()
+    owner={'email':'real-http-check@stockai.test','password':PASSWORD}
+    try:
+        host.wait()
+        assert host.server.config.host=='127.0.0.1'
+        with httpx.Client(base_url=host.url,trust_env=False,timeout=15) as local:
+            csrf(local)
+            assert local.get('/api/desktop/lan').status_code==401
+            assert local.post('/api/desktop/setup',json=owner).status_code==200
+            csrf(local)
+            assert local.get('/api/desktop/lan').json()['active'] is False
+            assert local.post('/api/desktop/lan',json={'enabled':True,'networks':['0.0.0.0/0']}).status_code==400
+            enabled=local.post('/api/desktop/lan',json={'enabled':True,'networks':[f'{address}/32']})
+            assert enabled.status_code==200 and enabled.json()['restart_required']
+            assert not enabled.json()['active']
+        with httpx.Client(base_url=f'http://{address}:{host.port}',trust_env=False,timeout=2) as lan:
+            with pytest.raises(httpx.TransportError):lan.get('/api/health')
+    finally:host.close()
     host=Host(tmp_path,preferred,background=False).start()
     try:
         host.wait()
@@ -139,11 +165,10 @@ def test_desktop_real_http_accepts_loopback_and_lan_with_separate_sessions(tmp_p
             assert local.get('/api/health').json()['instance']==lan.get('/api/health').json()['instance']
             assert local.get('/').status_code==lan.get('/').status_code==200
             assert lan.get('/api/me/model-profiles').status_code==401
-            owner={'email':'real-http-check@stockai.test','password':PASSWORD}
             csrf(lan)
             assert lan.post('/api/desktop/setup',json=owner).status_code==403
             csrf(local)
-            created=local.post('/api/desktop/setup',json=owner)
+            created=local.post('/api/auth/login',json=owner)
             assert created.status_code==200,created.text
             logged=lan.post('/api/auth/login',json=owner)
             assert logged.status_code==200,logged.text
@@ -152,7 +177,11 @@ def test_desktop_real_http_accepts_loopback_and_lan_with_separate_sessions(tmp_p
             saved=lan.post('/api/me/model-profiles',json={'name':'真实 HTTP 隔离测试','provider':'ollama','model':'test-lan-only'})
             assert saved.status_code==200,saved.text
             assert local.get('/api/me/model-profiles').json()[0]['id']==saved.json()['id']
+            csrf(local)
+            disabled=local.post('/api/desktop/lan',json={'enabled':False}).json()
+            assert disabled['active'] and disabled['restart_required']
     finally:host.close()
+    assert local_config(tmp_path,preferred,False).desktop_lan_networks==()
 
 
 def test_frozen_module_dispatch_is_explicit_and_bounded(monkeypatch):

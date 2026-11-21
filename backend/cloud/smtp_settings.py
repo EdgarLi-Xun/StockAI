@@ -186,17 +186,23 @@ def save(store, keys, actor, payload):
 
 
 # 按账号的加密方式连接 SMTP 并发送一封邮件。
-def transmit(account, message):
-    if account.starttls:
-        with smtplib.SMTP(account.host, account.port, timeout=15) as server:
-            server.starttls(context=ssl.create_default_context())
+def transmit(account, message, before_send=None):
+    transport = smtplib.SMTP if account.starttls else smtplib.SMTP_SSL
+    tls = ssl.create_default_context()
+    options = {} if account.starttls else {"context": tls}
+    accepted = False
+    try:
+        with transport(account.host, account.port, timeout=15, **options) as server:
+            if account.starttls:
+                server.starttls(context=tls)
             if account.username:
                 server.login(account.username, account.password)
+            if before_send:
+                before_send()
             refused = server.send_message(message)
-    else:
-        with smtplib.SMTP_SSL(account.host, account.port, timeout=15, context=ssl.create_default_context()) as server:
-            if account.username:
-                server.login(account.username, account.password)
-            refused = server.send_message(message)
-    if refused:
-        raise smtplib.SMTPRecipientsRefused(refused)
+            if refused:
+                raise smtplib.SMTPRecipientsRefused(refused)
+            accepted = True
+    except (OSError, smtplib.SMTPException):
+        if not accepted:
+            raise

@@ -214,6 +214,22 @@ def create(params: Parameters):
     return {"id":ident,"data_hash":data_hash,"strategy_version":STRATEGY_VERSION,**result}
 
 
+# 为研究报告提取可复核的绩效，不附逐笔成交或权益明细。
+def report_summary(row):
+    result=json.loads(row['result_json'])
+    params=json.loads(row['params_json'])
+    fields=("return_pct","max_drawdown_pct","round_trips","win_rate_pct","profit_factor","fees")
+    def metrics(values):
+        return {k:values[k] for k in fields if k in values and (values[k] is None or type(values[k]) in (int,float))}
+    return {
+        "id":row["id"],"created_at":row["created_at"],"strategy_version":row["strategy_version"],
+        "instrument_id":params.get("instrument_id"),"validated":result.get("validated",False),"data_range":result.get("data_range",[]),
+        "result":result["summary"],"summary":metrics(result["summary"]),
+        **{key:{"range":result[key]["range"],"metrics":metrics(result[key]["metrics"])} for key in ("in_sample","out_of_sample") if key in result},
+        "cost_sensitivity":[{"fee_multiplier":r["fee_multiplier"],"metrics":metrics(r["metrics"])} for r in result.get("cost_sensitivity",[])],
+    }
+
+
 # 使用已归档快照重演历史实验，并比较交易记录与结果是否一致。
 def reproduce(ident):
     row=db.one("SELECT * FROM backtest_runs WHERE id=?",(ident,))

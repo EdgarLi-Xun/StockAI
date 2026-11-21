@@ -6,7 +6,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime,timedelta,timezone
 
 from backend.config import ROOT,now
 from .store import json_text,stamp
@@ -103,6 +106,51 @@ def retry(store,ident):
         return enqueue(store,row['kind'],args.get('instrument_id'),args.get('timeframe','1d'),c=c,retry_of=ident)
 
 
+def wait_for_context(store,job):
+    cutoff=(datetime.now(timezone.utc)-timedelta(hours=12)).isoformat(timespec="microseconds")
+    recent=store.one("SELECT status FROM site_jobs WHERE kind='context' AND status IN ('success','partial') AND finished_at>=? ORDER BY finished_at DESC LIMIT 1",(cutoff,))
+    if recent:
+        return recent["status"]
+    return _wait_for_collection(store, job, "context")
+
+
+def wait_for_report_market(store, job, at):
+    # 等待同一时段已有数据刷新，设备恢复后也可合并发起一次刷新。
+    hour, minute = (15, 0) if job["kind"] == "closing" else (7, 40)
+    cutoff = min(at, at.replace(hour=hour, minute=minute, second=0, microsecond=0))
+    cutoff = cutoff.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    recent = store.one("""SELECT status FROM site_jobs WHERE kind='sync' AND status IN ('success','partial')
+        AND started_at>=? ORDER BY started_at DESC LIMIT 1""", (cutoff,))
+    if recent:
+        return recent["status"]
+    return _wait_for_collection(store, job, "sync")
+
+
+def _wait_for_collection(store, job, kind):
+    pending = enqueue(store, kind)
+    deadline = time.monotonic() + 150
+    while time.monotonic() < deadline:
+        row = store.one("SELECT status FROM site_jobs WHERE id=?", (pending["id"],))
+        if not row or row["status"] not in {"queued", "running"}:
+            return row["status"] if row else "unavailable"
+        if not store.one("SELECT 1 FROM personal_jobs WHERE id=? AND status='running'", (job["id"],)):
+            return "unavailable"
+        time.sleep(1)
+    return "pending"
+
+
+def collect_context(db,collectors,instruments,context):
+    rows=db.query("""SELECT i.id,i.asset_class FROM instruments i JOIN user_watchlist w ON w.instrument_id=i.id
+        JOIN users u ON u.id=w.user_id WHERE u.status='active' AND i.market IN ('SH','SZ') AND i.asset_class IN ('stock','etf')
+        GROUP BY i.id ORDER BY (i.status='active' AND i.risk_flag='clear') DESC,SUM(w.pinned) DESC,COUNT(*) DESC,i.id""")
+    securities=[row["id"] for row in rows if row["asset_class"]=="stock"][:8]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        minute=[pool.submit(collectors.sync_instrument,instruments.get(row["id"]),period) for row in rows[:3] for period in ("15m","60m")]
+        result=context.sync(instrument_ids=securities)
+        result.extend(task.result() for task in minute)
+    return result
+
+
 # 在隔离进程内读取采集参数，并调用对应共享数据采集入口。
 def main():
     from backend import db,collectors,instruments,context
@@ -124,7 +172,7 @@ def main():
     elif kind=="announcements":
         value={"announcements":collectors.announcements(args["instrument_id"])}
     elif kind=="context":
-        value=context.sync()
+        value=collect_context(db,collectors,instruments,context)
     else:
         raise ValueError("未知站点任务")
     print(json_text(value if isinstance(value,dict) else {"result":value}))

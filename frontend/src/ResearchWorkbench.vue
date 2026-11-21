@@ -67,7 +67,19 @@ function unload(e:BeforeUnloadEvent){if(dirty.value||Object.values(editorDrafts)
 // 串行处理提交动作，版本冲突时保留草稿并显示重新读取提示。
 async function action(fn:()=>Promise<any>,message=''){if(busy.value)return;busy.value=true;error.value='';notice.value='';try{const r=await fn();if(message)notice.value=message;return r}catch(e:any){error.value=e.code==='VERSION_CONFLICT'?'已有新版本。草稿已保留，请重新载入记录后再保存。':e.message;return null}finally{busy.value=false}}
 // 数字输入清空后会产生空字符串；在提交边界转为 null，同时保留 0 的暂停含义。
-async function saveUsageLimits(){await action(async()=>{const data={...limits.value,daily:limits.value.daily===''?null:limits.value.daily,monthly:limits.value.monthly===''?null:limits.value.monthly};usage.value=await api('/me/usage/limits',{method:'PUT',body:JSON.stringify(data)});limits.value={...usage.value.settings};settingsDirty.value.usage=false},'本人调用上限已更新，发出请求前会重新核对。')}
+async function saveUsageLimits() {
+  await action(async () => {
+    const { daily, monthly, version } = limits.value
+    const latestVersion = usage.value?.settings.version ?? version
+    if (version !== latestVersion && !await confirm('调用上限已更新。要用当前表单里的每日和每月上限替换最新设置吗？')) return
+    const data = { daily: daily === '' ? null : daily, monthly: monthly === '' ? null : monthly, version: latestVersion }
+    const value = await api('/me/usage/limits', { method: 'PUT', body: JSON.stringify(data) })
+    usage.value = value
+    limits.value = { ...usage.value.settings }
+    settingsDirty.value.usage = false
+    notice.value = '本人调用上限已更新，发出请求前会重新核对。'
+  })
+}
 // 读取本人研究对象的精简选项，供提醒、判断和助手引用表单使用。
 async function common(){const r=await api('/me/research/options');watchlist.value=r.watchlist;reports.value=r.reports;profiles.value=r.profiles;accounts.value=r.accounts;backtests.value=r.backtests}
 // 重新读取本人对象选项和当前页面，再应用一次性跳转上下文，并统一处理加载错误。
@@ -75,22 +87,42 @@ async function reload(){loading.value=true;try{await common();await refresh();co
 // 将 Tab 和 Shift+Tab 的焦点限制在当前弹窗的可操作元素之间。
 function trap(e:KeyboardEvent){const root=e.currentTarget as HTMLElement;const elements=Array.from(root.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]'));const first=elements[0],last=elements.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}
 // 冻结本次请求参数，并在每次异步读取后核对代次，避免旧页面或筛选结果覆盖当前视图。
-async function refresh(){const token=++generation,view=props.view,topic=topicFilter.value,sessionQuery=new URLSearchParams({page:String(sessionPage.value),size:String(size.value),q:query.value}),hash=location.hash;const current=()=>alive&&token===generation&&props.view===view;loading.value=true;error.value='';try{
-  const params=new URLSearchParams({page:String(page.value),size:String(size.value),q:query.value,status:status.value})
-  if(view==='readiness'){const value=await api('/me/readiness?'+params);if(current())readiness.value=value}
-  else if(view==='usage'){const value=await api('/me/usage');if(!current())return;usage.value=value;if(!settingsDirty.value.usage)limits.value={...value.settings}}
-  else if(view==='alerts'){const r=await Promise.all([api('/me/alerts?'+params),api('/me/alerts/events?'+params),api('/me/alerts/settings')]);if(!current())return;list.value=r[0];events.value=r[1];if(!settingsDirty.value.alerts)notification.value=r[2]}
-  else if(view==='journals'){const value=await api('/me/journals?'+params);if(current())list.value=value}
-  else if (view === 'portfolio') {
-    if (!selectedAccount.value) selectedAccount.value = accounts.value[0]?.id || ''
-    const account = selectedAccount.value
-    if (risk.value?.account_id !== account) risk.value = null
-    const value = account ? await api('/me/portfolio/' + account + '/risk') : null
-    if (current()) risk.value = value
+async function refresh() {
+  const token = ++generation
+  const view = props.view, topic = topicFilter.value, hash = location.hash
+  const sessionQuery = new URLSearchParams({page:String(sessionPage.value),size:String(size.value),q:query.value})
+  const current = () => alive && token === generation && props.view === view
+  const usageBeforeRead = usage.value
+  // 保存结果先返回时，进行中的用量读取已经过期。
+  const currentUsage = () => current() && usage.value === usageBeforeRead
+  loading.value = true
+  error.value = ''
+  try {
+    const params=new URLSearchParams({page:String(page.value),size:String(size.value),q:query.value,status:status.value})
+    if(view==='readiness'){const value=await api('/me/readiness?'+params);if(current())readiness.value=value}
+    else if (view === 'usage') {
+      const value = await api('/me/usage')
+      if (!currentUsage()) return
+      usage.value = value
+      if (!settingsDirty.value.usage) limits.value = { ...value.settings }
+    }
+    else if(view==='alerts'){const r=await Promise.all([api('/me/alerts?'+params),api('/me/alerts/events?'+params),api('/me/alerts/settings')]);if(!current())return;list.value=r[0];events.value=r[1];if(!settingsDirty.value.alerts)notification.value=r[2]}
+    else if(view==='journals'){const value=await api('/me/journals?'+params);if(current())list.value=value}
+    else if (view === 'portfolio') {
+      if (!selectedAccount.value) selectedAccount.value = accounts.value[0]?.id || ''
+      const account = selectedAccount.value
+      if (risk.value?.account_id !== account) risk.value = null
+      const value = account ? await api('/me/portfolio/' + account + '/risk') : null
+      if (current()) risk.value = value
+    }
+    else if(view==='experiments'){const nextTopics=await api('/me/experiment-topics?size=50');if(!current())return;const value=await api('/me/experiments?'+params+'&topic_id='+encodeURIComponent(topic));if(!current())return;topics.value=nextTopics.items;list.value=value}
+    else if(view==='assistant'){const nextSessions=await api('/me/assistant/sessions?'+sessionQuery);if(!current())return;const nextHelp=await api('/me/assistant/help');if(!current())return;const requested=hash.split('?')[0]==='#assistant'?new URLSearchParams(hash.split('?')[1]).get('session'):null;sessions.value=nextSessions;help.value=nextHelp;if(requested&&session.value?.id!==requested){session.value=null;messagePage.value=1;await openSession(requested,current)}else if(!session.value&&nextSessions.items[0])await openSession(nextSessions.items[0].id,current);if(!current())return;const value=await api('/me/experiments?size=50');if(current())list.value=value}
+  } catch (e: any) {
+    if (view === 'usage' ? currentUsage() : current()) error.value = e.message
+  } finally {
+    if (current()) loading.value = false
   }
-  else if(view==='experiments'){const nextTopics=await api('/me/experiment-topics?size=50');if(!current())return;const value=await api('/me/experiments?'+params+'&topic_id='+encodeURIComponent(topic));if(!current())return;topics.value=nextTopics.items;list.value=value}
-  else if(view==='assistant'){const nextSessions=await api('/me/assistant/sessions?'+sessionQuery);if(!current())return;const nextHelp=await api('/me/assistant/help');if(!current())return;const requested=hash.split('?')[0]==='#assistant'?new URLSearchParams(hash.split('?')[1]).get('session'):null;sessions.value=nextSessions;help.value=nextHelp;if(requested&&session.value?.id!==requested){session.value=null;messagePage.value=1;await openSession(requested,current)}else if(!session.value&&nextSessions.items[0])await openSession(nextSessions.items[0].id,current);if(!current())return;const value=await api('/me/experiments?size=50');if(current())list.value=value}
-}catch(e:any){if(current())error.value=e.message}finally{if(current())loading.value=false}}
+}
 // 更新筛选条件后回到第一页再请求数据。
 function filter(){page.value=1;void refresh()}
 // 按翻页方向调整页码，并重新加载当前筛选结果。
@@ -218,7 +250,7 @@ onBeforeUnmount(()=>{alive=false;sessionRead++;clearInterval(poll);window.remove
           </div>
           <form class="panel research-section usage-limits" aria-label="调用上限设置" @input="settingsDirty.usage=true" @submit.prevent="saveUsageLimits">
             <div class="panel-heading"><div><h2>调用上限</h2><p>报告、连接测试与项目对话共用。</p></div></div>
-            <div class="usage-limit-fields"><label>每日最多调用次数<input v-model.number="limits.daily" type="number" min="0" step="1" placeholder="未设置"/></label><label>每月最多调用次数<input v-model.number="limits.monthly" type="number" min="0" step="1" placeholder="未设置"/></label></div>
+            <div class="usage-limit-fields"><label>每日最多调用次数<input v-model.number="limits.daily" type="number" min="0" step="1" placeholder="未设置" :disabled="busy"/></label><label>每月最多调用次数<input v-model.number="limits.monthly" type="number" min="0" step="1" placeholder="未设置" :disabled="busy"/></label></div>
             <p class="research-footnote">留空表示不设上限；填 0 则暂停对应时间范围内的全部模型调用。</p><button class="primary" :disabled="busy">保存上限</button>
           </form>
         </div>

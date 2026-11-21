@@ -8,9 +8,13 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript')
 const source = readFileSync(new URL('../frontend/src/App.vue', import.meta.url), 'utf8').split('</script>')[0]
 const parsed = ts.createSourceFile('app.ts', source.slice(source.indexOf('>') + 1), ts.ScriptTarget.Latest, true)
-const names = ['loadIndex', 'showReport', 'closeReport', 'go', 'syncHash', 'openRouteContext', 'reportRoute', 'action']
-const functions = parsed.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(parsed)).join('\n')
-const code = ts.transpileModule(functions, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+const names = ['loadIndex', 'showReport', 'closeReport', 'go', 'syncHash', 'openRouteContext', 'reportRoute', 'action', 'loadPage', 'pollLive', 'loadReportArchive']
+const variables = ['reportArchive', 'archiveMode', 'reports', 'reportArchiveRead']
+const script = parsed.statements.filter(node =>
+  (ts.isFunctionDeclaration(node) && names.includes(node.name?.text)) ||
+  (ts.isVariableStatement(node) && node.declarationList.declarations.some(d => variables.includes(d.name.getText(parsed))))
+).map(node => node.getText(parsed)).join('\n')
+const code = ts.transpileModule(script + '\nglobalThis.reportIds = () => Array.from(reports.value, r => r.id);', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 
 function client(page = 'dashboard', initialHash = '#' + page) {
   const ref = value => ({ value }), requests = []
@@ -20,12 +24,15 @@ function client(page = 'dashboard', initialHash = '#' + page) {
     set hash(value) { hash = value.startsWith('#') ? value : '#' + value },
   }
   const state = {
+    ref, computed: get => ({ get value() { return get() } }),
     activeIndex: ref('SH:000001'), indexData: ref(null), indexRead: 0,
     selectedReport: ref(null), reportRead: 0, reportLoading: ref(false),
     page: ref(page), busy: ref(false), error: ref(''), sidebarOpen: ref(false),
     props: { publicMode: false }, ready: ref(true), location, handledHash: initialHash, URLSearchParams,
     nav: ['dashboard', 'reports', 'review', 'market'].map(id => ({ id })),
     emit() {}, notify() {},
+    requiresLogin: ref(false), modal: ref(''), detailId: ref(''), document: { hidden: false },
+    async refreshBase() {},
     api: path => new Promise((resolve, reject) => requests.push({ path, resolve, reject })),
   }
   vm.runInNewContext(code, state)
@@ -177,4 +184,29 @@ test('a delayed hashchange from internal report navigation keeps the new request
   requests[0].resolve({ id: 'new' }); await new Promise(setImmediate)
   assert.equal(state.selectedReport.value.id, 'new')
   assert.equal(state.reportLoading.value, false)
+})
+
+for (const method of ['loadPage', 'pollLive']) {
+  test(`a late review archive from ${method} cannot replace the report list`, async () => {
+    const { state, requests } = client('review')
+    const review = state[method]()
+    await new Promise(setImmediate)
+    assert.equal(requests[0].path, '/reports?mode=full')
+
+    state.go('reports')
+    const reports = state.loadPage()
+    assert.equal(requests[1].path, '/reports')
+    requests[1].resolve([{ id: 'morning' }, { id: 'weekly' }]); await reports
+    requests[0].resolve([{ id: 'weekly' }]); await review
+    assert.deepEqual([...state.reportIds()], ['morning', 'weekly'])
+  })
+}
+
+test('switching to the review archive hides other report types while it loads', async () => {
+  const { state, requests } = client('reports')
+  const reports = state.loadPage()
+  requests[0].resolve([{ id: 'morning' }]); await reports
+
+  state.go('review')
+  assert.deepEqual([...state.reportIds()], [])
 })

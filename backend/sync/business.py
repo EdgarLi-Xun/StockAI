@@ -10,6 +10,7 @@ from backend.price_rules import client_key as price_rule_key
 from .protocol import SyncError,digest,MAX_OBJECT
 
 SECRET={'api_key','password','credential_id','envelope_json','key_hint','token','csrf_hash','authorization','smtp_password','allow_summary','allow_trades','allow_simulation_summary','allow_trade_details'}
+LOCAL_PREFERENCES=('automatic_ai','morning_enabled','closing_enabled','weekly_enabled','task_failure_email_enabled')
 REFS={'report_id':'personal_reports','source_report_id':'personal_reports','series_id':'report_series','parent_id':None,'account_id':'sim_accounts','order_id':'sim_orders','price_rule_id':'sim_price_rules','session_id':'research_objects','object_id':'research_objects','rule_id':'research_objects','request_id':'assistant_requests','regenerate_of':'assistant_requests','topic_id':'research_objects','result_id':'personal_backtests','profile_id':'model_profiles','experiment_id':'research_experiments'}
 KINDS={'report':'personal_reports','account':'sim_accounts','backtest':'personal_backtests','experiment':'research_experiments','profile':'model_profiles','object':'research_objects','delivery':'alert_deliveries'}
 ALLOWED={'user_watchlist','user_settings','model_profiles','model_profile_versions','model_context_limits','report_series','personal_reports','personal_candidates','sim_accounts','sim_orders','sim_lots','sim_ledger','sim_equity','sim_price_rules','sim_price_rule_events','portfolio_valuation_history','personal_backtests','research_experiments','research_objects','research_versions','journal_observation_history','alert_state','alert_events','assistant_requests','assistant_chunks'}
@@ -80,7 +81,7 @@ class Adapter:
         if table=='user_settings':
             value.pop('default_profile_id',None)
             settings=json.loads(value['payload_json'])
-            for k in ('automatic_ai','morning_enabled','closing_enabled','weekly_enabled'):settings.pop(k,None)
+            for k in LOCAL_PREFERENCES:settings.pop(k,None)
             value['payload_json']=json_text(settings)
         if table=='model_profiles':value.pop('active',None);value.pop('needs_reconnect',None)
         if table=='personal_reports':value.pop('markdown_path',None);value.pop('html_path',None);value['job_id']=None
@@ -221,7 +222,7 @@ class Adapter:
                 if name=='user_settings':
                     row['user_id']=self.uid;current=c.execute('SELECT payload_json,default_profile_id FROM user_settings WHERE user_id=?',(self.uid,)).fetchone()
                     saved=json.loads(current['payload_json']) if current else {};received=json.loads(row['payload_json'])
-                    for flag in ('automatic_ai','morning_enabled','closing_enabled','weekly_enabled'):received.pop(flag,None)
+                    for flag in LOCAL_PREFERENCES:received.pop(flag,None)
                     saved.update(received);row['payload_json']=json_text(saved);row['default_profile_id']=current['default_profile_id'] if current else None
                 if name=='research_objects' and row.get('kind')=='alert':
                     previous=c.execute('SELECT payload_json,status FROM research_objects WHERE id=? AND user_id=?',(row['id'],self.uid)).fetchone()

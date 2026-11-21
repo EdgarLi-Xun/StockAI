@@ -36,16 +36,18 @@ def listing(store,uid,kind,*,page=1,size=20,q='',status=''):
     args=[uid,kind];where='user_id=? AND kind=?'
     if status:where+=' AND status=?';args.append(status)
     if q:where+=' AND payload_json LIKE ?';args.append('%'+q[:100]+'%')
-    total=store.one('SELECT COUNT(*) n FROM research_objects WHERE '+where,args)['n']
-    rows=store.query('SELECT * FROM research_objects WHERE '+where+' ORDER BY updated_at DESC,id LIMIT ? OFFSET ?',[*args,size,(page-1)*size])
+    with store.tx() as c:
+        total=c.execute('SELECT COUNT(*) n FROM research_objects WHERE '+where,args).fetchone()['n']
+        rows=[dict(row) for row in c.execute('SELECT * FROM research_objects WHERE '+where+' ORDER BY updated_at DESC,id LIMIT ? OFFSET ?',[*args,size,(page-1)*size])]
     for row in rows:row['data']=json.loads(row.pop('payload_json'))
     return {'items':rows,'total':total,'page':page,'size':size}
 
 
 # 按客户端键幂等创建或按版本更新资源，同时追加不可覆盖的修订记录。
-def save(store,uid,kind,data,*,ident=None,version=None,status='active',client_key=None):
+def save(store,uid,kind,data,*,ident=None,version=None,status='active',client_key=None,readback=True):
     if kind not in KINDS:raise ValueError('资源类型无效')
     ident=ident or uuid.uuid4().hex;ts=stamp()
+    payload=json_text(data)
     with store.user_lock(uid),store.tx(immediate=True) as c:
         if not store.active(uid,c=c):raise AuthError('ACCOUNT_DISABLED','账号不可用',403)
         row=c.execute('SELECT * FROM research_objects WHERE id=? AND user_id=? AND kind=?',(ident,uid,kind)).fetchone()
@@ -56,8 +58,9 @@ def save(store,uid,kind,data,*,ident=None,version=None,status='active',client_ke
             raise AuthError('VERSION_CONFLICT','请携带当前版本号更新',409)
         if row:
             previous=json.loads(row['payload_json'])
-            if previous.get('creation_request_fingerprint'):
+            if previous.get('creation_request_fingerprint') and previous['creation_request_fingerprint']!=data.get('creation_request_fingerprint'):
                 data={**data,'creation_request_fingerprint':previous['creation_request_fingerprint']}
+                payload=json_text(data)
         if not row and client_key:
             old=c.execute('SELECT * FROM research_objects WHERE user_id=? AND kind=? AND client_key=?',(uid,kind,client_key)).fetchone()
             if old:
@@ -67,11 +70,12 @@ def save(store,uid,kind,data,*,ident=None,version=None,status='active',client_ke
                 if not same:raise AuthError('REQUEST_CONFLICT','相同请求标识不能用于不同内容',409)
                 return get(store,uid,kind,old['id'])
         new_version=row['version']+1 if row else 1
-        c.execute('INSERT INTO research_objects VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,status=excluded.status,updated_at=excluded.updated_at,payload_json=excluded.payload_json',(ident,uid,kind,new_version,status,row['created_at'] if row else ts,ts,json_text(data),client_key))
-        c.execute('INSERT INTO research_versions VALUES(?,?,?,?,?)',(ident,uid,new_version,ts,json_text(data)))
+        c.execute('INSERT INTO research_objects VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,status=excluded.status,updated_at=excluded.updated_at,payload_json=excluded.payload_json',(ident,uid,kind,new_version,status,row['created_at'] if row else ts,ts,payload,client_key))
+        c.execute('INSERT INTO research_versions VALUES(?,?,?,?,?)',(ident,uid,new_version,ts,payload))
     sync=getattr(store,'sync_service',None)
     if kind=='usage_settings' and sync and sync.binding(uid):sync.request_limits(uid,{'daily':data.get('daily'),'monthly':data.get('monthly')})
-    return get(store,uid,kind,ident)
+    if readback:
+        return get(store,uid,kind,ident)
 
 
 # 先记录独立删除意图，再取消相关任务并删除本人对象。

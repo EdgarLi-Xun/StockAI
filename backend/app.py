@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 from . import ai, analytics, backtest, collectors, db, instruments, jobs, maintenance, research, security, simulation
 from .budget import budget_check
 from .config import DATA, ROOT, Settings, VERSION, now, timestamp
+from .report_facts import METAL_NAMES,gold_silver_ratio,quote_stale
 
 
 # 启动数据库、访问令牌和调度器，并在应用退出时收尾。
@@ -115,20 +116,22 @@ def watch_rows():
     for r in db.query("SELECT id FROM instruments WHERE watched=1 ORDER BY pinned DESC,group_name,symbol"):
         item=instruments.get(r["id"])
         bars=collectors.bars_for(item["id"],limit=2)
-        last=bars[-1] if bars else None
+        last_bar=bars[-1] if bars else None
+        quote=last_bar
+        ordinary=item["market"] in {"SH","SZ"} and item["asset_class"] in {"stock","etf"}
         observation=db.one("SELECT payload_json FROM market_quotes WHERE instrument_id=?",(item["id"],))
-        if not last and observation:
+        if not quote and observation:
             q=json.loads(observation["payload_json"])
-            last={"price":q["price"],"ts":q["quote_time"],"source":q["source"],"source_url":q["source_url"],"fetched_at":q["fetched_at"],"unit":q["unit"],"currency":q["currency"],"kind":q["kind"],"timestamp_basis":q.get("timestamp_basis",q.get("timezone",""))}
+            quote={"price":q["price"],"ts":q["quote_time"],"source":q["source"],"source_url":q["source_url"],"fetched_at":q["fetched_at"],"unit":q["unit"],"currency":q["currency"],"kind":q["kind"],"timestamp_basis":q.get("timestamp_basis",q.get("timezone",""))}
         estimate=None
-        if last and item["asset_class"] in {"stock","etf"} and item["market"] in {"SH","SZ"}:
+        # 观察报价可显示，预算和日线时效仍以已入库的日线为准。
+        if last_bar and ordinary:
             try:
-                estimate=budget_check(last["close"],item["rules"],item["asset_class"],cfg.fees,cfg.budget)
+                estimate=budget_check(last_bar["close"],item["rules"],item["asset_class"],cfg.fees,cfg.budget)
             except ValueError:
                 pass
-        change=(last["close"]/bars[-2]["close"]-1)*100 if len(bars)>1 else None
-        ordinary=item["market"] in {"SH","SZ"} and item["asset_class"] in {"stock","etf"}
-        result.append({**item,"quote":last,"change_pct":round(change,3) if change is not None else None,"budget":estimate,"observation_only":not ordinary,"exclusion_reasons":instruments.risk_reasons(item)+collectors.fresh_reasons(last,context) if ordinary else ["仅供独立观察，不参与普通模拟候选"]})
+        change=(last_bar["close"]/bars[-2]["close"]-1)*100 if len(bars)>1 else None
+        result.append({**item,"quote":quote,"change_pct":round(change,3) if change is not None else None,"budget":estimate,"observation_only":not ordinary,"exclusion_reasons":instruments.risk_reasons(item)+collectors.fresh_reasons(last_bar,context) if ordinary else ["仅供独立观察，不参与普通模拟候选"]})
     return result
 
 
@@ -142,7 +145,8 @@ def dashboard():
         p=json.loads(r.pop("payload_json"))
         reports.append({**r,"summary":p["summary"],"candidate_count":len(p["candidates"]),"ai_status":p["ai_status"]})
     candidates=json.loads(db.one("SELECT payload_json FROM reports ORDER BY generated_at DESC LIMIT 1")["payload_json"])["candidates"] if reports else []
-    return {"version":VERSION,"time":timestamp(),"calendar":collectors.calendar_context(),"stats":{"watch_count":len(rows),"quote_count":sum(r["quote"] is not None for r in rows),"verified_count":sum(not instruments.risk_reasons(r) for r in rows),"candidate_count":len(candidates)},"watchlist":rows,"metals":metals(),"reports":reports,"candidates":candidates,"jobs":db.query("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 6"),"notifications":db.query("SELECT * FROM notifications ORDER BY id DESC LIMIT 10"),"settings_summary":{"budget":db.settings().budget,"fee_confirmed":db.settings().fees.confirmed,"lan_enabled":db.settings().lan_enabled}}
+    quotes=metals()
+    return {"version":VERSION,"time":timestamp(),"calendar":collectors.calendar_context(),"stats":{"watch_count":len(rows),"quote_count":sum(r["quote"] is not None for r in rows),"verified_count":sum(not instruments.risk_reasons(r) for r in rows),"candidate_count":len(candidates)},"watchlist":rows,"metals":quotes,"gold_silver_ratio":gold_silver_ratio(quotes,now()),"reports":reports,"candidates":candidates,"jobs":db.query("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 6"),"notifications":db.query("SELECT * FROM notifications ORDER BY id DESC LIMIT 10"),"settings_summary":{"budget":db.settings().budget,"fee_confirmed":db.settings().fees.confirmed,"lan_enabled":db.settings().lan_enabled}}
 
 
 # 返回包含行情与准入状态的自选证券列表。
@@ -276,14 +280,14 @@ def estimate_budget(payload:dict):
 @app.get("/api/metals")
 def metals():
     result=[]
-    for ident in ("FX:XAUUSD","FX:XAGUSD","SHFE:AU0","SHFE:AG0"):
+    at=now()
+    for ident,name in METAL_NAMES.items():
         row=db.one("SELECT payload_json FROM market_quotes WHERE instrument_id=?",(ident,))
         if row:
             item=json.loads(row["payload_json"])
-            age=(now()-datetime.fromisoformat(item["quote_time"])).total_seconds()/3600
-            item["stale"]=age>24
+            item["stale"]=quote_stale(item,at,spot_hours=24)
         else:
-            item={"id":ident,"price":None,"status":"unavailable","stale":True,"name":instruments.get(ident)["name"],"message":"未取得具有报价时间的行情"}
+            item={"id":ident,"price":None,"status":"unavailable","stale":True,"name":name,"message":"未取得具有报价时间的行情"}
         result.append(item)
     return result
 

@@ -5,19 +5,55 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
+import re
 import sys
+
+
+BLS_CPI_SERIES="CUUR0000SA0"
+BLS_CPI_URL=f"https://api.bls.gov/publicAPI/v2/timeseries/data/{BLS_CPI_SERIES}"
+
+
+def bls_cpi_rows(payload):
+    series=payload.get("Results",{}).get("series",[])
+    if payload.get("status")!="REQUEST_SUCCEEDED" or len(series)!=1 or series[0].get("seriesID")!=BLS_CPI_SERIES:
+        raise ValueError("BLS 未返回预期 CPI 序列")
+    rows=[]
+    for item in series[0].get("data",[]):
+        period=str(item.get("period",""))
+        year=str(item.get("year",""))
+        if not re.fullmatch(r"M(0[1-9]|1[0-2])",period) or not re.fullmatch(r"[0-9]{4}",year):
+            continue
+        try:
+            value=float(item["value"])
+        except (KeyError,ValueError,TypeError):
+            continue
+        if math.isfinite(value) and value>0:
+            rows.append({"日期":f"{year}-{period[1:]}-01","指标":"美国 CPI-U 总指数（未季调）","单位":"指数点","今值":value})
+    return sorted(rows,key=lambda row:row["日期"])[-12:]
 
 
 # 按请求选择数据源与采集动作，并将结果转换为可序列化记录。
 def collect(action: str, args: dict):
+    if action=="macro_cpi_bls":
+        import pandas as pd
+        import requests
+        response=requests.get(BLS_CPI_URL,timeout=10)
+        response.raise_for_status()
+        return pd.DataFrame(bls_cpi_rows(response.json()))
     import akshare as ak
 
     if action == "calendar":
         return ak.tool_trade_date_hist_sina()
     if action == "master_sh":
-        return ak.stock_info_sh_name_code(symbol="主板A股")
+        import pandas as pd
+        return pd.concat([ak.stock_info_sh_name_code(symbol=board) for board in ("主板A股","科创板")],ignore_index=True)
     if action == "master_sz":
         return ak.stock_info_sz_name_code(symbol="A股列表")
+    if action == "delist_sh":
+        return ak.stock_info_sh_delist(symbol="全部")
+    if action == "delist_sz":
+        return ak.stock_info_sz_delist(symbol="终止上市公司")
     if action == "etf_names":
         # 名称取自基金基础清单，避免实时行情限流阻断身份资料补全。
         return ak.fund_name_em().rename(columns={"基金代码":"代码","基金简称":"名称"})[["代码","名称"]]
@@ -66,9 +102,12 @@ def collect(action: str, args: dict):
     if action == "sge":
         return ak.spot_hist_sge(symbol=args["symbol"])
     if action == "announcements":
-        return ak.stock_zh_a_disclosure_report_cninfo(symbol=args["symbol"], market="沪深京", start_date=args["start"], end_date=args["end"])
+        market="基金" if args.get("asset_class")=="etf" else "沪深京"
+        return ak.stock_zh_a_disclosure_report_cninfo(symbol=args["symbol"], market=market, start_date=args["start"], end_date=args["end"])
     if action == "fundamentals":
         return ak.stock_individual_info_em(symbol=args["symbol"])
+    if action == "financials":
+        return ak.stock_financial_abstract_ths(symbol=args["symbol"]).tail(4)
     if action == "fund_nav":
         return ak.fund_open_fund_info_em(symbol=args["symbol"],indicator="单位净值走势").tail(2)
     if action == "macro_cpi":

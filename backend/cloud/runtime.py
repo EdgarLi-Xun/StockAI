@@ -131,7 +131,7 @@ class Runtime:
                             if at.strftime("%H:%M")>=scheduled and not self.store.one("SELECT key FROM cloud_meta WHERE key=?",(key,)):
                                 collector.enqueue(self.store,"sync")
                                 self.store.execute("INSERT OR IGNORE INTO cloud_meta VALUES(?,?)",(key,stamp()))
-                    jobs.schedule(self.store);last_minute=minute
+                    jobs.schedule(self.store,at);last_minute=minute
             except Exception:
                 # 邮件和模型错误可能含私密信息，此处不记录原始异常或载荷。
                 pass

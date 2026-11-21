@@ -123,6 +123,77 @@ def test_ai_unknown_source_rejected():
         ai.validate_output(text,{'candidates':[],'sources':[]})
 
 
+def test_model_cannot_misstate_trading_status_or_borrow_another_security_source():
+    facts={'candidates':[{'instrument_id':'SH:603126','source_ids':['s1']}],'sources':[{'id':'s1'},{'id':'s2'}]}
+    candidate=ai.Explanation(instrument_id='SH:603126',rationale='短期趋势有支撑。',counterargument='仍需观察。',invalidation='波动加大时重新检查。',source_ids=['s1'])
+    text=ai.ResearchText(summary='例行研究',market_context='以存档数据为准。',candidates=[candidate],risk_notes=[],missing_data=[],source_ids=[])
+    assert ai.validate_output(text,facts)
+    for change in ({'rationale':'公告确认该证券已经停 牌。'},{'source_ids':['s2']}):
+        with pytest.raises(ValueError):
+            ai.validate_output(text.model_copy(update={'candidates':[candidate.model_copy(update=change)]}),facts)
+
+
+def test_exchange_delisting_is_sticky_until_newer_official_listing():
+    from backend import instruments
+    ident='SH:603126'
+    row={'公司代码':'603126','公司简称':'原上市名称','暂停上市日期':'2022-01-10'}
+    collectors._store_delisting('delist_sh',[row])
+    collectors._store_delisting('delist_sh',[row])
+    assert instruments.get(ident)['status']=='delisted'
+    assert db.one('SELECT count(*) n FROM risk_events WHERE instrument_id=?',(ident,))['n']==1
+    as_of='2022-05-01'
+    with db.connection() as conn:
+        collectors._store_listing(conn,'SH','603126','新上市名称','https://www.sse.com.cn/assortment/stock/list/share/',{'上市日期':as_of})
+    collectors._store_delisting('delist_sh',[row])
+    item=instruments.get(ident)
+    assert item['status']=='unknown' and item['verified_at'] is None
+    assert item['name']=='新上市名称' and item['evidence']['exchange_listing_date']==as_of
+
+
+def test_official_disclosure_refresh_blocks_new_risk_without_clearing_unknown(monkeypatch,valid_item):
+    from backend import instruments
+    url='https://www.cninfo.com.cn/new/disclosure/detail?announcementId=example'
+    other='SH:601111'
+    monkeypatch.setattr(collectors,'call',lambda *args,**kwargs:[])
+    assert not collectors.announcements(other)
+    assert instruments.get(other)['status']=='unknown' and instruments.get(other)['risk_flag']=='unknown'
+    monkeypatch.setattr(collectors,'call',lambda *args,**kwargs:[{'代码':valid_item['symbol'],'公告标题':'关于实施风险警示的公告','公告链接':url}])
+    assert len(collectors.announcements(valid_item['id']))==1
+    assert not collectors.announcements(valid_item['id'])
+    item=instruments.get(valid_item['id'])
+    assert item['risk_flag']=='warning' and item['evidence']['disclosure_check']['url'].startswith('https://www.cninfo.com.cn/')
+    assert instruments.risk_reasons(item)
+
+
+def test_disclosure_timeout_keeps_coverage_unknown(monkeypatch):
+    from subprocess import TimeoutExpired
+    from backend import instruments
+
+    def timeout(*args,**kwargs):
+        raise TimeoutExpired('isolated-announcement-collector',25)
+
+    item=instruments.get('SH:603126')
+    monkeypatch.setattr(collectors,'call',timeout)
+    errors=collectors.sync_announcements([item])
+    assert errors[0]['instrument_id']==item['id']
+    current=instruments.get(item['id'])
+    assert 'disclosure_check' not in current['evidence']
+    assert current['status']=='unknown' and current['risk_flag']=='unknown'
+
+
+def test_macro_fallback_accepts_only_the_verified_monthly_series():
+    from backend.collector_worker import BLS_CPI_SERIES,bls_cpi_rows
+    info={'status':'REQUEST_SUCCEEDED','Results':{'series':[{'seriesID':BLS_CPI_SERIES,'data':[
+        {'year':'2026','period':'M02','value':'104.6'},
+        {'year':'2026','period':'M01','value':'103.2'},
+        {'year':'2026','period':'M13','value':'104'},
+        {'year':'2026','period':'M03','value':'NaN'},
+    ]}]}}
+    assert [(r['日期'],r['今值']) for r in bls_cpi_rows(info)]==[('2026-01-01',103.2),('2026-02-01',104.6)]
+    info['Results']['series'][0]['seriesID']='unrelated-series'
+    with pytest.raises(ValueError):bls_cpi_rows(info)
+
+
 # 验证报告 HTML 导出会转义证券名称等不可信文本。
 def test_html_export_escapes_untrusted_text(monkeypatch):
     from backend.config import DATA

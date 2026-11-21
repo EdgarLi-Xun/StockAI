@@ -36,17 +36,29 @@ def cost(price, quantity: int, asset: str, fees: Fees, multiplier=1) -> Decimal:
     return money(dec(price) * quantity + dec(transaction_fees(price, quantity, asset, "buy", fees, multiplier)["total"]))
 
 
-# 校验报价单位和数量步长，求出不超过含费预算的最大合法数量。
-def budget_check(price, rules: dict, asset: str, fees: Fees, budget=1000, quantity: int | None = None) -> dict:
+def _buy_terms(price, rules):
     p = dec(price)
-    # 即使直接调用引擎或传入更高预算，单只含费金额仍受 1000 元硬上限约束。
-    cap = min(dec(budget), Decimal(1000))
-    if p <= 0 or cap <= 0:
+    if p <= 0:
         raise ValueError("价格与预算须为正数")
     lot, step = int(rules["lot_size"]), int(rules["quantity_step"])
     tick = dec(rules["price_tick"])
     if p % tick != 0:
         raise ValueError("价格不符合该产品最小变动单位")
+    return p, lot, step
+
+
+def minimum_buy_cost(price, rules: dict, asset: str, fees: Fees) -> Decimal:
+    p, lot, _ = _buy_terms(price, rules)
+    return cost(p, lot, asset, fees)
+
+
+# 校验报价单位和数量步长，求出不超过含费预算的最大合法数量。
+def budget_check(price, rules: dict, asset: str, fees: Fees, budget=1000, quantity: int | None = None) -> dict:
+    # 即使直接调用引擎或传入更高预算，单只含费金额仍受 1000 元硬上限约束。
+    cap = min(dec(budget), Decimal(1000))
+    if cap <= 0:
+        raise ValueError("价格与预算须为正数")
+    p, lot, step = _buy_terms(price, rules)
     if quantity is not None and (quantity < lot or (quantity - lot) % step != 0):
         raise ValueError("数量不符合该产品最小申报数量和阶梯")
     # 先按纯成交额估算数量，再对齐申报步长并逐步扣减至费用也在预算内。

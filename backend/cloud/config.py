@@ -9,6 +9,23 @@ from urllib.parse import urlsplit
 
 from backend.config import ROOT
 
+PRIVATE_LAN = tuple(ipaddress.IPv4Network(value) for value in ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"))
+
+
+def lan_networks(values):
+    if not isinstance(values,(list,tuple)) or not 1<=len(values)<=16:
+        raise ValueError("请填写 1 至 16 个私有 IPv4 网段")
+    networks=[]
+    for value in values:
+        try:
+            network=ipaddress.IPv4Network(value)
+        except (ValueError,TypeError):
+            raise ValueError("请使用完整的 IPv4 网段，例如 192.168.1.0/24") from None
+        if not any(network.subnet_of(private) for private in PRIVATE_LAN):
+            raise ValueError("局域网只允许私有 IPv4 网段")
+        networks.append(str(network))
+    return tuple(dict.fromkeys(networks))
+
 
 # 声明公网部署路径、会话、模型、邮件、备份及后台执行配置。
 @dataclass(frozen=True)
@@ -34,6 +51,7 @@ class CloudConfig:
     desktop_mode: bool = False
     desktop_instance: str = ""
     desktop_origins: tuple[str,...] = ()
+    desktop_lan_networks: tuple[str,...] = ()
     sync_private_networks: tuple[str,...] = ()
     sync_ca_file: str = ""
 
@@ -67,13 +85,15 @@ class CloudConfig:
             raise ValueError("公网入口必须使用 HTTPS；仅显式开发模式允许本机 HTTP")
         if self.desktop_mode and (not self.dev or p.scheme!="http" or p.hostname!="127.0.0.1" or not self.desktop_instance or not self.desktop_instance.isalnum()):
             raise ValueError("桌面服务必须使用明确的本机主入口和独立实例")
-        if self.desktop_origins and not self.desktop_mode:
+        if (self.desktop_origins or self.desktop_lan_networks) and not self.desktop_mode:
             raise ValueError("附加本机访问地址仅适用于桌面服务")
+        if self.desktop_lan_networks:
+            lan_networks(self.desktop_lan_networks)
         for origin in self.desktop_origins:
             parsed=urlsplit(origin)
             if parsed.hostname!="localhost":
                 address=ipaddress.IPv4Address(parsed.hostname)
-                if address.is_unspecified or address.is_multicast or str(address)=="255.255.255.255":
+                if not address.is_loopback and not (self.desktop_lan_networks and any(address in network for network in PRIVATE_LAN)):
                     raise ValueError("桌面访问地址必须为明确的本机 IPv4 地址")
             if parsed.port!=p.port or origin!=f"http://{parsed.hostname}:{p.port}":
                 raise ValueError("桌面访问地址必须为同一端口的 HTTP 根地址")

@@ -171,6 +171,7 @@ def restore(store,keys,journal,ident,identity):
         with trial.tx(immediate=True) as c:
             for table in ("sessions","auth_tokens","mail_outbox","reauth_grants"):
                 c.execute(f"DELETE FROM {table}")
+            c.execute("DELETE FROM user_schedule_checks")
             c.execute("UPDATE model_credentials SET envelope_json=NULL,key_hint='',revoked_at=?",(stamp(),))
             c.execute("UPDATE model_profiles SET needs_reconnect=1")
             c.execute("UPDATE personal_jobs SET status='cancelled',error_code='RESTORE_REQUIRES_REVIEW',finished_at=? WHERE status IN('queued','running')",(stamp(),))

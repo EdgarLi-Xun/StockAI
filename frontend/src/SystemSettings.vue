@@ -8,6 +8,9 @@ const props=defineProps<{user:any,desktop:boolean}>()
 const emit=defineEmits<{ready:[]}>()
 const sync=ref<any>({status:'loading'}),upgrade=ref<any>(null),busy=ref(false),error=ref(''),notice=ref('')
 const tab=ref('sync'),preview=ref<any>(null),devices=ref<any>(null),conflicts=ref<any[]>([]),points=ref<any[]>([])
+const manageLan=props.desktop&&props.user.role==='admin'&&['127.0.0.1','localhost'].includes(location.hostname)
+const lan=ref<{enabled:boolean,networks:string[],active:boolean,addresses:string[],restart_required:boolean}|null>(null)
+const lanEnabled=ref(false),lanNetworks=ref('')
 const form=ref({backend:'hub',url:'',device_name:'我的设备',create:false,username:'',email:'',password:'',token:'',grant:'',allow_private:false,recovery:''})
 const setup=ref<any>(null),source=ref<DataSource|''>(''),recoveryFile=ref('')
 const dataSources:{id:DataSource,title:string,description:string}[]=[
@@ -57,6 +60,19 @@ async function loadUpgrade(){
 }
 function stopUpgradeFlow(){upgradeClosed=true;++upgradeRead;clearInterval(upgradeDownloadTimer);upgradeDownloadTimer=undefined}
 async function load(){sync.value=await api('/me/sync');if(props.user.role==='admin')await loadUpgrade()}
+async function loadLan(){
+  if(!manageLan)return
+  const settings=await api('/desktop/lan')
+  lan.value=settings;lanEnabled.value=settings.enabled;lanNetworks.value=settings.networks.join(', ')
+}
+async function saveLan(){
+  confirmText.value=lanEnabled.value?'允许指定网段访问本机 StockAI？重启后生效，其他设备仍须登录。':'保存为仅本机访问？重启后关闭局域网入口。'
+  if(!await new Promise<boolean>(r=>confirmResolve=r))return
+  await act(async()=>{
+    const settings=await post('/desktop/lan',{enabled:lanEnabled.value,networks:lanNetworks.value.split(/[,，\s]+/).filter(Boolean)})
+    lan.value=settings;lanEnabled.value=settings.enabled;lanNetworks.value=settings.networks.join(', ')
+  },'局域网设置已保存。')
+}
 async function loadSetup(){setup.value=await api('/me/workspace-setup');if(!source.value&&setup.value.source)source.value=setup.value.source}
 function changeSource(value:DataSource){source.value=value;recoveryRead++;form.value.password='';form.value.token='';form.value.grant='';form.value.recovery='';recoveryFile.value='';preview.value=null;error.value='';notice.value=''}
 async function startIndependent(){await act(async()=>{setup.value=await post('/me/workspace-setup',{source:'independent'});emit('ready')})}
@@ -157,7 +173,7 @@ const client=crypto.randomUUID();let timer:ReturnType<typeof setInterval>
 const dirty=computed(()=>!!(form.value.password||form.value.token||form.value.grant||password.value||form.value.recovery||manifest.value||manual.value))
 defineExpose({guard,dirty})
 function beforeUnload(e:BeforeUnloadEvent){if(dirty.value){e.preventDefault();e.returnValue=''}}
-onMounted(()=>{void act(()=>Promise.all([load(),loadSetup()]));window.addEventListener('beforeunload',beforeUnload);timer=setInterval(()=>{void load().catch(()=>{});void post('/me/client-state',{id:client,dirty:dirty.value}).catch(()=>{})},10000)})
+onMounted(()=>{void act(()=>Promise.all([load(),loadSetup(),loadLan()]));window.addEventListener('beforeunload',beforeUnload);timer=setInterval(()=>{void load().catch(()=>{});void post('/me/client-state',{id:client,dirty:dirty.value}).catch(()=>{})},10000)})
 onBeforeUnmount(()=>{stopUpgradeFlow();recoveryRead++;clearInterval(timer);window.removeEventListener('beforeunload',beforeUnload);void post('/me/client-state',{id:client,dirty:false}).catch(()=>{});recovery.value='';form.value.password='';form.value.recovery='';form.value.grant='';password.value='';settle(false)})
 </script>
 
@@ -194,6 +210,15 @@ onBeforeUnmount(()=>{stopUpgradeFlow();recoveryRead++;clearInterval(timer);windo
       <section v-if="configured" class="panel personal-form"><h2>恢复材料与本机绑定</h2><p>恢复密钥与登录密码分开保管。导出材料能解密此空间，请保存到本人安全位置。</p><div class="form-grid"><label>当前账号密码<input v-model="password" type="password" autocomplete="current-password" /></label><button class="secondary" :disabled="busy||!password" @click="recoveryExport">验证并导出恢复材料</button></div><div v-if="recovery" class="button-row"><button class="primary" @click="saveRecovery"><Download :size="16" />保存恢复材料</button><button class="secondary" @click="recovery=''">隐藏材料</button></div><div v-for="point in points" :key="point.id" class="personal-list-row"><span>{{ point.reason }}</span><span>{{ date(point.created_at) }}</span><span>{{ point.objects }} 项 · 已加密</span><button class="text-button" :disabled="busy" @click="act(async()=>{pointPreview=await post('/me/sync/checkpoints/'+point.id+'/preview')})">预览恢复</button></div><div v-if="pointPreview" class="system-subsection"><p>可将 {{ pointPreview.allowed.length }} 项恢复为新版本；{{ pointPreview.skipped.length }} 项保留当前删除标记、账本或不可变归档。</p><button class="secondary" :disabled="busy" @click="act(async()=>{await post('/me/sync/checkpoints/'+pointPreview.point+'/restore',{confirmation:pointPreview.id});pointPreview=null;await details()},'已创建恢复版本，等待下次同步。')">确认此预览并恢复为新版本</button></div><details class="system-subsection"><summary>轮换密钥或解除绑定</summary><p>轮换后其他设备需要新的恢复材料；解除绑定保留本机资料和待发密文，不删除远端空间。</p><input v-model="confirmation" placeholder="输入操作对应的完整确认语句" /><div class="button-row"><button class="secondary" :disabled="busy||confirmation!=='轮换密钥并重新授权其他设备'" @click="act(async()=>{await post('/me/sync/rotate',{confirmation});confirmation=''},'密钥已轮换，请重新导出材料并重新授权其他设备。')">轮换密钥并重新授权其他设备</button><button class="secondary danger-text" :disabled="busy||confirmation!=='解除本机绑定并保留本地资料'" @click="act(async()=>{await post('/me/sync/unbind',{confirmation});devices=null;await load()})"><Unplug :size="15" />解除本机绑定并保留本地资料</button><button class="secondary danger-text" :disabled="busy||confirmation!=='删除我的远端同步资料'" @click="act(async()=>{const result=await post('/me/sync/delete',{confirmation});notice=result.status==='pending'?'远端清理仍在等待，尚未完成删除。':'远端业务密文已删除，最新控制记录继续保留。';await load()})">删除我的远端同步资料</button></div></details></section>
     </template>
     <template v-else>
+      <form v-if="lan" class="panel personal-form" @submit.prevent="saveLan">
+        <div class="panel-heading"><div><h2>桌面与 Web 访问</h2><p>{{ lan.active?'已开启局域网访问':'仅本机可访问' }}</p></div><ShieldCheck :size="23" /></div>
+        <label class="check-label"><input v-model="lanEnabled" type="checkbox" :disabled="busy" />允许局域网设备登录</label>
+        <label v-if="lanEnabled">允许的 IPv4 网段<input v-model="lanNetworks" :disabled="busy" required placeholder="192.168.1.0/24" /></label>
+        <p v-if="lan.restart_required" role="status">请从托盘退出 StockAI，再重新启动以应用设置。</p>
+        <p v-if="lan.active&&lan.addresses.length">本机地址 {{ lan.addresses.join(' · ') }}</p>
+        <p v-if="lanEnabled">其他设备通过本机地址登录。Windows 防火墙需允许此端口。</p>
+        <button class="secondary" :disabled="busy">保存访问设置</button>
+      </form>
       <section class="panel personal-form">
         <div class="panel-heading"><div><h2>StockAI {{ upgrade?.current_version||'3.2.0-preview.1' }}</h2><p>{{ desktop?'Windows 桌面与附属 Web':'独立 Web 研究服务' }}</p></div><Monitor :size="26" /></div>
         <p v-if="user.role!=='admin'">版本升级由本站管理员管理。个人资料同步由本人独立控制。</p>

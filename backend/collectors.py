@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -187,6 +188,8 @@ def _sync_reference_data(actions,log):
                     datetime.strptime(d, "%Y-%m-%d")
                 with db.connection() as c:
                     c.executemany("INSERT INTO calendar(day,source,fetched_at) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET fetched_at=excluded.fetched_at", [(d,"新浪财经交易日历",timestamp()) for d in days])
+            elif action in {"delist_sh","delist_sz"}:
+                _store_delisting(action,raw)
             elif action=="etf_names":
                 with db.connection() as c:
                     for row in raw:
@@ -198,14 +201,13 @@ def _sync_reference_data(actions,log):
                 market = "SH" if action == "master_sh" else "SZ"
                 url = "https://www.sse.com.cn/assortment/stock/list/share/" if market == "SH" else "https://www.szse.cn/market/product/stock/list/index.html"
                 with db.connection() as c:
+                    c.execute("BEGIN IMMEDIATE")
                     for row in raw:
                         sym = str(row.get("证券代码", row.get("A股代码", ""))).zfill(6)
                         name = str(row.get("证券简称", row.get("A股简称", ""))).strip()
                         if not name or name == "None":
                             continue
-                        c.execute("UPDATE instruments SET name=?,source_url=? WHERE market=? AND symbol=? AND asset_class='stock'", (name,url,market,sym))
-                        if "ST" in name.upper() or "退" in name:
-                            c.execute("UPDATE instruments SET risk_flag=? WHERE market=? AND symbol=?", ("st" if "ST" in name.upper() else "warning",market,sym))
+                        _store_listing(c,market,sym,name,url,row)
                 # 仅出现在上市证券清单中，不能证明公告风险或停牌状态已经核验。
             result["sources"].append({"name": action, "status": "success", "count": len(raw)})
             log(f"{action} 已同步 {len(raw)} 条记录")
@@ -214,6 +216,55 @@ def _sync_reference_data(actions,log):
             log(f"{action} 不可用：{str(exc)[:250]}；保留缓存并标记缺失")
     result["status"]="success" if not result["errors"] else "partial" if result["sources"] else "unavailable"
     return result
+
+
+def _store_delisting(action,rows):
+    market="SH" if action=="delist_sh" else "SZ"
+    url="https://www.sse.com.cn/assortment/stock/list/delisting/" if market=="SH" else "https://www.szse.cn/market/stock/suspend/index.html"
+    at=timestamp()
+    today=at[:10]
+    with db.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+        for row in rows:
+            symbol=str(row.get("公司代码") if market=="SH" else row.get("证券代码"))
+            effective=str(row.get("暂停上市日期") if market=="SH" else row.get("终止上市日期"))[:10]
+            if not re.fullmatch(r"\d{1,6}",symbol) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}",effective) or effective>today:
+                continue
+            ident=f"{market}:{symbol.zfill(6)}"
+            item=c.execute("SELECT name,status,evidence_json FROM instruments WHERE id=? AND asset_class='stock'",(ident,)).fetchone()
+            if not item:
+                continue
+            evidence=json.loads(item["evidence_json"])
+            if evidence.get("exchange_listing_date","")>effective:
+                continue
+            prior=evidence.get("exchange_delisting")
+            if prior and prior.get("effective_date")==effective and item["status"]=="delisted":
+                continue
+            evidence["exchange_delisting"]={"url":url,"effective_date":effective,"fetched_at":at}
+            name=row.get("公司简称") if market=="SH" else row.get("证券简称")
+            name=name.strip() if isinstance(name,str) else item["name"]
+            c.execute("UPDATE instruments SET name=?,status='delisted',evidence_json=? WHERE id=?",(name or item["name"],db.dumps(evidence),ident))
+            c.execute("INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json) VALUES(?,?,?,?,?,?,?)",
+                      (ident,"exchange_delisting","warning",f"交易所终止上市名单 · {effective}",url,at,db.dumps(evidence["exchange_delisting"])))
+
+
+def _store_listing(c,market,symbol,name,url,row):
+    item=c.execute("SELECT * FROM instruments WHERE market=? AND symbol=? AND asset_class='stock'",(market,symbol)).fetchone()
+    if not item:
+        return
+    evidence=json.loads(item["evidence_json"])
+    listed_on=str(row.get("上市日期") or row.get("A股上市日期") or "")[:10]
+    status=item["status"]
+    verified=item["verified_at"]
+    risk=instruments.name_risk(name) or item["risk_flag"]
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}",listed_on) and listed_on<=now().date().isoformat():
+        evidence["exchange_listing_date"]=listed_on
+        delisting=evidence.get("exchange_delisting")
+        if delisting and listed_on>delisting["effective_date"]:
+            evidence.pop("exchange_delisting")
+            status,verified,risk="unknown",None,instruments.name_risk(name) or "unknown"
+    c.execute("UPDATE instruments SET name=?,source_url=?,status=?,risk_flag=?,verified_at=?,evidence_json=? WHERE id=?",
+              (name,url,status,risk,verified,db.dumps(evidence),item["id"]))
 
 
 # 只请求尚有占位名称的市场，避免新增自选触发整站历史行情采集。
@@ -239,7 +290,7 @@ def sync_names(log=lambda m: None) -> dict:
 
 # 逐项同步自选证券并汇总成功、失败与缺失信息。
 def sync_all(log=lambda m: None) -> dict:
-    result=_sync_reference_data(("calendar","master_sh","master_sz","etf_names"),log)
+    result=_sync_reference_data(("calendar","master_sh","master_sz","etf_names","delist_sh","delist_sz"),log)
     result["instruments"]=[]
     items = [instruments.get(r["id"]) for r in db.query("SELECT id FROM instruments WHERE watched=1")]
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -249,8 +300,10 @@ def sync_all(log=lambda m: None) -> dict:
             result["instruments"].append(item)
             log(f"{item['id']} {item['status']}"+("："+item["message"] if item.get("message") else ""))
     result["metals"] = sync_metals(log)
+    result["disclosure_errors"] = sync_announcements(items,log)
     succeeded = sum(x["status"] == "success" for x in result["instruments"]) + sum(x.get("status") == "success" for x in result["metals"])
-    result["status"] = "success" if succeeded and not result["errors"] and all(x["status"] != "unavailable" for x in result["instruments"]) else "partial" if succeeded else "unavailable"
+    complete = all(x["status"] != "unavailable" for x in result["instruments"] + result["metals"])
+    result["status"] = "success" if succeeded and not result["errors"] and not result["disclosure_errors"] and complete else "partial" if succeeded else "unavailable"
     return result
 
 
@@ -279,17 +332,65 @@ def sync_metals(log=lambda m: None):
         except Exception as exc:
             results.append({"source":action,"status":"unavailable","error":str(exc)[:300]})
             log(f"{action} 不可用：缺失数据不填造")
+    results.extend(_sync_gold_references(log))
     return results
+
+
+def _sync_gold_references(log):
+    def sge_close(ident):
+        rows = call("sge", {"symbol": "Au99.99"}, timeout=20)
+        today = now().date().isoformat()
+        recent = sorted((r for r in rows if (r.get("date") or "")[:10] <= today),
+                        key=lambda r: r.get("date") or "", reverse=True)
+        if not recent:
+            raise ValueError("无已发布的上金所日行情")
+        row = recent[0]
+        day = datetime.fromisoformat(row["date"]).date().isoformat()
+        close = float(row["close"])
+        if not math.isfinite(close) or close <= 0:
+            raise ValueError("上金所收盘价无效")
+        return dict(id=ident, price=close, quote_time=day, fetched_at=timestamp(),
+                    source="上海黄金交易所 · 日行情", source_url="https://www.sge.com.cn/sjzx/quotation_daily_new",
+                    unit="元/克", kind="sge_daily", delay_type="日收盘，仅提供交易日期")
+
+    def etf_close(ident):
+        rows = bars_for(ident, limit=1)
+        if not rows or fresh_reasons(rows[-1]):
+            updated = sync_instrument(instruments.get(ident))
+            if updated["status"] != "success":
+                raise ValueError(updated.get("message") or "ETF 日线刷新失败")
+            rows = bars_for(ident, limit=1)
+        row = rows[-1]
+        if row["quality"] != "valid" or row["adjustment"] != "none" or not (row["source_url"] and row["source"]):
+            raise ValueError("ETF 日线来源或口径无效")
+        return dict(id=ident, price=row["close"], quote_time=row["ts"], fetched_at=row["fetched_at"],
+                    source=row["source"], source_url=row["source_url"], unit="元/份",
+                    kind="etf_close", delay_type="已完成的交易日收盘价")
+
+    for ident, fetch in (("SGE:AU99.99", sge_close), ("SH:518880", etf_close)):
+        try:
+            quote = fetch(ident)
+            quote.update(currency="CNY", timezone="Asia/Shanghai", status="success")
+            db.execute("""INSERT INTO market_quotes VALUES(?,?) ON CONFLICT(instrument_id) DO UPDATE
+                SET payload_json=excluded.payload_json
+                WHERE json_extract(excluded.payload_json,'$.quote_time')>=json_extract(market_quotes.payload_json,'$.quote_time')""",
+                       (ident, db.dumps(quote)))
+            yield quote
+        except (ValueError, KeyError, TypeError, IndexError, OSError, subprocess.TimeoutExpired) as exc:
+            log(f"{ident} 行情未刷新，保留已有缓存")
+            yield {"id":ident,"status":"unavailable","error":str(exc)[:300]}
 
 
 # 采集指定证券的公告，并记录来源及抓取时间。
 def announcements(ident: str):
     item = instruments.get(ident)
-    if item["asset_class"] != "stock" or item["market"] not in {"SH", "SZ"}:
-        raise ValueError("此公告适配器仅支持境内股票")
-    raw = call("announcements", {"symbol": item["symbol"], "start": (now()-timedelta(days=30)).strftime("%Y%m%d"), "end": now().strftime("%Y%m%d")}, timeout=30)
+    if item["asset_class"] not in {"stock","etf"} or item["market"] not in {"SH", "SZ"}:
+        raise ValueError("此公告适配器仅支持境内股票和场内 ETF")
+    at=now()
+    raw = call("announcements", {"symbol": item["symbol"], "asset_class":item["asset_class"],"start": (at-timedelta(days=30)).strftime("%Y%m%d"), "end": at.strftime("%Y%m%d")}, timeout=25)
     out=[]
     with db.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
         for r in raw:
             title = str(r.get("公告标题", r.get("announcementTitle", "")))
             url = str(r.get("公告链接", r.get("adjunctUrl", "")))
@@ -297,16 +398,39 @@ def announcements(ident: str):
                 url = "https://static.cninfo.com.cn" + url
             if url.startswith("http://"):
                 url = "https://" + url[7:]
-            if not title or not instruments.official_url(url):
+            code=r.get("代码") or r.get("证券代码")
+            if not title or not instruments.official_url(url) or code is not None and str(code).zfill(6)!=item["symbol"]:
                 continue
-            if db.one("SELECT id FROM risk_events WHERE instrument_id=? AND source_url=?", (ident,url)):
+            if c.execute("SELECT 1 FROM risk_events WHERE instrument_id=? AND source_url=? AND event_type='announcement'", (ident,url)).fetchone():
                 continue
-            severity = "warning" if any(k in title for k in ("风险", "退市", "停牌", "立案", "处罚")) else "info"
+            severity = "warning" if any(k in title for k in ("风险警示", "终止上市", "退市", "停牌", "立案", "处罚","清算")) else "info"
             c.execute("INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json) VALUES(?,?,?,?,?,?,?)", (ident,"announcement",severity,title,url,timestamp(),db.dumps(r)))
             if severity == "warning":
-                c.execute("UPDATE instruments SET risk_flag='warning' WHERE id=?", (ident,))
+                c.execute("UPDATE instruments SET risk_flag='warning' WHERE id=? AND risk_flag<>'st'", (ident,))
             out.append({"title": title, "source_url": url, "severity": severity})
+        current=c.execute("SELECT evidence_json FROM instruments WHERE id=?",(ident,)).fetchone()
+        evidence=json.loads(current["evidence_json"])
+        evidence["disclosure_check"]={"url":"https://www.cninfo.com.cn/new/disclosure","fetched_at":timestamp()}
+        c.execute("UPDATE instruments SET evidence_json=? WHERE id=?",(db.dumps(evidence),ident))
     return out
+
+
+def sync_announcements(items,log=lambda m:None):
+    def refresh(item):
+        try:
+            checked=item.get("evidence",{}).get("disclosure_check",{}).get("fetched_at")
+            if not checked or datetime.fromisoformat(checked)<now()-timedelta(hours=4):
+                announcements(item["id"])
+        except (ValueError,TypeError,RuntimeError,OSError,subprocess.TimeoutExpired) as exc:
+            return {"instrument_id":item["id"],"error":str(exc)[:250]}
+        return None
+
+    tracked=(item for item in items if item["market"] in {"SH","SZ"} and item["asset_class"] in {"stock","etf"} and item["status"]!="delisted")
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        errors=[error for error in pool.map(refresh,tracked) if error]
+    for error in errors:
+        log(f"{error['instrument_id']} 官方公告未能刷新：{error['error']}")
+    return errors
 
 
 # 自选里的股票、ETF、指数和基金，外加总览要展示的沪深指数。日线任务不走这里。

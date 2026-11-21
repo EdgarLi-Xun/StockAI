@@ -5,7 +5,8 @@ import json
 import re
 import threading
 import subprocess
-from decimal import Decimal
+import unicodedata
+from typing import Annotated
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -37,6 +38,47 @@ class ResearchText(BaseModel):
     source_ids: list[str]
 
 
+class ReportCommentary(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    market_context: str = Field(min_length=1, max_length=1800, pattern=r"^[^0-9]*$")
+    risk_notes: list[Annotated[str, Field(max_length=380, pattern=r"^[^0-9]*$")]] = Field(default_factory=list, max_length=5)
+
+
+def validate_commentary(strings):
+    for value in strings:
+        normalized = unicodedata.normalize("NFKC", value)
+        compact = re.sub(r"[\s\W_]+", "", normalized)
+        if re.search(r"\d|[零〇一二两三四五六七八九十百千万亿点]+(?:元|块钱|股|份|成)|百分之", normalized):
+            raise ValueError("数值、比例、数量与日期由程序展示")
+        if any(word in compact for word in ("保证盈利", "稳赚", "必涨", "保本保收益")):
+            raise ValueError("模型输出含有收益保证表述")
+        if re.search(r"停复牌|停牌|复牌|退市|摘牌|终止上市|暂停上市|特别处理|恢复交易|正常交易|正在交易|禁止交易|停止交易|中止交易|可正常买卖|交易已恢复|风险警示板|(?<![A-Za-z])ST(?![A-Za-z])", compact, re.IGNORECASE):
+            raise ValueError("证券交易状态只由程序展示")
+
+
+def read_commentary(content):
+    text = ReportCommentary.model_validate_json(content)
+    validate_commentary([text.market_context, *text.risk_notes])
+    return {**text.model_dump(), "candidates": [], "missing_data": []}
+
+
+def report_prompt(mode, *, commentary=False, retry=False):
+    prompt = (ROOT / "config" / ("prompt-full.md" if mode == "full" else "prompt-standard.md")).read_text(encoding="utf-8").strip()
+    if commentary:
+        task = (
+            '只输出 {"market_context":"中文定性解读","risk_notes":["中文风险提示"]}。'
+            '程序已生成摘要、候选、研究理由和来源表。只写背景和风险，不输出候选表、证券代码、来源编号、数字或个股交易状态。'
+            '用“短期均线”“分钟线”“核验证据不足”等文字，资料不足时说明限制。'
+        )
+        if retry:
+            task += '上次解读没有通过校验。这次用简短的中文定性句子，风险提示可为空数组，禁止日期、金额、比例及交易状态。'
+        return f"{prompt}\n{task}"
+    return (
+        f"{prompt}\n返回既定 JSON 字段。候选标识与程序输入完全相同，按输入给每只候选列出定性理由、反方观点、失效条件。"
+        "引用该候选自身的来源标识，模型不决定候选、交易状态或数值。"
+    )
+
+
 # 探测配置中的本地模型是否可用，并返回可展示的状态说明。
 def health() -> dict:
     cfg = db.settings()
@@ -53,22 +95,21 @@ def health() -> dict:
 
 # 核对候选标识与来源引用，阻止模型篡改事实或编造来源。
 def validate_output(text: ResearchText, facts: dict) -> ResearchText:
-    expected = {c["instrument_id"] for c in facts["candidates"]}
+    expected = {c["instrument_id"]: set(c.get("source_ids", ())) for c in facts["candidates"]}
     got = [c.instrument_id for c in text.candidates]
-    if len(got) != len(set(got)) or set(got) != expected:
+    if len(got) != len(set(got)) or set(got) != expected.keys():
         raise ValueError("模型增删了程序确定的候选")
     source_ids = {s["id"] for s in facts["sources"]}
-    if not set(text.source_ids) <= source_ids or any(not set(c.source_ids) <= source_ids or not c.source_ids for c in text.candidates):
+    if not set(text.source_ids) <= source_ids or any(
+        not c.source_ids or not set(c.source_ids) <= (source_ids & expected[c.instrument_id])
+        for c in text.candidates
+    ):
         raise ValueError("模型引用了不存在的来源")
     # 模型解释只承载定性内容；价格、数量和日期等数值始终由程序事实单独展示。
     strings = [text.summary, text.market_context, *text.risk_notes, *text.missing_data]
     for candidate in text.candidates:
         strings += [candidate.rationale, candidate.counterargument, candidate.invalidation]
-    for value in strings:
-        if re.search(r"\d",value):
-            raise ValueError("AI定性解释中包含数字；数值与日期必须由程序单独展示")
-        if any(x in value for x in ("保证盈利", "稳赚", "必涨", "保本保收益")):
-            raise ValueError("模型输出含有收益保证表述")
+    validate_commentary(strings)
     return text
 
 
@@ -89,8 +130,7 @@ def explain(facts: dict, mode: str) -> tuple[dict | None, str | None]:
     if not MODEL_LOCK.acquire(blocking=False):
         return None, "已有本地模型任务运行，使用规则型报告"
     try:
-        prompt = (ROOT / "config" / ("prompt-full.md" if mode == "full" else "prompt-standard.md")).read_text(encoding="utf-8")
-        payload = {"model":cfg.model,"stream":False,"think":False,"format":ResearchText.model_json_schema(),"options":{"temperature":0.1,"num_ctx":16384,"num_predict":3000},"messages":[{"role":"system","content":prompt},{"role":"user","content":db.dumps(facts)}]}
+        payload = {"model":cfg.model,"stream":False,"think":False,"format":ReportCommentary.model_json_schema(),"options":{"temperature":0.1,"num_ctx":16384,"num_predict":1200},"messages":[{"role":"system","content":report_prompt(mode,commentary=True)},{"role":"user","content":db.dumps(facts)}]}
         if len(json.dumps(payload,ensure_ascii=False).encode("utf-8")) > 60000:
             return None, "事实输入超出本地上下文预算，使用规则型报告"
         error = None
@@ -99,13 +139,12 @@ def explain(facts: dict, mode: str) -> tuple[dict | None, str | None]:
                 with httpx.Client(timeout=cfg.ai_timeout,trust_env=False,follow_redirects=False) as c:
                     response = c.post(cfg.ollama_url + "/api/chat",json=payload)
                     response.raise_for_status()
-                result = ResearchText.model_validate_json(response.json()["message"]["content"])
-                return validate_output(result, facts).model_dump(), None
+                return read_commentary(response.json()["message"]["content"]), None
             except Exception as exc:
                 from pydantic import ValidationError
                 reason=exc.errors()[0]["msg"] if isinstance(exc,ValidationError) else str(exc)[:180]
                 error = f"AI 输出未通过校验或调用失败：{type(exc).__name__}（{reason}）；已使用规则型报告"
-                payload["messages"].append({"role":"user","content":"上一次输出未通过程序校验。原因："+reason+"。解释文字仅写定性内容，严禁使用阿拉伯数字、日期、代码、数量；数值由程序另行显示。不要增删候选或来源。重新返回完整JSON。"})
+                payload["messages"][0]["content"] = report_prompt(mode,commentary=True,retry=True)
         return None, error
     finally:
         MODEL_LOCK.release()

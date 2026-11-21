@@ -11,6 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from . import db
 from .config import now, timestamp
 
+GOLD_REFERENCE_INSTRUMENTS = (
+    ("SGE", "AU99.99", "上金所 Au99.99", "metal"),
+    ("SH", "518880", "华安黄金 ETF", "etf"),
+)
 
 # 定义最小申报量、数量步长、报价单位、涨跌幅及结算周期。
 class Rules(BaseModel):
@@ -55,7 +59,7 @@ class InstrumentInput(BaseModel):
     @field_validator("market")
     @classmethod
     def market_valid(cls, value):
-        if value not in {"SH", "SZ", "HK", "US", "FX", "SHFE", "FUND"}:
+        if value not in {"SH", "SZ", "HK", "US", "FX", "SHFE", "SGE", "FUND"}:
             raise ValueError("不支持的市场")
         return value
 
@@ -70,9 +74,33 @@ class InstrumentInput(BaseModel):
 
 # 验证证据链接来自允许的官方域名，防止相似域名冒充。
 def official_url(url: str) -> bool:
-    p = urlsplit(url)
+    if not isinstance(url,str):
+        return False
+    try:
+        p = urlsplit(url)
+    except ValueError:
+        return False
     host = (p.hostname or "").lower()
-    return p.scheme == "https" and not p.username and any(host == h or host.endswith("." + h) for h in ("sse.com.cn", "szse.cn", "cninfo.com.cn", "sge.com.cn", "shfe.com.cn"))
+    return p.scheme == "https" and p.username is None and p.password is None and any(host == h or host.endswith("." + h) for h in ("sse.com.cn", "szse.cn", "cninfo.com.cn", "sge.com.cn", "shfe.com.cn"))
+
+
+def name_risk(name):
+    code=name.strip().upper()
+    if re.match(r"^(?:S)?\*?ST",code):
+        return "st"
+    if code.startswith("退市") or code.endswith("退"):
+        return "warning"
+    return None
+
+
+def review_evidence(previous,supplied,status):
+    keys=("listing_url","status_url","announcement_url")
+    if not isinstance(supplied,dict) or not all(official_url(supplied.get(k)) for k in keys) or not isinstance(supplied.get("review_note"),str) or not supplied["review_note"].strip():
+        raise ValueError("需要三项官方 HTTPS 证据及人工核验结论")
+    if previous.get("exchange_delisting") and status!="delisted":
+        raise ValueError("证券仍在交易所终止上市记录中，请先同步核对是否重新上市")
+    evidence={k:previous[k] for k in ("exchange_delisting","exchange_listing_date","disclosure_check") if k in previous}
+    return {**evidence,**{k:supplied[k] for k in (*keys,"review_note")}}
 
 
 # 按市场与代码生成稳定标识，新增或恢复证券的自选状态。
@@ -105,13 +133,16 @@ def risk_reasons(item: dict, at: datetime | None = None) -> list[str]:
         errors.append("仅供观察，不支持普通模拟买入")
     if item["status"] != "active":
         errors.append({"unknown": "交易状态未核验", "suspended": "停牌", "delisted": "已退市"}.get(item["status"], "交易状态不允许买入"))
-    if item["risk_flag"] != "clear" or "ST" in item["name"].upper() or "退" in item["name"]:
+    if item["risk_flag"] != "clear" or name_risk(item["name"]):
         errors.append("风险警示或公告尚未核验")
     if not item["verified_at"]:
         errors.append("缺少风险核验时间")
     else:
-        verified = datetime.fromisoformat(item["verified_at"])
-        if verified.tzinfo is None or verified > at or at - verified > timedelta(hours=db.settings().max_risk_age_hours):
+        try:
+            verified = datetime.fromisoformat(item["verified_at"])
+        except (TypeError,ValueError):
+            verified = None
+        if verified is None or verified.tzinfo is None or verified > at or at - verified > timedelta(hours=db.settings().max_risk_age_hours):
             errors.append("风险核验已过期或时间无效")
     evidence = item.get("evidence", {})
     if not all(official_url(evidence.get(k, "")) for k in ("listing_url", "status_url", "announcement_url")):
@@ -129,10 +160,6 @@ def verify(ident: str, payload: dict):
     if payload.get("risk_flag") not in {"clear", "st", "warning", "unknown"}:
         raise ValueError("风险标记不合法")
     evidence = payload.get("evidence", {})
-    if not all(official_url(evidence.get(k, "")) for k in ("listing_url", "status_url", "announcement_url")):
-        raise ValueError("请填写三项交易所或巨潮官方 HTTPS 证据链接")
-    if not evidence.get("review_note", "").strip():
-        raise ValueError("请填写已人工核对的公告与停复牌结论")
     rules = Rules.model_validate(payload["rules"])
     if not rules.verified or not official_url(rules.source_url):
         raise ValueError("需要核验后的产品交易规则及官方来源")
@@ -141,6 +168,9 @@ def verify(ident: str, payload: dict):
         raise ValueError("需要最新官方名称")
     ts = timestamp()
     with db.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+        previous=json.loads(c.execute("SELECT evidence_json FROM instruments WHERE id=?",(ident,)).fetchone()["evidence_json"])
+        evidence=review_evidence(previous,evidence,payload["status"])
         c.execute("UPDATE instruments SET name=?,status=?,risk_flag=?,verified_at=?,source_url=?,rules_json=?,evidence_json=? WHERE id=?", (name, payload["status"], payload["risk_flag"], ts, evidence["listing_url"], rules.model_dump_json(), db.dumps(evidence), ident))
         c.execute("INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json) VALUES(?,?,?,?,?,?,?)", (ident, "manual_official_review", "info" if payload["risk_flag"] == "clear" else "warning", evidence["review_note"][:500], evidence["announcement_url"], ts, db.dumps(payload)))
     return get(ident)
@@ -164,3 +194,11 @@ def seed():
     extras += [("FUND", code, "场外基金名称待核验", "fund", "场外观察") for code in ("009047", "003591", "013965")]
     for market, sym, name, asset, group in extras:
         add(InstrumentInput(symbol=sym, market=market, name=name, asset_class=asset, group_name=group))
+
+
+def seed_gold_references(connection):
+    for market, symbol, name, asset in GOLD_REFERENCE_INSTRUMENTS:
+        rules = Rules(price_tick="0.001" if asset == "etf" else "0.01")
+        connection.execute("""INSERT OR IGNORE INTO instruments
+            (id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)""",
+                           (f"{market}:{symbol}", symbol, market, name, asset, rules.model_dump_json()))

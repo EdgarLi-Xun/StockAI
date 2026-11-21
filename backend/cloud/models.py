@@ -14,8 +14,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 
-from backend.ai import ResearchText,validate_output
-from backend.config import ROOT
+from backend.ai import ReportCommentary,ResearchText,read_commentary,report_prompt,validate_output
+from backend.context import model_data
 from .auth import AuthError
 from .store import stamp,json_text
 
@@ -252,18 +252,36 @@ def check_live(store,uid,fixed):
 
 
 # 按字段白名单构造新的模型输入，只包含已授权的研究和模拟事实。
-def project_input(facts,fixed):
+def project_input(facts,fixed,*,bounded=False):
     """Build a new allowlisted value; never serialize the original private facts object."""
     # 从单条事实中复制允许的字段，避免私密信息随原始对象序列化。
     def select(row,fields):
         return {k:row[k] for k in fields if k in row}
-    result={k:facts[k] for k in ("mode","report_date","calendar","budget_limit","candidate_limit","strategy_version") if k in facts}
-    result["watchlist"]=[select(r,("instrument_id","symbol","market","asset_class","official_name")) for r in facts.get("watchlist",[])]
-    result["candidates"]=[select(r,("instrument_id","symbol","name","price","quantity","score","quote_time","source_ids","indicators")) for r in facts.get("candidates",[])]
-    result["excluded"]=[select(r,("instrument_id","name","reasons","price")) for r in facts.get("excluded",[])]
-    result["sources"]=[select(r,("id","instrument_id","source","url","quote_time","collected_at")) for r in facts.get("sources",[])]
-    result["market_summary"]=[select(r,("instrument_id","symbol","market","name","price","quote_time","source_url","currency","unit")) for r in facts.get("auxiliary_markets",[])+facts.get("metals",[])]
+    result=select(facts,("mode","report_date","calendar","budget_limit","candidate_limit","strategy_version","scheduled_for"))
+    watch=facts.get("watchlist",[])
+    excluded=facts.get("excluded",[])
+    result["watchlist"]=[select(r,("instrument_id","symbol","market","asset_class","official_name")) for r in (watch[:60] if bounded else watch)]
+    result["watchlist_count"]=len(watch)
+    security_fields=("instrument_id","symbol","name","price","quantity","score","quote_time","source_ids","indicators","weekly","multi_timeframe","period_sources")
+    result["candidates"]=[select(r,security_fields) for r in facts.get("candidates",[])]
+    result["excluded"]=[select(r,("instrument_id","name","reasons","price")) for r in (excluded[:24] if bounded else excluded)]
+    result["excluded_count"]=len(excluded)
+    result["market_summary"]=[select(r,("id","instrument_id","symbol","market","name","price","quote_time","source_url","currency","unit","kind","stale")) for r in facts.get("auxiliary_markets",[])+facts.get("metals",[])]
     result["research_status"]="仅使用程序提供的研究事实；缺失风险证据不等于安全；费用为用户的模拟假设。"
+    result["missing_data"]=facts.get("missing_data",[])[:12]
+    cited=list(result["candidates"])
+    if facts.get("mode")=="full":
+        result["observations"]=[select(r,security_fields) for r in facts.get("observations",[])[:3]]
+        result["deep_context"]=[]
+        for row in facts.get("deep_context",[])[:12]:
+            data=model_data(row["category"],row.get("data"))
+            if any(data):
+                result["deep_context"].append({**select(row,("category","instrument_id","source","source_url","as_of","fetched_at","verification","source_ids")),"data":data})
+        result["announcements"]=[select(r,("instrument_id","title","source_url","published_at","verified_at","severity","source_ids")) for r in facts.get("announcements",[])[:12]]
+        result["backtests"]=[select(r,("instrument_id","strategy_version","created_at","validated","data_range","summary","in_sample","out_of_sample","cost_sensitivity")) for r in facts.get("backtests",[])[:5]]
+        cited+=result["observations"]+result["deep_context"]+result["announcements"]
+    required={sid for row in cited for sid in row.get("source_ids",())}
+    result["sources"]=[select(r,("id","instrument_id","source","url","quote_time","collected_at")) for idx,r in enumerate(facts.get("sources",[])) if not bounded or idx<32 or r["id"] in required]
     sim=facts.get("simulation",{})
     if fixed.get("allow_summary"):
         result["simulation_summary"]=[select(r,("initial_cash","cash","equity","pnl","positions")) for r in sim.get("accounts",[])]
@@ -404,7 +422,7 @@ def request_cloud(store,uid,fixed,body,before_send,key_loader):
 def call_model(store,keys,job,facts,attempt=1,transport=None,protocol=None):
     uid=job["user_id"]; fixed=json.loads(job["snapshot_json"]).get("profile")
     check_live(store,uid,fixed)
-    projected=project_input(facts,fixed) if protocol is None else None
+    projected=project_input(facts,fixed,bounded=True) if protocol is None else None
     from .research_control import control,limits
     usage_id=job['id']+':'+str(attempt)
     ident=uuid.uuid4().hex
@@ -448,11 +466,12 @@ def call_model(store,keys,job,facts,attempt=1,transport=None,protocol=None):
             return value
         except Exception:
             raise ModelError("KEY_REVOKED") from None
-    schema=protocol['schema'] if protocol else ResearchText.model_json_schema()
+    local_report=protocol is None and fixed["provider"]=="ollama"
+    schema=protocol['schema'] if protocol else (ReportCommentary if local_report else ResearchText).model_json_schema()
     if protocol:
         messages=protocol['messages']
     else:
-        prompt=(ROOT/"config"/("prompt-full.md" if facts["mode"]=="full" else "prompt-standard.md")).read_text(encoding="utf-8")
+        prompt=report_prompt(facts["mode"],commentary=local_report,retry=attempt>1)
         prompt+="\n仅返回给定结构JSON；结构："+json_text(schema)
         messages=[{"role":"system","content":prompt},{"role":"user","content":json_text(projected)}]
     try:
@@ -465,7 +484,7 @@ def call_model(store,keys,job,facts,attempt=1,transport=None,protocol=None):
             if not OLLAMA_LOCK.acquire(blocking=False):
                 raise ModelError("OLLAMA_BUSY")
             try:
-                payload={"model":fixed["model"],"stream":False,"think":False,"format":schema,"messages":messages,"options":{"temperature":0.1,"num_ctx":fixed.get('context_window',16384),"num_predict":fixed.get('output_limit',4096) if protocol else 3000}}
+                payload={"model":fixed["model"],"stream":False,"think":False,"format":schema,"messages":messages,"options":{"temperature":0.1,"num_ctx":fixed.get('context_window',16384),"num_predict":fixed.get('output_limit',4096) if protocol else 1200}}
                 content,usage,request_id=request_ollama(store,uid,payload,before_send)
             finally:
                 OLLAMA_LOCK.release()
@@ -481,12 +500,14 @@ def call_model(store,keys,job,facts,attempt=1,transport=None,protocol=None):
         try:
             if protocol:
                 result=protocol['validate'](content)
+            elif local_report:
+                result=read_commentary(content)
             else:
                 text=ResearchText.model_validate_json(content);validate_output(text,projected);result=text.model_dump()
             if any(secret in json_text(result) for secret in secrets_seen):
                 raise ValueError("凭据回显被拒绝")
         except (ValueError,TypeError):
-            raise ModelError("INVALID_OUTPUT") from None
+            raise ModelError("INVALID_OUTPUT",retryable=local_report) from None
         if any(secret in str(request_id) for secret in secrets_seen):
             request_id=""
         store.execute("UPDATE model_calls SET phase='received',usage_json=?,provider_request_id=?,finished_at=? WHERE id=?",(json_text(usage),request_id,stamp(),ident))
@@ -506,4 +527,4 @@ def call_model(store,keys,job,facts,attempt=1,transport=None,protocol=None):
         try:control(store,keys).transition(usage_id,'uncertain')
         except (RuntimeError,OSError,__import__('sqlite3').Error):pass
         store.execute("UPDATE model_calls SET phase='failed',error_code='INVALID_OUTPUT',finished_at=? WHERE id=?",(stamp(),ident))
-        raise ModelError("INVALID_OUTPUT") from None
+        raise ModelError("INVALID_OUTPUT",retryable=local_report) from None

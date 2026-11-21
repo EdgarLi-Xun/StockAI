@@ -46,7 +46,7 @@ def test_login_choice_controls_cookie_persistence_and_server_expiry(cloud,deskto
     store,_,_,_,_,uid=cloud
     cfg=config(store,desktop)
     ttl=REMEMBERED_SESSION_TTL if remember else SESSION_TTL
-    with TestClient(create_app(cfg),base_url=cfg.public_url) as client:
+    with TestClient(create_app(cfg),base_url=cfg.public_url,client=('127.0.0.1',42000)) as client:
         csrf(client)
         payload={'email':'user@example.test','password':PASSWORD}
         if remember is not None:payload['remember']=remember
@@ -69,7 +69,7 @@ def test_login_choice_controls_cookie_persistence_and_server_expiry(cloud,deskto
 def test_remembered_login_survives_service_restart_and_csrf_refresh(cloud,desktop):
     store,_,_,_,_,uid=cloud
     cfg=config(store,desktop)
-    with TestClient(create_app(cfg),base_url=cfg.public_url) as first:
+    with TestClient(create_app(cfg),base_url=cfg.public_url,client=('127.0.0.1',42000)) as first:
         sign_in(first)
         saved={name:first.cookies[name] for name in (cfg.session_cookie,cfg.csrf_cookie)}
         saved_jar=httpx.Cookies(first.cookies)
@@ -77,7 +77,7 @@ def test_remembered_login_survives_service_restart_and_csrf_refresh(cloud,deskto
         # 模拟第29天重新打开；刷新 CSRF 不续期原来的登录会话。
         expires=(datetime.now(timezone.utc)+timedelta(days=1)).isoformat(timespec='microseconds')
         store.execute('UPDATE sessions SET expires_at=? WHERE token_hash=?',(expires,session_hash))
-    with TestClient(create_app(cfg),base_url=cfg.public_url) as reopened:
+    with TestClient(create_app(cfg),base_url=cfg.public_url,client=('127.0.0.1',42000)) as reopened:
         reopened.cookies.update(saved_jar)
         response=reopened.get('/api/auth/csrf')
         assert 86390<int(cookies(response)[cfg.csrf_cookie]['max-age'])<=86400

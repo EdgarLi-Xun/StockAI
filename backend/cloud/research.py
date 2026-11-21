@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from backend.config import TZ,now
-from backend.budget import budget_check,dec,money
+from backend.budget import budget_check,dec,minimum_buy_cost,money
 from backend.instruments import official_url
 from backend.collectors import fresh_reasons
 from . import market,resources,workspace
@@ -43,13 +43,30 @@ def sessions(store,market_name):
 # 按本人自选检查风险、行情、预算和历史证据，并生成可分页的问题清单。
 def _collect_readiness(store,uid,prefs,ctx):
     issues=[];objects=[]
-    items=store.query('SELECT i.* FROM instruments i JOIN user_watchlist w ON w.instrument_id=i.id WHERE w.user_id=? ORDER BY i.id',(uid,))
-    latest=store.query("SELECT b.* FROM bars b JOIN (SELECT b.instrument_id,MAX(b.ts) ts FROM bars b JOIN user_watchlist w ON w.instrument_id=b.instrument_id WHERE w.user_id=? AND b.timeframe='1d' GROUP BY b.instrument_id) last ON last.instrument_id=b.instrument_id AND last.ts=b.ts WHERE b.timeframe='1d'",(uid,))
-    last_by_id={b['instrument_id']:{**b,'metadata':json.loads(b['metadata_json'])} for b in latest}
-    evidence={}
-    for field,url in (('historical_status_verified','status_source_url'),('corporate_actions_verified','corporate_actions_source_url')):
-        rows=store.query("SELECT b.instrument_id,COUNT(*) n,SUM(CASE WHEN json_extract(metadata_json,?)=1 AND (json_extract(metadata_json,?) LIKE 'https://www.sse.com.cn/%' OR json_extract(metadata_json,?) LIKE 'https://www.szse.cn/%' OR json_extract(metadata_json,?) LIKE 'https://www.cninfo.com.cn/%') THEN 0 ELSE 1 END) missing FROM bars b JOIN user_watchlist w ON w.instrument_id=b.instrument_id WHERE w.user_id=? AND b.timeframe='1d' GROUP BY b.instrument_id",('$.'+field,'$.'+url,'$.'+url,'$.'+url,uid))
-        evidence[field]={r['instrument_id']:r for r in rows}
+    with store.tx() as c:
+        items = [dict(row) for row in c.execute("""SELECT i.*,q.instrument_id IS NOT NULL has_observation
+            FROM user_watchlist w JOIN instruments i ON i.id=w.instrument_id
+            LEFT JOIN market_quotes q ON q.instrument_id=i.id WHERE w.user_id=? ORDER BY i.id""", (uid,))]
+        latest = c.execute("""SELECT b.instrument_id,b.ts,b.close,b.source,b.source_url,b.fetched_at,b.quality,b.adjustment
+            FROM user_watchlist w JOIN bars b ON b.instrument_id=w.instrument_id AND b.timeframe='1d'
+            AND b.ts=(SELECT MAX(last.ts) FROM bars last WHERE last.instrument_id=w.instrument_id AND last.timeframe='1d')
+            WHERE w.user_id=?""", (uid,))
+        last_by_id = {row["instrument_id"]:dict(row) for row in latest}
+        history = c.execute("""SELECT b.instrument_id,COUNT(*) n,
+            SUM(CASE WHEN json_extract(b.metadata_json,'$.historical_status_verified')=1 AND (
+                json_extract(b.metadata_json,'$.status_source_url') LIKE 'https://www.sse.com.cn/%'
+                OR json_extract(b.metadata_json,'$.status_source_url') LIKE 'https://www.szse.cn/%'
+                OR json_extract(b.metadata_json,'$.status_source_url') LIKE 'https://www.cninfo.com.cn/%')
+                THEN 0 ELSE 1 END) missing_status,
+            SUM(CASE WHEN json_extract(b.metadata_json,'$.corporate_actions_verified')=1 AND (
+                json_extract(b.metadata_json,'$.corporate_actions_source_url') LIKE 'https://www.sse.com.cn/%'
+                OR json_extract(b.metadata_json,'$.corporate_actions_source_url') LIKE 'https://www.szse.cn/%'
+                OR json_extract(b.metadata_json,'$.corporate_actions_source_url') LIKE 'https://www.cninfo.com.cn/%')
+                THEN 0 ELSE 1 END) missing_actions
+            FROM user_watchlist w JOIN bars b ON b.instrument_id=w.instrument_id AND b.timeframe='1d'
+            WHERE w.user_id=? GROUP BY b.instrument_id""", (uid,))
+        evidence = {row["instrument_id"]:dict(row) for row in history}
+    cap = dec(prefs.budget)
     for item in items:
         issue_start=len(issues)
         item['rules']=json.loads(item.pop('rules_json'));item['evidence']=json.loads(item.pop('evidence_json'));last=last_by_id.get(item['id'])
@@ -62,18 +79,18 @@ def _collect_readiness(store,uid,prefs,ctx):
                 add('QUOTE_'+fingerprint(msg)[:10],msg,'candidate','unknown' if not last else 'blocked');issues[-1]['affects']=['candidate','market']
             if last:
                 try:
-                    estimate=budget_check(last['close'],item['rules'],item['asset_class'],prefs.fees,prefs.budget)
-                    if not estimate['within_budget']:add('BUDGET_EXCEEDED','最低合法数量含费超过个人预算','candidate',admin=False)
+                    minimum=minimum_buy_cost(last['close'],item['rules'],item['asset_class'],prefs.fees)
+                    if minimum>cap:add('BUDGET_EXCEEDED','最低合法数量含费超过个人预算','candidate',admin=False)
                 except ValueError:add('PRICE_RULE_UNKNOWN','价格或产品步长口径不一致','candidate')
-            history=evidence['historical_status_verified'].get(item['id']);actions=evidence['corporate_actions_verified'].get(item['id'])
+            history=evidence.get(item['id'])
             if not history or history['n']<40:add('HISTORY_SHORT','历史长度不足以进行可靠的严格回测','strict_backtest')
-            if not history or history['missing']:add('HISTORICAL_STATUS_MISSING','缺少逐日历史交易状态证据','strict_backtest')
-            if not actions or actions['missing']:add('CORPORATE_ACTIONS_MISSING','缺少逐日公司行动证据','strict_backtest')
+            if not history or history['missing_status']:add('HISTORICAL_STATUS_MISSING','缺少逐日历史交易状态证据','strict_backtest')
+            if not history or history['missing_actions']:add('CORPORATE_ACTIONS_MISSING','缺少逐日公司行动证据','strict_backtest')
             if not item['rules'].get('verified') or not official_url(item['rules'].get('source_url','')):add('PRODUCT_RULES_UNVERIFIED','产品交易规则未核验','strict_backtest')
         else:
             add('OBSERVATION_ONLY','此类资料用于行情观察，不适用境内普通买入候选','candidate','not_applicable',False)
             add('BACKTEST_NOT_APPLICABLE','此类资料不适用当前境内股票与ETF撮合回测','strict_backtest','not_applicable',False)
-            if not last and not store.one('SELECT instrument_id FROM market_quotes WHERE instrument_id=?',(item['id'],)):add('OBSERVATION_QUOTE_UNKNOWN','尚无有效观察报价','market','unknown')
+            if not last and not item['has_observation']:add('OBSERVATION_QUOTE_UNKNOWN','尚无有效观察报价','market','unknown')
         own=issues[issue_start:]
         state='blocked' if any(r['status']=='blocked' for r in own) else 'unknown' if any(r['status']=='unknown' for r in own) else 'ready'
         abilities={}
@@ -116,7 +133,11 @@ def readiness(store,uid,*,task='',q='',status='',page=1,size=20,persist=True):
     if persist and active:
         if not old or old['snapshot_id']!=value['snapshot_id']:
             stored={**value,'issues':issues[:50],'issues_truncated':len(issues)>50}
-            try:resources.save(store,uid,'readiness',stored,ident='readiness:'+uid,version=old['version'] if old else None)
+            try:
+                # 就绪度读取触发的归档依次写入，减少多个读取请求同时争抢 SQLite 写锁。
+                with store.readiness_write_lock:
+                    resources.save(store,uid,'readiness',stored,ident='readiness:'+uid,
+                                   version=old['version'] if old else None,readback=False)
             except AuthError as exc:
                 if exc.code!='VERSION_CONFLICT':raise
     filtered=[r for r in issues if (not task or r['task']==task or task in r.get('affects',[])) and (not status or r['status']==status) and (not q or q.lower() in (r['name']+r['instrument_id']+r['message']).lower())]

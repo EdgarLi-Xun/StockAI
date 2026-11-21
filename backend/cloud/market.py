@@ -12,7 +12,8 @@ from backend import analytics
 from backend.budget import budget_check,dec,money
 from backend.config import now,timestamp
 from backend.collectors import fresh_reasons, newer_spot
-from backend.instruments import InstrumentInput,Rules,official_url
+from backend.instruments import InstrumentInput,Rules,name_risk,official_url,review_evidence
+from backend.report_facts import quote_stale
 from .auth import AuthError
 from .collector import queue_names
 from .preferences import get_preferences
@@ -57,7 +58,7 @@ def risk_reasons(item,prefs,at=None):
         errors.append("仅供观察，不支持普通模拟买入")
     if item["status"]!="active":
         errors.append({"unknown":"交易状态未核验","suspended":"停牌","delisted":"已退市"}.get(item["status"],"交易状态不允许买入"))
-    if item["risk_flag"]!="clear" or "ST" in item["name"].upper() or "退" in item["name"]:
+    if item["risk_flag"]!="clear" or name_risk(item["name"]):
         errors.append("风险警示或公告尚未核验")
     try:
         verified=datetime.fromisoformat(item["verified_at"])
@@ -138,8 +139,6 @@ def verify(store,ident,payload):
     if payload.get("status") not in {"active","suspended","delisted","unknown"} or payload.get("risk_flag") not in {"clear","st","warning","unknown"}:
         raise ValueError("交易状态或风险标记不合法")
     evidence=payload.get("evidence",{})
-    if not all(official_url(evidence.get(k,"")) for k in ("listing_url","status_url","announcement_url")) or not str(evidence.get("review_note","")).strip():
-        raise ValueError("需要三项官方 HTTPS 证据及人工核验结论")
     rules=Rules.model_validate(payload.get("rules"))
     if not rules.verified or not official_url(rules.source_url):
         raise ValueError("需要已核验的交易规则及官方来源")
@@ -147,6 +146,8 @@ def verify(store,ident,payload):
     if not name or len(name)>80:
         raise ValueError("需要最新官方名称")
     with store.tx(immediate=True) as c:
+        previous=json.loads(c.execute("SELECT evidence_json FROM instruments WHERE id=?",(ident,)).fetchone()["evidence_json"])
+        evidence=review_evidence(previous,evidence,payload["status"])
         c.execute("UPDATE instruments SET name=?,status=?,risk_flag=?,verified_at=?,source_url=?,rules_json=?,evidence_json=? WHERE id=?",(name,payload["status"],payload["risk_flag"],timestamp(),evidence["listing_url"],rules.model_dump_json(),json_text(evidence),ident))
         c.execute("INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json) VALUES(?,?,?,?,?,?,?)",(ident,"manual_official_review","info" if payload["risk_flag"]=="clear" else "warning",str(evidence["review_note"])[:500],evidence["announcement_url"],timestamp(),json_text(payload)))
     return instrument(store,ident)
@@ -310,12 +311,10 @@ def watch_rows(store,uid):
 # 读取已保存的市场观察报价，并保留报价时间和来源信息。
 def quotes(store):
     out=[]
+    at=now()
     for row in store.query("SELECT payload_json FROM market_quotes"):
         value=json.loads(row["payload_json"])
-        try:
-            value["stale"]=(now()-datetime.fromisoformat(value["quote_time"])).total_seconds()>3600
-        except (KeyError,ValueError,TypeError):
-            value["stale"]=True
+        value["stale"]=quote_stale(value,at)
         out.append(value)
     return out
 

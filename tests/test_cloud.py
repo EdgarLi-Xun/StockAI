@@ -23,6 +23,7 @@ from backend.public_app import create_app
 
 PASSWORD="test-cloud-password-123"
 GOOD=json.dumps({"summary":"研究事实已核对","market_context":"数据有限，保持谨慎","candidates":[],"risk_notes":["历史结果不代表未来"],"missing_data":[],"source_ids":[]},ensure_ascii=False)
+OLLAMA_GOOD=json.dumps({"market_context":"数据有限，保持谨慎","risk_notes":["历史结果不代表未来"]},ensure_ascii=False)
 
 
 # 建立临时公网存储、密钥、认证组件及管理员和普通用户，隔离外部网络。
@@ -165,6 +166,44 @@ def test_bad_model_output_no_retry(cloud):
     assert result["ai_status"]=="fallback" and len(seen)==1
 
 
+def test_full_ollama_receives_evidence_and_retries_invalid_commentary(cloud):
+    from backend.cloud import market
+    from backend.instruments import InstrumentInput
+    store,keys,_,_,admin,uid=cloud
+    store.cfg=replace(store.cfg,ollama_enabled=True)
+    model=models.save_profile(store,keys,uid,models.ProfileInput(name="本机模型",provider="ollama",model="fixture-model"))
+    models.set_default(store,uid,model['id'])
+    for owner,symbol in ((uid,'603126'),(admin,'601111')):
+        market.add_watch(store,owner,InstrumentInput(market='SH',symbol=symbol))
+    for ident,category,instrument,data in [
+        ('macro-fixture','macro',None,[{'日期':'2026-01-01','今值':0.2,'internal_note':'PRIVATE_FIELD'}]),
+        ('stock-fixture','fundamentals','SH:603126',[{'item':'行业','value':'电力设备'}]),
+        ('other-fixture','fundamentals','SH:601111',[{'item':'行业','value':'OTHER_WATCHLIST'}]),
+    ]:
+        store.execute("INSERT INTO research_context VALUES(?,?,?,?,?,?,?,?)",(ident,category,instrument,json_text(data),'测试来源','https://example.test/facts','2026-01-01',stamp()))
+    for ident in ('SH:603126','SH:601111'):
+        store.execute("INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json) VALUES(?,'announcement','info',?,?,?,?)",(ident,ident+'公告','https://www.cninfo.com.cn/new/disclosure',stamp(),'{}'))
+    result={'summary':{'return_pct':1.2},'out_of_sample':{'range':['2026-01-01','2026-01-31'],'metrics':{'max_drawdown_pct':2.4}},'cost_sensitivity':[{'fee_multiplier':2,'metrics':{'return_pct':0.6}}],'validated':False}
+    store.execute("INSERT INTO personal_backtests VALUES(?,?,?,?,?,?,?)",('test-run',uid,stamp(),json_text({'instrument_id':'SH:603126'}),json_text(result),'datahash','version-fixture'))
+    requests=[]
+
+    def transport(fixed,messages,key):
+        requests.append(json.loads(messages[1]['content']))
+        body=json_text({'market_context':'样本中的证券已经停牌。'}) if len(requests)==1 else OLLAMA_GOOD
+        return body,{},''
+
+    report=run_job(cloud,kind='full',transport=transport)
+    payload=workspace.report_detail(store,uid,report['report_id'])['payload']
+    assert report['ai_status']=='generated' and payload['summary']=='今日无合格模拟候选' and len(requests)==2
+    sent=requests[0]
+    assert [r['category'] for r in sent['deep_context']]==['macro','fundamentals']
+    assert sent['announcements'][0]['instrument_id']=='SH:603126'
+    assert sent['backtests'][0]['out_of_sample']['metrics']['max_drawdown_pct']==2.4
+    assert sent['backtests'][0]['cost_sensitivity'][0]['metrics']['return_pct']==0.6
+    assert all(v not in json_text(sent) for v in ('OTHER_WATCHLIST','PRIVATE_FIELD'))
+    assert '停牌' not in payload['market_context']
+
+
 # 验证凭据、数据授权或账号撤销后会在发送前阻断请求。
 def test_key_consent_and_disable_gate_before_send(cloud):
     store,keys,auth,_,admin,uid=cloud;p=profile(cloud,allow_simulation_summary=True)
@@ -207,6 +246,24 @@ def test_schedule_defaults_rules_only_and_no_past_catchup(cloud):
     assert not seen and result["ai_status"]=="fallback"
     old=jobs.enqueue(store,uid,"full");store.execute("UPDATE personal_jobs SET target_date='2000-01-01' WHERE id=?",(old["id"],));jobs.recover(store)
     assert store.one("SELECT status FROM personal_jobs WHERE id=?",(old["id"],))["status"]=="cancelled"
+
+
+def test_desktop_catches_up_missed_week_and_keeps_the_actual_report_date(cloud):
+    store,keys,_,_,_,uid=cloud
+    store.cfg=replace(store.cfg,desktop_mode=True)
+    save_preferences(store,uid,Preferences(weekly_enabled=True).model_dump())
+    today=now()
+    sunday=today-timedelta(days=today.weekday()+1)
+    monday=(sunday+timedelta(days=1)).replace(hour=9,minute=0)
+    assert not jobs.schedule(store,sunday.replace(hour=19,minute=59))
+    assert jobs.schedule(store,monday)==1 and not jobs.schedule(store,monday)
+    jobs.recover(store)
+    job=jobs.claim(store,'weekly-fixture')
+    assert job['logical_key']==f'full:{sunday.date()}' and job['target_date']==str(monday.date())
+    result=jobs.run(store,keys,job)
+    payload=workspace.report_detail(store,uid,result['report_id'])['payload']
+    assert payload['scheduled_for']==str(sunday.date()) and payload['report_date']==str(today.date())
+    assert result['ai_status']=='fallback' and not jobs.schedule(store,monday)
 
 
 # 验证重启恢复时不重新发送结果不确定的已发送调用。
@@ -621,7 +678,7 @@ def test_server_ollama_uses_only_site_address(cloud,monkeypatch):
         status=200
         # 返回预设 JSON 响应字节，供协议解析逻辑读取。
         def read(self,*args):
-            return json.dumps({'message':{'content':GOOD},'eval_count':10}).encode()
+            return json.dumps({'message':{'content':OLLAMA_GOOD},'eval_count':10}).encode()
     # 模拟 HTTP 连接，核对目标地址并捕获请求载荷。
     class Connection:
         # 核对站点 Ollama 主机和端口，并配置模拟套接字。

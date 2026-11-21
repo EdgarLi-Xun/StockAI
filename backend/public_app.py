@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hmac
 import io
+import ipaddress
 import json
 import math
 import sqlite3
@@ -22,10 +23,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend import analytics,backtest
 from backend.budget import budget_check
-from backend.config import ROOT,timestamp
+from backend.config import ROOT,now,timestamp
 from .cloud import VERSION as PUBLIC_VERSION
 from backend.instruments import InstrumentInput
 from backend.research import resample_weekly
+from backend.report_facts import METAL_NAMES,gold_silver_ratio
 from backend.simulation import OrderInput
 from .cloud import backups,collector,jobs,market,models,simulation,smtp_settings,workspace
 from .cloud.auth import Actor,AuthError,SESSION_TTL,session_lifetime
@@ -50,8 +52,19 @@ def create_app(cfg=None):
             runtime.close()
     app=FastAPI(title="StockAI 公网个人研究空间",version=PUBLIC_VERSION,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     origins={cfg.public_url,*cfg.desktop_origins} if cfg.desktop_mode else {cfg.public_url}
-    hosts=[urlsplit(origin).hostname for origin in origins]+(["127.0.0.1","localhost","testserver"] if cfg.dev else [])
+    hosts=[urlsplit(origin).hostname for origin in origins]+(["127.0.0.1","localhost","testserver"] if cfg.dev and not cfg.desktop_mode else [])
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=hosts)
+    desktop_networks=tuple(ipaddress.IPv4Network(network) for network in cfg.desktop_lan_networks)
+
+    def loopback_request(request):
+        try:
+            return (
+                request.url.hostname in {"127.0.0.1","localhost"}
+                and ipaddress.ip_address(request.client.host).is_loopback
+                and not any(request.headers.get(h) for h in ("forwarded","x-forwarded-for","x-real-ip"))
+            )
+        except (AttributeError,ValueError):
+            return False
 
     # 从应用状态取得当前运行时，供路由与依赖共享。
     def rt(request:Request):
@@ -116,6 +129,13 @@ def create_app(cfg=None):
     # 统一校验主机、来源、维护状态及写请求的 CSRF 绑定。
     @app.middleware("http")
     async def guard(request,call_next):
+        if cfg.desktop_mode and not loopback_request(request):
+            try:
+                address=ipaddress.IPv4Address(request.client.host)
+            except (AttributeError,ValueError):
+                address=None
+            if not address or not any(address in network for network in desktop_networks):
+                return JSONResponse({"detail":"当前来源不在允许的局域网网段","code":"LOCAL_ONLY"},403)
         if request.url.path.startswith('/api/'):
             runtime=rt(request)
             if runtime.paused() and not request.url.path.startswith(('/api/admin/upgrades','/api/health','/api/auth/')):
@@ -156,11 +176,30 @@ def create_app(cfg=None):
         return result
 
     if cfg.desktop_mode:
+        def lan_state(configured):
+            return {"enabled":bool(configured),"networks":list(configured),"active":bool(desktop_networks),
+                    "addresses":[origin for origin in cfg.desktop_origins if urlsplit(origin).hostname not in {"127.0.0.1","localhost"}],
+                    "restart_required":configured!=cfg.desktop_lan_networks}
+
+        @app.get("/api/desktop/lan")
+        def desktop_lan(request:Request,a:Actor=Depends(admin)):
+            from desktop.host import read_lan
+            if not loopback_request(request):
+                raise AuthError("LOCAL_ONLY","请在桌面应用或本机浏览器管理局域网访问",403)
+            return lan_state(read_lan(cfg.erasures))
+
+        @app.post("/api/desktop/lan")
+        def desktop_lan_save(payload:dict,request:Request,a:Actor=Depends(admin)):
+            from desktop.host import save_lan
+            if not loopback_request(request):
+                raise AuthError("LOCAL_ONLY","请在桌面应用或本机浏览器管理局域网访问",403)
+            with rt(request).store.publish_lock:
+                return lan_state(save_lan(cfg.erasures,payload.get("enabled"),payload.get("networks")))
+
         @app.post("/api/desktop/setup")
         def desktop_setup(payload:dict,request:Request):
             # 仅首次在本机创建账号；仍受同源、CSRF 和事务竞争保护。
-            import ipaddress
-            if not ipaddress.ip_address(request.client.host).is_loopback or any(request.headers.get(h) for h in ("forwarded","x-forwarded-for","x-real-ip")):
+            if not loopback_request(request):
                 raise AuthError("LOCAL_ONLY","仅允许本机初始化",403)
             session_lifetime(payload.get("remember",False))
             runtime=rt(request)
@@ -363,14 +402,15 @@ def create_app(cfg=None):
     @app.get("/api/me/metals")
     def metals(request:Request,a:Actor=Depends(user)):
         byid={q["id"]:q for q in market.quotes(rt(request).store)}
-        return [byid.get(i,{"id":i,"price":None,"status":"unavailable","stale":True,"message":"没有已确认行情"}) for i in ("FX:XAUUSD","FX:XAGUSD","SHFE:AU0","SHFE:AG0")]
+        return [byid.get(ident,{"id":ident,"price":None,"status":"unavailable","stale":True,"message":"没有已确认行情"}) for ident in METAL_NAMES]
     # 组合本人自选、报告、任务及模拟概况，生成个人工作台总览。
     @app.get("/api/me/dashboard")
     def dashboard(request:Request,a:Actor=Depends(user)):
         store=rt(request).store;rows=market.watch_rows(store,a.id);reports=workspace.report_list(store,a.id)[:5]
         latest=workspace.report_detail(store,a.id,reports[0]["id"])["payload"] if reports else None;candidates=latest["candidates"] if latest else []
         indices=[market.detail(store,a.id,r["id"]) for r in store.query("SELECT id FROM instruments WHERE asset_class='index' ORDER BY id")]
-        return {"version":PUBLIC_VERSION,"time":timestamp(),"calendar":market.calendar(store),"stats":{"watch_count":len(rows),"quote_count":sum(r["quote"] is not None for r in rows),"verified_count":sum(not market.risk_reasons(r,get_preferences(store,a.id)) for r in rows),"candidate_count":len(candidates)},"watchlist":rows,"indices":indices,"metals":metals(request,a),"reports":reports,"candidates":candidates,"jobs":jobs.list_jobs(store,a.id)["jobs"][:6],"notifications":store.query("SELECT * FROM personal_notifications WHERE user_id=? ORDER BY id DESC LIMIT 10",(a.id,)),"settings_summary":{"budget":get_preferences(store,a.id).budget,"fee_confirmed":get_preferences(store,a.id).fees.confirmed}}
+        quotes=metals(request,a)
+        return {"version":PUBLIC_VERSION,"time":timestamp(),"calendar":market.calendar(store),"stats":{"watch_count":len(rows),"quote_count":sum(r["quote"] is not None for r in rows),"verified_count":sum(not market.risk_reasons(r,get_preferences(store,a.id)) for r in rows),"candidate_count":len(candidates)},"watchlist":rows,"indices":indices,"metals":quotes,"gold_silver_ratio":gold_silver_ratio(quotes,now()),"reports":reports,"candidates":candidates,"jobs":jobs.list_jobs(store,a.id)["jobs"][:6],"notifications":store.query("SELECT * FROM personal_notifications WHERE user_id=? ORDER BY id DESC LIMIT 10",(a.id,)),"settings_summary":{"budget":get_preferences(store,a.id).budget,"fee_confirmed":get_preferences(store,a.id).fees.confirmed}}
 
     # 按查询条件列出本人的研究报告。
     @app.get("/api/me/reports")
@@ -399,9 +439,10 @@ def create_app(cfg=None):
     @app.get("/api/me/jobs")
     def job_list(request:Request,a:Actor=Depends(user)):
         p=get_preferences(rt(request).store,a.id)
-        plans=[{"kind":kind,"label":name,"time":getattr(p,time),"enabled":getattr(p,enabled),"timezone":"Asia/Shanghai","rule":rule+(" · 已开启" if getattr(p,enabled) else " · 未开启")} for kind,name,time,enabled,rule in (("standard","标准版早报","morning_time","morning_enabled","每天，仅补跑当天"),("closing","交易日收盘跟踪","closing_time","closing_enabled","仅已确认交易日"),("full","周日深度复盘","weekly_time","weekly_enabled","每周日，仅补跑当天"))]
+        weekly_rule="每周日，恢复后补跑最近一次" if cfg.desktop_mode else "每周日，仅补跑当天"
+        plans=[{"kind":kind,"label":name,"time":getattr(p,time),"enabled":getattr(p,enabled),"timezone":"Asia/Shanghai","rule":rule+(" · 已开启" if getattr(p,enabled) else " · 未开启")} for kind,name,time,enabled,rule in (("standard","标准版早报","morning_time","morning_enabled","每天，仅补跑当天"),("closing","交易日收盘跟踪","closing_time","closing_enabled","仅已确认交易日"),("full","周日深度复盘","weekly_time","weekly_enabled",weekly_rule))]
         store=rt(request).store
-        return {**jobs.list_jobs(store,a.id),"shared_jobs":collector.list_jobs(store) if a.role=='admin' else [],"schedule":{"plans":plans,"enabled":any(x["enabled"] for x in plans)}}
+        return {**jobs.list_jobs(store,a.id),"shared_jobs":collector.list_jobs(store) if a.role=='admin' else [],"schedule":{"plans":plans,"enabled":any(x["enabled"] for x in plans),"catch_up":"恢复后补跑当天到期的早报和收盘任务。已错过的计划会记录原日期。","task_failure_email_enabled":p.task_failure_email_enabled,"smtp_configured":smtp_settings.configured(store)}}
     # 按个人设置与模型快照提交研究任务。
     @app.post("/api/me/jobs")
     def run_job(payload:dict,request:Request,a:Actor=Depends(user)):

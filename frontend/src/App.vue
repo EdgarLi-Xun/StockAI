@@ -32,7 +32,10 @@ const sidebarOpen = ref(false), loading = ref(true), ready = ref(false), busy = 
 const error = ref(''), toast = ref(''), showNotifications = ref(false), requiresLogin = ref(false), role = ref('admin')
 // 集中保存服务端快照，具体页面通过派生值和按需请求读取。
 const dashboard = ref<any>(null), model = ref<any>({ available: false, message: '正在检查模型' }), config = ref<any>(null), runtime = ref<any>(null)
-const reports = ref<any[]>([]), jobData = ref<any>({ jobs: [], logs: [], schedule: { plans: [] } }), portfolio = ref<any>({ accounts: [], orders: [], ledger: [], rules: [] }), experiments = ref<any[]>([]), backups = ref<any[]>([])
+const jobData = ref<any>({ jobs: [], logs: [], schedule: { plans: [] } }), portfolio = ref<any>({ accounts: [], orders: [], ledger: [], rules: [] }), experiments = ref<any[]>([]), backups = ref<any[]>([])
+const reportArchive = ref<{ all: any[], full: any[] }>({ all: [], full: [] })
+const archiveMode = computed(() => page.value === 'review' ? 'full' : 'all')
+const reports = computed(() => reportArchive.value[archiveMode.value])
 const taskStatus=ref(''),taskScope=ref(''),taskSearch=ref(''),selectedTaskKey=ref('')
 function clearTaskFilters() {
   taskStatus.value = ''
@@ -57,6 +60,7 @@ let detailRead = 0
 let dashboardRead = 0
 let indexRead = 0
 let reportRead = 0
+let reportArchiveRead = 0
 const search = ref(''), group = ref('全部'), statusFilter = ref('全部'), reportMode = ref(''), reportSearch = ref(''), activeIndex = ref('SH:000001'), accountTab = ref('orders')
 const modal = ref(''), form = ref<any>({}), modalError = ref(''), budget = ref<any>(null), budgetForm = ref({ price: 0, quantity: 100 }), importFile = ref<HTMLInputElement>(), barsFile = ref<HTMLInputElement>()
 async function guard(){return !modal.value||await confirmForUser('当前有未提交的编辑。确认离开并清除当前临时表单？')}
@@ -96,13 +100,31 @@ const currentIndex = computed(() => indices.value.find((r: any) => r.id === acti
 const latestReport = computed(() => dashboard.value?.reports?.[0])
 // 按报告模式和日期或摘要关键词筛选归档列表。
 const visibleReports = computed(() => reports.value.filter(r => (!reportMode.value || r.mode === reportMode.value) && (r.report_date + r.summary).includes(reportSearch.value)))
-const metalNames: Record<string, string> = { 'FX:XAUUSD': '伦敦金现货', 'FX:XAGUSD': '伦敦银现货', 'SHFE:AU0': '沪金主力连续', 'SHFE:AG0': '沪银主力连续' }
+const metalNames: Record<string, string> = {
+  'FX:XAUUSD': '伦敦金现货', 'FX:XAGUSD': '伦敦银现货', 'SHFE:AU0': '沪金主力连续',
+  'SHFE:AG0': '沪银主力连续', 'SGE:AU99.99': '上金所 Au99.99', 'SH:518880': '华安黄金 ETF',
+}
+const metalTypes: Record<string, string> = {
+  spot: '国际现货', continuous_future: '期货连续合约', sge_daily: '上金所现货日收盘', etf_close: '场内 ETF 日收盘',
+}
+const reportMetals = computed(() => Object.entries(metalNames).map(([id, name]) => ({
+  id, name, quote: selectedReport.value?.metals?.find((quote: any) => quote.id === id),
+})))
+const failureMailStatus: Record<string, string> = {
+  queued: '待投递', retry: '等待重试', sending: '投递中', sent: '已投递',
+  failed: '投递失败', uncertain: '投递结果不确定', cancelled: '已取消', expired: '已过期',
+}
 const statuses: Record<string, string> = { unknown: '未核验', active: '正常', suspended: '停牌', delisted: '退市', queued: '排队中', running: '运行中', success: '已完成', failed: '失败', partial: '部分完成', interrupted: '已中断', missed: '错过执行', pending: '待成交', filled: '已成交', cancelled: '已撤销', rejected: '已拒绝', unavailable: '不可用' }
 const modeNames: Record<string, string> = { standard: '标准版早报', full: '完整版复盘', closing: '收盘跟踪', sync: '全池数据同步', match: '模拟撮合', metals: '金银行情', backup: '数据备份', supplement:'报告补充 AI',profile_test:'模型连接测试',assistant:'AI 助手对话',experiment:'历史实验',names:'证券名称补全',instrument:'证券行情同步',announcements:'公告同步',context:'背景资料同步' }
 // 将有效数值格式化为中文千分位，缺失值统一显示占位符。
 const fmt = (v: any, digits = 2) => v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 // 统一以北京时间显示带时区时间，无法解析时保留原始文本。
-const dt = (v: any) => !v ? '尚无记录' : Number.isNaN(new Date(v).getTime()) ? String(v).replace('T', ' ').slice(0, 19) : new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(v))
+const dt = (v: any) => {
+  if (!v) return '尚无记录'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return v
+  const date = new Date(v)
+  return Number.isNaN(date.getTime()) ? String(v).replace('T', ' ').slice(0, 19) : new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date)
+}
 // 格式化百分比并为正值补上加号，缺失值保留占位符。
 const pct = (v: any) => v === null || v === undefined ? '—' : (Number(v) > 0 ? '+' : '') + Number(v).toFixed(2) + '%'
 // 把数值涨跌映射为样式类名，零值不附加涨跌色。
@@ -195,12 +217,27 @@ function applyPinned(id: string, pinned: boolean) {
   if (!current?.watchlist) return
   dashboard.value = { ...current, watchlist: current.watchlist.map((item: any) => item.id === id ? { ...item, pinned } : item) }
 }
+// 报告列表和周度复盘的查询范围不同，按范围保存并忽略过期响应。
+async function loadReportArchive(background = false) {
+  const originPage = page.value
+  const mode = archiveMode.value
+  const read = ++reportArchiveRead
+  const current = () => read === reportArchiveRead && page.value === originPage
+  try {
+    const rows = await api<any[]>('/reports' + (mode === 'full' ? '?mode=full' : ''))
+    if (current()) reportArchive.value[mode] = rows
+  } catch (e: any) {
+    if (!background && current()) error.value = e.message
+  }
+}
 // 仅在会话就绪后加载当前页面需要的数据，避免无关请求。
 async function loadPage() {
   if (!ready.value) return
+  const originPage = page.value
   error.value = ''
   try {
-    if (['reports', 'review', 'candidates'].includes(page.value)) reports.value = await api('/reports' + (page.value === 'review' ? '?mode=full' : ''))
+    if (['reports', 'review', 'candidates'].includes(originPage)) await loadReportArchive()
+    if (page.value !== originPage) return
     if (page.value === 'jobs') jobData.value = await api('/jobs')
     if (page.value === 'simulation' || page.value === 'review') portfolio.value = await api('/simulation')
     if (page.value === 'backtest' || page.value === 'review') experiments.value = await api('/backtests')
@@ -312,7 +349,7 @@ const ruleStatuses: Record<string, string> = { active: '启用', paused: '暂停
 async function openRule(partial: any = {}) { portfolio.value = await api('/simulation'); if (!portfolio.value.accounts.length) { openModal('account', { name: '我的模拟账户', initial_cash: null }); return } openModal('rule', { account_id: portfolio.value.accounts[0].id, instrument_id: partial.instrument_id || watchlist.value.find((r: any) => ['stock', 'etf'].includes(r.asset_class) && ['SH', 'SZ'].includes(r.market))?.id || '', kind: partial.kind || 'close_at_or_below', trigger_price: partial.trigger_price ?? null, limit_price: partial.limit_price ?? null, quantity: partial.quantity ?? 100, stop_loss: partial.stop_loss ?? null, stop_price: partial.stop_price ?? null, sell_all: !!partial.sell_all, fast: partial.fast ?? 5, slow: partial.slow ?? 20, stop_loss_pct: partial.stop_loss_pct ?? 0.05, expires_on: partial.expires_on || '', max_orders: partial.max_orders ?? null, source_kind: partial.source_kind || 'manual', source_id: partial.source_id || '', source_note: partial.source_note || '' }) }
 async function ruleAction(id: string, verb: string, cancelPending = false) { await action(async () => { await post('/simulation/rules/' + id + '/' + verb, { cancel_pending: cancelPending }); await loadPage() }) }
 // 根据现有证券规则和证据创建核验表单草稿。
-function verifyForm() { const i = detail.value.instrument; openModal('verify', { name: i.name, status: 'active', risk_flag: 'clear', rules: { ...i.rules, verified: true }, evidence: { listing_url: i.source_url || '', status_url: '', announcement_url: '', review_note: '', ...i.evidence } }) }
+function verifyForm() { const i = detail.value.instrument; openModal('verify', { name: i.name, status: i.status || 'unknown', risk_flag: i.risk_flag || 'unknown', rules: { ...i.rules, verified: false }, evidence: { listing_url: i.evidence?.listing_url || i.source_url || '', status_url: i.evidence?.status_url || '', announcement_url: i.evidence?.announcement_url || '', review_note: '' } }) }
 // 提交报价与数量，展示后端按真实产品规则计算的含费预算。
 async function estimate() {
   const id = detailId.value, read = detailRead
@@ -402,7 +439,7 @@ async function pollLive() {
     if (modal.value) return
     if (page.value === 'jobs') jobData.value = await api('/jobs')
     if (page.value === 'simulation') portfolio.value = await api('/simulation')
-    if (['reports', 'review'].includes(page.value)) reports.value = await api('/reports' + (page.value === 'review' ? '?mode=full' : ''))
+    if (['reports', 'review'].includes(page.value)) await loadReportArchive(true)
   } catch { /* 自动刷新失败时保留最近成功的视图。 */ }
 }
 function onPageVisible() { if (!document.hidden) void pollLive() }
@@ -411,7 +448,7 @@ onMounted(async () => { if (!nav.some(n => n.id === page.value)) page.value = 'd
 // 监听浏览器历史导航，使页面选择与地址哈希保持一致。
 onMounted(() => window.addEventListener('hashchange', syncHash))
 // 卸载时清理计时器和事件监听，并完成未结束的确认流程。
-onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.removeEventListener('hashchange', syncHash); window.removeEventListener('visibilitychange', onPageVisible); settleConfirm(false); ++detailRead; ++indexRead; closeReport(); emit('security-context',null) })
+onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.removeEventListener('hashchange', syncHash); window.removeEventListener('visibilitychange', onPageVisible); settleConfirm(false); ++detailRead; ++indexRead; ++reportArchiveRead; closeReport(); emit('security-context',null) })
 </script>
 
 <template>
@@ -446,7 +483,25 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
         </template>
 
         <template v-else-if="page === 'metals'">
-          <div class="metal-card-grid"><section v-for="(m, idx) in dashboard?.metals" :key="m.id" class="panel metal-card"><div class="metal-card-top"><span :class="['metal-symbol', { silver: Number(idx) % 2 === 1 }]">{{ Number(idx) % 2 ? 'Ag' : 'Au' }}</span><span class="tag">{{ Number(idx) < 2 ? '国际现货' : '期货连续合约' }}</span></div><h2>{{ metalNames[m.id] }}</h2><p>{{ m.id }}</p><div class="metal-card-price">{{ fmt(m.price) }}<span>{{ m.currency || (Number(idx) < 2 ? 'USD' : 'CNY') }}</span></div><div class="metal-meta"><span>计价单位</span><strong>{{ m.unit || (Number(idx) < 2 ? '美元/金衡盎司' : Number(idx) === 2 ? '元/克' : '元/千克') }}</strong><span>报价时间</span><strong>{{ dt(m.quote_time) }}</strong><span>采集时间</span><strong>{{ dt(m.fetched_at) }}</strong><span>延迟说明</span><strong>{{ m.delay_type || '数据不可用' }}</strong><span>来源</span><a v-if="m.source_url" :href="m.source_url" target="_blank" rel="noopener">{{ m.source }}</a><strong v-else>未获取</strong></div><div :class="['data-status', { warning: m.stale }]">{{ m.price ? m.stale ? '报价已超过24小时，请重新同步' : '已取得来源报价' : m.message }}</div></section></div><section class="panel prose-panel"><h2>同是金银，报价口径不同</h2><p>伦敦现货以美元/金衡盎司计价；沪金以元/克、沪银以元/千克计价。期货连续合约包含换月与期限结构影响，不能当作现货价格直接比较。金银比仅在同币种、同单位、同一报价时点下计算。</p><h3>贵金属关联 A 股</h3><div class="related-chips"><button v-for="r in watchlist.filter(r => r.group_name === '贵金属关联')" :key="r.id" @click="openDetail(r.id)">{{ r.name }}<small>{{ r.symbol }}</small><ArrowUpRight :size="14" /></button></div></section>
+          <div class="metal-card-grid">
+            <section v-for="m in dashboard?.metals" :key="m.id" class="panel metal-card">
+              <div class="metal-card-top"><span :class="['metal-symbol', { silver: ['FX:XAGUSD', 'SHFE:AG0'].includes(m.id) }]">{{ ['FX:XAGUSD', 'SHFE:AG0'].includes(m.id) ? 'Ag' : 'Au' }}</span><span class="tag">{{ metalTypes[m.kind] || '观察行情' }}</span></div>
+              <h2>{{ metalNames[m.id] || m.id }}</h2><p>{{ m.id }}</p>
+              <div class="metal-card-price">{{ fmt(m.price, m.kind === 'etf_close' ? 3 : 2) }}<span>{{ m.currency }}</span></div>
+              <div class="metal-meta">
+                <span>计价单位</span><strong>{{ m.unit || '待取得' }}</strong>
+                <span>{{ m.kind === 'sge_daily' ? '交易日期' : '报价时间' }}</span><strong>{{ dt(m.quote_time) }}</strong>
+                <span>采集时间</span><strong>{{ dt(m.fetched_at) }}</strong>
+                <span>延迟说明</span><strong>{{ m.delay_type || '数据不可用' }}</strong>
+                <span>来源</span><a v-if="m.source_url" :href="m.source_url" target="_blank" rel="noopener">{{ m.source }}</a><strong v-else>未获取</strong>
+              </div>
+              <div :class="['data-status', { warning: m.stale }]">{{ m.price ? m.stale ? '缓存报价，待更新' : '已取得来源报价' : m.message }}</div>
+            </section>
+          </div>
+          <section class="panel prose-panel"><h2>黄金白银报价口径</h2><p>伦敦现货以美元/金衡盎司计价。沪金和上金所 Au99.99 使用元/克，沪银使用元/千克，场内黄金 ETF 使用元/份。沪金和沪银的连续合约含换月与期限因素。</p>
+            <p v-if="dashboard?.gold_silver_ratio"><strong>金银比 {{ fmt(dashboard.gold_silver_ratio.value) }}</strong> · {{ dashboard.gold_silver_ratio.stale ? '缓存报价' : '伦敦现货同口径' }} · 金 {{ dt(dashboard.gold_silver_ratio.gold_quote_time) }} · 银 {{ dt(dashboard.gold_silver_ratio.silver_quote_time) }}</p>
+            <p v-else>金银比暂无可比报价。使用同币种、同单位且相隔不超过 1 分钟的伦敦金银现货。</p>
+            <h3>贵金属关联 A 股</h3><div class="related-chips"><button v-for="r in watchlist.filter(r => r.group_name === '贵金属关联')" :key="r.id" @click="openDetail(r.id)">{{ r.name }}<small>{{ r.symbol }}</small><ArrowUpRight :size="14" /></button></div></section>
         </template>
 
         <IdeaPool v-else-if="page === 'ideas'" :can-edit="canEdit" :public-mode="!!props.publicMode" @arm="openRule({ instrument_id: $event.instrument_id, source_kind: 'idea', source_id: $event.id, source_note: '进场 ' + ($event.entry || '') + '\n离场 ' + ($event.exit || '') + '\n错在哪 ' + ($event.wrong || '') })" />
@@ -464,7 +519,7 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                 <div class="report-reader-kind"><span>{{ modeNames[selectedReport.mode] }}</span><span>{{ selectedReport.report_date }}</span><span v-if="props.publicMode">第 {{ selectedReport.version }} 版</span><span>{{ selectedReport.ai_status === 'fallback' ? '规则型报告' : 'AI 解释已校验' }}</span></div>
                 <h2>{{ selectedReport.summary }}</h2>
                 <div class="report-reader-toolbar">
-                  <p>生成于 {{ dt(selectedReport.generated_at) }} · Asia/Shanghai</p>
+                  <p>生成于 {{ dt(selectedReport.generated_at) }} · Asia/Shanghai <template v-if="selectedReport.scheduled_for && selectedReport.scheduled_for !== selectedReport.report_date">· 补跑 {{ selectedReport.scheduled_for }} 周报</template></p>
                   <div class="button-row" role="group" aria-label="导出报告"><button v-for="f in ['md', 'html', 'json']" :key="f" class="text-button small" :aria-label="'导出 ' + f.toUpperCase() + ' 报告'" @click="exportData('/reports/' + selectedReport.id + '/export?format=' + f, 'StockAI-' + selectedReport.report_date + '.' + f)"><ArrowDownToLine :size="14" />{{ f.toUpperCase() }}</button></div>
                 </div>
               </header>
@@ -474,14 +529,72 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                 <p class="report-reader-lead">{{ selectedReport.market_context }}</p>
                 <IdeaReview v-if="selectedReport.idea_review" :review="selectedReport.idea_review" />
                 <section class="report-reader-section">
+                  <h3>黄金白银行情</h3>
+                  <div v-for="metal in reportMetals" :key="metal.id" class="report-reader-source">
+                    <strong>{{ metal.name }}</strong>
+                    <template v-if="metal.quote">
+                      <span>{{ fmt(metal.quote.price) }} {{ metal.quote.unit }} · {{ metal.quote.stale ? '缓存报价' : '来源报价' }}</span>
+                      <small>报价 {{ dt(metal.quote.quote_time) }} · 采集 {{ dt(metal.quote.fetched_at) }} · {{ metal.quote.delay_type || '延迟未声明' }}</small>
+                      <a :href="metal.quote.source_url" target="_blank" rel="noopener">{{ metal.quote.source }}</a>
+                    </template>
+                    <small v-else>未取得带来源和报价时间的行情</small>
+                  </div>
+                  <p v-if="selectedReport.gold_silver_ratio">
+                    <strong>金银比 {{ fmt(selectedReport.gold_silver_ratio.value) }}</strong>
+                    · {{ selectedReport.gold_silver_ratio.stale ? '伦敦现货缓存报价' : '伦敦现货同口径' }}
+                    · 金 {{ dt(selectedReport.gold_silver_ratio.gold_quote_time) }}
+                    · 银 {{ dt(selectedReport.gold_silver_ratio.silver_quote_time) }}
+                  </p>
+                  <p v-else class="report-reader-empty">金银比暂无可比报价，需同币种、同单位且相隔不超过 1 分钟的伦敦金银现货。</p>
+                </section>
+                <section v-if="selectedReport.closing_followup" class="report-reader-section">
+                  <h3>早报与收盘对照</h3>
+                  <p>{{ selectedReport.closing_followup.message }}</p>
+                  <div v-if="selectedReport.closing_followup.morning_report" class="button-row">
+                    <button class="text-button small" @click="showReport(selectedReport.closing_followup.morning_report.report_id)">打开当日早报</button>
+                    <span>早报候选 {{ selectedReport.closing_followup.morning_candidate_count }} 只</span>
+                  </div>
+                  <div v-for="row in selectedReport.closing_followup.rows" :key="row.instrument_id" class="report-reader-source">
+                    <strong>{{ row.name }} {{ row.symbol }} · {{ row.status_label }}</strong>
+                    <small v-if="row.morning">早报参考价 ¥{{ fmt(row.morning.price) }} · {{ dt(row.morning.quote_time) }} · <a :href="row.morning.source_url" target="_blank" rel="noopener">早报行情来源</a></small>
+                    <small v-if="row.closing">当日收盘价 ¥{{ fmt(row.closing.price) }} · {{ dt(row.closing.quote_time) }} · <a :href="row.closing.source_url" target="_blank" rel="noopener">收盘行情来源</a></small>
+                    <small v-else>未取得可核验的当日收盘价</small>
+                    <small v-if="row.change_pct != null">较早报参考价 {{ pct(row.change_pct) }}</small>
+                    <p v-for="reason in row.reasons" :key="reason">{{ reason }}</p>
+                  </div>
+                  <h4>当日模拟信号</h4>
+                  <p v-if="!selectedReport.closing_followup.signals.length" class="report-reader-empty">未留有当日模拟信号记录。</p>
+                  <div v-for="signal in selectedReport.closing_followup.signals" :key="signal.price_rule_id" class="report-reader-source">
+                    <strong>{{ signal.instrument_id }} · {{ signal.result_label }}</strong>
+                    <small v-if="signal.order_status">委托{{ statuses[signal.order_status] || signal.order_status }}</small>
+                    <p>{{ signal.reason }}</p>
+                  </div>
+                </section>
+                <section class="report-reader-section">
                   <h3>研究候选 <span>{{ selectedReport.candidates.length }} 只</span></h3>
                   <p v-if="!selectedReport.candidates.length" class="report-reader-empty">本报告暂无符合条件的候选。</p>
                   <div v-for="c in selectedReport.candidates" :key="c.instrument_id" class="report-reader-candidate">
                     <h4>{{ c.name }} <small>{{ c.symbol }}</small></h4>
                     <p class="report-reader-quote">报价 ¥{{ fmt(c.price) }} · {{ dt(c.quote_time) }} · {{ c.quantity }} 股/份 · 含费 ¥{{ fmt(c.budget.total) }}</p>
+                    <details v-if="c.score_details">
+                      <summary>排序评分 {{ fmt(c.score) }} / 100</summary>
+                      <p>技术与成交量 {{ fmt(c.score_details.components.technical) }}/65 · 相对强弱 {{ fmt(c.score_details.components.relative_strength) }}/10 · 公告与基本面 {{ fmt(c.score_details.components.risk) }}/10 · 成本 {{ fmt(c.score_details.components.cost) }}/10 · 风险收益情景 {{ fmt(c.score_details.components.reward_risk) }}/5</p>
+                      <p v-if="c.score_details.relative_strength">同期相对 {{ c.score_details.relative_strength.instrument_id }} 20 期超额 {{ fmt(c.score_details.relative_strength.excess_pct) }} 个百分点</p>
+                      <p v-else>同期基准行情缺失，未计相对强弱分。</p>
+                      <p v-if="c.score_details.risk.financials">财务报告期 <a :href="c.score_details.risk.financials.source_url" target="_blank" rel="noopener">{{ c.score_details.risk.financials.period }}</a> · 归档净利润{{ c.score_details.risk.financials.profit < 0 ? '为负' : '非负' }}</p>
+                      <p v-else-if="c.score_details.risk.financial_status === 'unavailable'">缺少可用财务摘要，基本面部分未加分。</p>
+                      <p>估算往返成本 {{ fmt(c.score_details.round_trip_cost_pct, 4) }}%（{{ c.score_details.fee_assumption ? '假设费率' : '已核对费率' }}，含滑点）</p>
+                      <p>20 日价格区间 ¥{{ fmt(c.score_details.scenario.support) }}–{{ fmt(c.score_details.scenario.resistance) }} · 含费上行 {{ pct(c.score_details.scenario.net_upside_pct) }} / 下行 {{ fmt(c.score_details.scenario.net_downside_pct) }}%</p>
+                    </details>
                     <p>{{ c.rationale }}</p><p><strong>反方观点：</strong>{{ c.counterargument }}</p><p><strong>失效条件：</strong>{{ c.invalidation }}</p>
                     <div v-if="props.publicMode" class="button-row"><button class="text-button small" @click="emit('open-workbench','journals',{kind:'instrument',id:c.instrument_id,report_id:selectedReport.id})">记录判断</button><button class="text-button small" @click="emit('open-workbench','assistant',{kind:'instrument',id:c.instrument_id})">就此证券提问</button></div>
                   </div>
+                </section>
+                <section v-if="selectedReport.mode === 'full'" class="report-reader-section">
+                  <h3>深度研究证据</h3>
+                  <div v-for="row in selectedReport.deep_context || []" :key="row.id" class="report-reader-source"><a :href="row.source_url" target="_blank" rel="noopener">{{ row.instrument_id || '宏观' }} · {{ row.source }}</a><small>资料期 {{ row.as_of }} · 采集 {{ dt(row.fetched_at) }}</small></div>
+                  <div v-for="item in [...selectedReport.candidates, ...(selectedReport.observations || [])]" :key="item.instrument_id" class="report-reader-source"><strong>{{ item.name }} · 多周期</strong><small>周线 {{ dt(item.weekly?.ts) }} · 15 分钟 {{ dt(item.multi_timeframe?.['15m']?.ts) }} · 60 分钟 {{ dt(item.multi_timeframe?.['60m']?.ts) }}</small></div>
+                  <div v-for="test in selectedReport.backtests || []" :key="test.id" class="report-reader-source"><strong>回测 {{ test.instrument_id || '归档证券' }} · {{ test.validated ? '历史证据完整' : '未验证实验' }}</strong><small>样本外收益 {{ pct(test.out_of_sample?.metrics?.return_pct) }} · 最大回撤 {{ pct((test.summary || test.result)?.max_drawdown_pct) }}</small></div>
                 </section>
                 <section class="report-reader-section"><h3>风险与缺失数据</h3><ul v-if="selectedReport.risk_notes.length || selectedReport.missing_data.length"><li v-for="(r, idx) in [...selectedReport.risk_notes, ...selectedReport.missing_data]" :key="idx">{{ r }}</li></ul><p v-else class="report-reader-empty">报告中未列出风险或缺失数据。</p></section>
                 <section class="report-reader-section"><h3>未入选记录 <span>{{ selectedReport.excluded.length }} 只</span></h3><div v-if="selectedReport.excluded.length" class="table-scroll"><table class="watch-table exclusion-table"><thead><tr><th>证券</th><th>排除原因</th></tr></thead><tbody><tr v-for="r in selectedReport.excluded" :key="r.instrument_id"><td><button class="security-name" @click="openDetail(r.instrument_id)">{{ r.name }}</button><small>{{ r.instrument_id }}</small></td><td>{{ r.reasons.join('；') }}</td></tr></tbody></table></div><p v-else class="report-reader-empty">本报告没有未入选记录。</p></section>
@@ -552,7 +665,10 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                 </section>
               </div>
               <div class="task-plan-note">
-                <p>只补跑当天到期任务，同日同类报告复用已有归档。{{ props.publicMode ? '桌面关闭且后台退出后不执行本机任务。' : '' }}</p>
+                <div>
+                  <p>{{ jobData.schedule.catch_up || '恢复后补跑当天到期任务。' }}</p>
+                  <p v-if="props.publicMode">失败告警保存为站内通知 · 邮件{{ jobData.schedule.task_failure_email_enabled ? jobData.schedule.smtp_configured ? '已开启' : '已开启，待配置发送服务' : '未开启' }}</p>
+                </div>
                 <button class="text-button" @click="go('settings')">配置计划</button>
               </div>
             </details>
@@ -563,13 +679,14 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                   <thead><tr><th>任务 / 创建时间</th><th>状态</th><th>开始 / 完成</th><th>模型调用</th><th>结果 / 原因</th><th>操作</th></tr></thead>
                   <tbody>
                     <tr v-for="j in visibleTasks" :key="j.key" :class="{ 'task-selected': selectedTaskKey === j.key }">
-                      <td><strong>{{ modeNames[j.kind] || j.kind }}</strong><small>{{ dt(j.created_at) }} · {{ j.scope === 'shared' ? '共享资料' : j.automatic ? '自动计划' : '手动任务' }}</small></td>
+                      <td><strong>{{ modeNames[j.kind] || j.kind }}</strong><small v-if="j.status === 'missed' && j.target_date">原计划 {{ j.target_date }} {{ taskResult(j)?.scheduled_time || '' }}</small><small v-else>{{ dt(j.created_at) }} · {{ j.scope === 'shared' ? '共享资料' : j.automatic ? '自动计划' : '手动任务' }}</small></td>
                       <td><span :class="['tag', ['failed', 'interrupted', 'missed'].includes(j.status) ? 'red' : j.status === 'success' ? 'green' : 'amber']"><LoaderCircle v-if="j.status === 'running'" class="spin" :size="11" />{{ statuses[j.status] || j.status }}</span></td>
-                      <td>{{ j.started_at ? dt(j.started_at) : '等待执行' }}<small>{{ j.finished_at ? dt(j.finished_at) : '尚未结束' }}</small></td>
+                      <td>{{ j.started_at ? dt(j.started_at) : j.status === 'missed' ? '未执行' : '等待执行' }}<small>{{ j.finished_at ? dt(j.finished_at) : '尚未结束' }}</small></td>
                       <td>{{ j.scope === 'shared' ? '不调用模型' : j.attempts ?? '—' }}</td>
                       <td class="error-cell">
                         {{ j.error || taskResult(j)?.message || (j.status === 'success' ? '执行完成' : j.status === 'running' ? '正在处理' : j.status === 'queued' ? '等待执行' : j.retry_reason || '查看任务详情') }}
-                        <small v-if="j.retry_reason && ['failed', 'cancelled'].includes(j.status)">{{ j.retry_reason }}</small>
+                        <small v-if="j.retry_reason && ['failed', 'cancelled', 'missed'].includes(j.status)">{{ j.retry_reason }}</small>
+                        <small v-if="j.failure_mail_state">失败告警邮件{{ failureMailStatus[j.failure_mail_state] || j.failure_mail_state }}</small>
                       </td>
                       <td><div class="button-row">
                         <button class="text-button" :aria-expanded="selectedTaskKey === j.key" @click="selectedTaskKey = selectedTaskKey === j.key ? '' : j.key">{{ selectedTaskKey === j.key ? '收起' : '详情 / 日志' }}</button>

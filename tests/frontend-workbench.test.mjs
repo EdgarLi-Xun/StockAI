@@ -21,7 +21,8 @@ function client(view = 'journals') {
     loading: ref(false), busy: ref(false), error: ref(''), notice: ref(''), list: ref({ items: [], total: 0 }), topics: ref([]), readiness: ref(null), usage: ref(null),
     limits: ref({}), settingsDirty: ref({}), events: ref(null), notification: ref(null), selectedAccount: ref('account-1'), accounts: ref([]),
     risk: ref(null), sessions: ref({ items: [] }), session: ref(null), help: ref(null),
-    api: (path, options) => new Promise((resolve, reject) => requests.push({ path, options, resolve, reject }))
+    api: (path, options) => new Promise((resolve, reject) => requests.push({ path, options, resolve, reject })),
+    confirm: async () => false,
   }
   vm.runInNewContext(code + '\nglobalThis.invoke = refresh;', state)
   function take(prefix) {
@@ -142,4 +143,47 @@ test('a rejected usage update preserves the draft, version, and dirty state', as
   assert.equal(c.state.settingsDirty.value.usage, true)
   assert.equal(c.state.notice.value, '')
   assert.match(c.state.error.value, /草稿已保留/)
+})
+
+test('a refreshed usage draft requires confirmation before replacing newer limits', async () => {
+  const c = client('usage')
+  c.state.limits.value = { daily: '', monthly: 0, version: 4 }
+  c.state.settingsDirty.value.usage = true
+  const first = c.saveLimits()
+  c.take('/me/usage/limits').reject(Object.assign(new Error('stale version'), { code: 'VERSION_CONFLICT' }))
+  await first
+
+  const refresh = c.refresh()
+  await c.respond('/me/usage', { settings: { daily: 10, monthly: 40, version: 5 } })
+  await refresh
+
+  let confirmed = false
+  c.state.confirm = async () => confirmed
+  const cancel = c.saveLimits()
+  await nextTurn()
+  assert.equal(c.requests.length, 0, 'cancelling must not send a write')
+  await cancel
+  assert.deepEqual(c.state.limits.value, { daily: '', monthly: 0, version: 4 })
+  assert.equal(c.state.settingsDirty.value.usage, true)
+
+  confirmed = true
+  const retry = c.saveLimits()
+  await nextTurn()
+  const request = c.take('/me/usage/limits')
+  assert.deepEqual(JSON.parse(request.options.body), { daily: null, monthly: 0, version: 5 })
+  request.resolve({ settings: { daily: null, monthly: 0, version: 6 } }); await retry
+  assert.equal(c.state.limits.value.version, 6)
+})
+
+test('a usage read started before saving cannot restore the old limits', async () => {
+  const c = client('usage')
+  c.state.limits.value = { daily: '', monthly: 0, version: 4 }
+  c.state.settingsDirty.value.usage = true
+  const refresh = c.refresh(), old = c.take('/me/usage')
+  const save = c.saveLimits()
+  c.take('/me/usage/limits').resolve({ settings: { daily: null, monthly: 0, version: 5 } }); await save
+  old.resolve({ settings: { daily: 10, monthly: 10, version: 4 } }); await refresh
+  assert.equal(c.state.usage.value.settings.version, 5)
+  assert.equal(c.state.limits.value.version, 5)
+  assert.equal(c.state.loading.value, false)
 })

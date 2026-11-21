@@ -68,16 +68,38 @@ def choose_port(preferred=8765):
     raise RuntimeError("本机服务端口均被占用，请关闭不使用的 StockAI 实例后重试")
 
 
-def local_origins(port):
+def local_origins(port,lan_enabled):
     """Trust concrete addresses of this machine, never a wildcard Host/Origin."""
+    if not lan_enabled:
+        return (f"http://localhost:{port}",)
+    from backend.cloud.config import PRIVATE_LAN
     addresses={"127.0.0.1"}
     try:
         for info in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET,socket.SOCK_STREAM):
             address=ipaddress.IPv4Address(info[4][0])
-            if not address.is_unspecified and not address.is_multicast and str(address)!="255.255.255.255":
+            if any(address in network for network in PRIVATE_LAN):
                 addresses.add(str(address))
     except OSError:pass
     return tuple(f"http://{address}:{port}" for address in ["localhost",*sorted(addresses)])
+
+
+def read_lan(control):
+    from backend.cloud.config import lan_networks
+    try:
+        value=json.loads((control/"desktop-lan.json").read_text(encoding="utf-8"))
+        return lan_networks(value) if value else ()
+    except (OSError,ValueError):
+        return ()
+
+
+def save_lan(control,enabled,networks):
+    from backend.cloud.config import lan_networks
+    from backend.cloud.crypto import atomic_private
+    if type(enabled) is not bool:
+        raise ValueError("请明确启用或关闭局域网访问")
+    configured=lan_networks(networks) if enabled else ()
+    atomic_private(control/"desktop-lan.json",json.dumps(configured).encode("utf-8"))
+    return configured
 
 
 def local_config(home,port,background=True):
@@ -89,7 +111,9 @@ def local_config(home,port,background=True):
     recipient=""
     if identity.is_file():
         recipient=next((line.split(":",1)[1].strip() for line in identity.read_text().splitlines() if line.startswith("# public key:")),"")
-    return CloudConfig(data=home/"data",erasures=home/"control",key_file=home/"secrets/keys.json",public_url=f"http://127.0.0.1:{port}",dev=True,desktop_mode=True,desktop_instance=instance_id(home),desktop_origins=local_origins(port),background=background,ollama_enabled=True,age_bin=str(tools/"age.exe"),age_recipient=recipient)
+    control=home/"control"
+    networks=read_lan(control)
+    return CloudConfig(data=home/"data",erasures=control,key_file=home/"secrets/keys.json",public_url=f"http://127.0.0.1:{port}",dev=True,desktop_mode=True,desktop_instance=instance_id(home),desktop_origins=local_origins(port,bool(networks)),desktop_lan_networks=networks,background=background,ollama_enabled=True,age_bin=str(tools/"age.exe"),age_recipient=recipient)
 
 
 def prepare(home):
@@ -137,7 +161,8 @@ class Host:
         from backend.public_app import create_app
         prepare(self.home)
         cfg=local_config(self.home,self.port,self.background)
-        self.server=uvicorn.Server(uvicorn.Config(create_app(cfg),host="0.0.0.0",port=self.port,workers=1,proxy_headers=False,loop="asyncio",http="h11",ws="none",lifespan="on",access_log=False,log_level="warning",log_config=None))
+        bind_host="0.0.0.0" if cfg.desktop_lan_networks else "127.0.0.1"
+        self.server=uvicorn.Server(uvicorn.Config(create_app(cfg),host=bind_host,port=self.port,workers=1,proxy_headers=False,loop="asyncio",http="h11",ws="none",lifespan="on",access_log=False,log_level="warning",log_config=None))
         def run():
             try:self.server.run()
             except BaseException as exc:self.error=exc

@@ -18,6 +18,7 @@ class Preferences(BaseModel):
     closing_enabled:bool=False
     weekly_enabled:bool=False
     automatic_ai:bool=False
+    task_failure_email_enabled:bool=False
     morning_time:str="08:00"
     closing_time:str="16:00"
     weekly_time:str="20:00"

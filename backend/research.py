@@ -6,10 +6,12 @@ import html
 import json
 import os
 import uuid
+from datetime import datetime
 
-from . import ai, analytics, collectors, db, instruments
+from . import ai, analytics, backtest, collectors, db, instruments
 from .budget import budget_check
-from .config import DATA, VERSION, STRATEGY_VERSION, now, timestamp
+from .config import DATA, TZ, VERSION, STRATEGY_VERSION, now, timestamp
+from .report_facts import METAL_NAMES, attach_metals, closing_followup, rank_candidates
 
 
 # 汇总行情、风险、预算和技术指标，筛选最多三只合格模拟候选。
@@ -17,10 +19,12 @@ def build_facts(mode="standard") -> dict:
     cfg = db.settings()
     context = collectors.calendar_context()
     candidates, excluded, sources = [], [], []
+    histories, latest_bars = {}, {}
     for row in db.query("SELECT id FROM instruments WHERE watched=1 AND market IN ('SH','SZ') AND asset_class IN ('stock','etf') ORDER BY id"):
         item = instruments.get(row["id"])
         bars = collectors.bars_for(item["id"])
         last = bars[-1] if bars else None
+        latest_bars[item["id"]] = last
         reasons = instruments.risk_reasons(item) + collectors.fresh_reasons(last,context)
         stats = analytics.indicators(bars)
         reasons += stats["missing"]
@@ -43,21 +47,20 @@ def build_facts(mode="standard") -> dict:
         if reasons:
             excluded.append({"instrument_id":item["id"],"name":item["name"],"reasons":list(dict.fromkeys(reasons)),"price":last["close"] if last else None})
             continue
-        candidate = {"instrument_id":item["id"],"symbol":item["symbol"],"name":item["name"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"],"source_ids":[source_id],"quantity":estimate["max_quantity"],"budget":estimate,"score":points,"indicators":stats["latest"],"status":"verified","rules":item["rules"],"evidence":item["evidence"],"verified_at":item["verified_at"],"rationale":"趋势、成交量与预算规则同时通过；评分仅表示规则匹配程度。","counterargument":"历史技术形态不代表未来表现，费用和跳空会改变可执行性。","invalidation":"风险核验过期、出现风险公告、行情过期或成交总成本超过预算时失效。"}
+        candidate = {"instrument_id":item["id"],"symbol":item["symbol"],"name":item["name"],"asset_class":item["asset_class"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"],"source_ids":[source_id],"quantity":estimate["max_quantity"],"budget":estimate,"score":points,"indicators":stats["latest"],"status":"verified","rules":item["rules"],"evidence":item["evidence"],"verified_at":item["verified_at"],"rationale":"趋势、成交量与预算规则同时通过；评分仅表示规则匹配程度。","counterargument":"历史技术形态不代表未来表现，费用和跳空会改变可执行性。","invalidation":"风险核验过期、出现风险公告、行情过期或成交总成本超过预算时失效。"}
         if mode == "full":
             candidate["multi_timeframe"] = {tf:analytics.indicators(collectors.bars_for(item["id"],tf))["latest"] for tf in ("15m","60m")}
             candidate["weekly"] = analytics.indicators(resample_weekly(bars))["latest"]
         candidates.append(candidate)
-    # 分数相同时按证券标识稳定排序，使相同事实输入得到一致候选顺序。
-    candidates.sort(key=lambda c:(-c["score"],c["instrument_id"]))
+        histories[item["id"]] = bars[-21:]
+    financial_rows = db.query("SELECT * FROM research_context WHERE category='financials'")
+    rank_candidates(candidates, histories, collectors.bars_for, financial_rows, sources, context, cfg.fees)
     for c in candidates[3:]:
         excluded.append({"instrument_id":c["instrument_id"],"name":c["name"],"reasons":["本次排名未进入最多3只的研究名额"]})
-    metals=[]
-    for row in db.query("SELECT q.payload_json FROM market_quotes q JOIN instruments i ON q.instrument_id=i.id WHERE i.asset_class IN ('metal','future')"):
-        q=json.loads(row["payload_json"])
-        metals.append(q)
-        sources.append({"id":"s"+str(len(sources)+1),"instrument_id":q["id"],"url":q["source_url"],"source":q["source"],"quote_time":q["quote_time"],"collected_at":q["fetched_at"]})
-    facts={"mode":mode,"report_date":context["date"],"generated_at":timestamp(),"calendar":context,"budget_limit":cfg.budget,"candidate_limit":3,"candidates":candidates[:3],"excluded":excluded,"metals":metals,"sources":sources,"fees":cfg.fees.model_dump(),"strategy_version":STRATEGY_VERSION,"app_version":VERSION,"missing_data":["宏观和基本面资料仅在有归档证据时解读；当前无结构化权威证据，不作推断。","历史名称不等于最新交易状态。"]}
+    facts={"mode":mode,"report_date":context["date"],"generated_at":timestamp(),"calendar":context,"budget_limit":cfg.budget,"candidate_limit":3,"candidates":candidates[:3],"excluded":excluded,"sources":sources,"fees":cfg.fees.model_dump(),"strategy_version":STRATEGY_VERSION,"app_version":VERSION,"missing_data":["宏观和基本面资料仅在有归档证据时解读。","历史名称不等于最新交易状态。"]}
+    placeholders = ",".join("?" for _ in METAL_NAMES)
+    quotes = [json.loads(row["payload_json"]) for row in db.query(f"SELECT payload_json FROM market_quotes WHERE instrument_id IN ({placeholders})", tuple(METAL_NAMES))]
+    attach_metals(facts, quotes, now())
     auxiliary=[]
     for row in db.query("SELECT id,name,market,asset_class FROM instruments WHERE watched=1 AND (asset_class='index' OR market IN ('US','HK','FUND'))"):
         bars=collectors.bars_for(row["id"],limit=1)
@@ -72,35 +75,61 @@ def build_facts(mode="standard") -> dict:
     facts["auxiliary_markets"]=auxiliary
     if not context["calendar_verified"]:
         facts["missing_data"].append("交易日历未覆盖报告日期")
-    if len(metals)<4:
-        facts["missing_data"].append("部分黄金白银行情不可用")
+    if mode=="closing":
+        morning = db.one("SELECT id,generated_at,payload_json FROM reports WHERE mode='standard' AND report_date=? ORDER BY generated_at LIMIT 1", (context["date"],))
+        signals = db.query("""SELECT r.id price_rule_id,r.instrument_id,e.result,e.reason,o.status order_status
+            FROM price_rule_events e JOIN price_rules r ON r.id=e.price_rule_id
+            LEFT JOIN orders o ON o.id=e.order_id WHERE e.bar_date=? ORDER BY r.instrument_id,r.id""", (context["date"],))
+        facts["closing_followup"] = closing_followup(facts, morning, latest_bars, collectors.bars_for, signals)
     if mode=="full":
-        context=[]
-        for row in db.query("SELECT * FROM research_context ORDER BY category,instrument_id"):
-            item={**row,"data":json.loads(row.pop("payload_json"))}
-            item.pop("payload_json",None)
-            item["stale"]=(now().date().isoformat()>row["fetched_at"][:10])
-            item["verification"]="第三方来源，未作官方财务核验"
-            context.append(item)
-            sources.append({"id":"s"+str(len(sources)+1),"instrument_id":row["instrument_id"] or row["id"],"url":row["source_url"],"source":row["source"],"quote_time":row["as_of"],"collected_at":row["fetched_at"]})
-        facts["deep_context"]=context
-        if context:
-            facts["missing_data"][0]="基本资料与经济指标按来源快照引用；未核对的财报、行业事件和宏观因果关系仍标记未知。"
-        facts["announcements"]=[{k:r[k] for k in ("instrument_id","title","source_url","verified_at","severity")} for r in db.query("SELECT * FROM risk_events WHERE event_type='announcement' ORDER BY verified_at DESC LIMIT 40")]
-        for r in facts["announcements"]:
-            sources.append({"id":"s"+str(len(sources)+1),"instrument_id":r["instrument_id"],"url":r["source_url"],"source":"巨潮资讯公告归档","quote_time":r["verified_at"],"collected_at":r["verified_at"]})
-        facts["backtests"]=[{"id":r["id"],"created_at":r["created_at"],"result":json.loads(r["result_json"])["summary"]} for r in db.query("SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT 5")]
+        facts["backtests"]=[backtest.report_summary(r) for r in db.query("SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT 5")]
+        attach_full_evidence(facts,db.query("SELECT * FROM research_context"),db.query("SELECT * FROM risk_events WHERE event_type='announcement' ORDER BY verified_at DESC,id DESC LIMIT 40"))
         facts["simulation"]={"accounts":db.query("SELECT id,name,initial_cash,cash FROM accounts"),"recent_fills":db.query("SELECT instrument_id,side,quantity,fill_price,fees,filled_at FROM orders WHERE status='filled' ORDER BY filled_at DESC LIMIT 30")}
-        if not facts["backtests"]:
-            facts["missing_data"].append("未运行历史回测，策略表现未验证")
     from .idea_flow import attach_local
     attach_local(facts)
     return facts
 
 
+def attach_full_evidence(facts,context_rows,announcement_rows):
+    from .context import BLS_CPI_URL,model_data
+    focused={c["instrument_id"] for c in facts["candidates"]+facts.get("observations",[])}
+    sources=facts["sources"]
+    context=[]
+    for row in sorted(context_rows,key=lambda r:(r["instrument_id"] is not None,r["instrument_id"] not in focused,r["instrument_id"] or "",r["category"],r["id"])):
+        data=model_data(row["category"],json.loads(row["payload_json"]))
+        if not any(data):
+            continue
+        sid="s"+str(len(sources)+1)
+        verification="官方月度统计，未经季节调整" if row["source_url"]==BLS_CPI_URL else "第三方资料，需结合原始来源核对"
+        context.append({**{k:row[k] for k in ("id","category","instrument_id","source","source_url","as_of","fetched_at")},"data":data,"source_ids":[sid],"verification":verification})
+        sources.append({"id":sid,"instrument_id":row["instrument_id"] or row["id"],"url":row["source_url"],"source":row["source"],"quote_time":row["as_of"],"collected_at":row["fetched_at"]})
+    facts["deep_context"]=context
+    announced=[]
+    for row in announcement_rows:
+        if not instruments.official_url(row["source_url"]):
+            continue
+        payload=json.loads(row.get("payload_json") or "{}")
+        published=payload.get("公告时间") or payload.get("公告日期")
+        try:
+            published=datetime.fromisoformat(published)
+            published=(published if published.tzinfo else published.replace(tzinfo=TZ)).isoformat()
+        except (ValueError,TypeError):
+            published=None
+        sid="s"+str(len(sources)+1)
+        announced.append({**{k:row[k] for k in ("instrument_id","title","source_url","verified_at","severity")},"published_at":published,"source_ids":[sid]})
+        sources.append({"id":sid,"instrument_id":row["instrument_id"],"url":row["source_url"],"source":"官方公告归档","quote_time":published,"collected_at":row["verified_at"]})
+    facts["announcements"]=announced
+    categories={r["category"] for r in context}
+    for category,description in (("macro","宏观指标"),("fundamentals","行业和证券概况"),("financials","财务摘要")):
+        if category not in categories:facts["missing_data"].append(f"缺少已归档的{description}。")
+    if not announced:facts["missing_data"].append("缺少可引用的官方公告归档。")
+    if not facts["backtests"]:facts["missing_data"].append("未运行历史回测，策略表现未验证。")
+    if not any(any(c.get("multi_timeframe",{}).values()) for c in facts["candidates"]+facts.get("observations",[])):
+        facts["missing_data"].append("缺少可用的分钟线指标。")
+
+
 # 按交易周聚合日线的开高低收与成交量，供研究图表使用。
 def resample_weekly(bars):
-    from datetime import datetime
     groups={}
     for b in bars:
         key=datetime.fromisoformat(b["ts"]).isocalendar()[:2]
@@ -130,11 +159,72 @@ def validate_facts(facts):
 # 将结构化事实和解释渲染为包含来源及数据缺口的中文报告。
 def markdown_report(facts):
     name={"standard":"标准版早报","full":"完整版深度复盘","closing":"收盘跟踪"}[facts["mode"]]
-    lines=[f"# StockAI {name}",f"研究日期：{facts['report_date']} · 生成时间：{facts['generated_at']} · Asia/Shanghai",f"模型：{facts['model']} · 策略：{facts['strategy_version']} · 数据快照：{facts['snapshot_id']}","",f"## {facts['summary']}",facts["market_context"],"", "## 模拟研究候选"]
+    lines=[f"# StockAI {name}",f"研究日期：{facts['report_date']} · 生成时间：{facts['generated_at']} · Asia/Shanghai",f"模型：{facts['model']} · 策略：{facts['strategy_version']} · 数据快照：{facts['snapshot_id']}","",f"## {facts['summary']}",facts["market_context"]]
+    if facts.get("scheduled_for") and facts["scheduled_for"]!=facts["report_date"]:
+        lines.insert(2,f"原定周度复盘日期：{facts['scheduled_for']} · 恢复后补跑")
+    lines += ["", "## 黄金白银行情"]
+    metal_quotes = {q["id"]: q for q in facts.get("metals", [])}
+    for ident, name in METAL_NAMES.items():
+        if ident not in metal_quotes:
+            lines.append(f"- {name}：未取得带来源和报价时间的行情")
+            continue
+        q = metal_quotes[ident]
+        quality = "缓存报价" if q.get("stale") else "来源报价"
+        lines.append(f"- {name} · {q['price']} {q['unit']} ({q['currency']}) · {quality} · 报价 {q['quote_time']} · 采集 {q['fetched_at']} · {q.get('delay_type') or '延迟未声明'} · {q['source_url']}")
+    ratio = facts.get("gold_silver_ratio")
+    if ratio:
+        cached = "（缓存报价）" if ratio["stale"] else ""
+        lines.append(f"金银比 {ratio['value']:.2f}{cached} · 伦敦现货同口径 · 金 {ratio['gold_quote_time']} · 银 {ratio['silver_quote_time']}")
+    else:
+        lines.append("金银比暂无可比报价，需同币种、同单位且相隔不超过 1 分钟的伦敦金银现货。")
+    followup = facts.get("closing_followup")
+    if followup:
+        lines += ["", "## 早报与收盘对照", followup["message"]]
+        if morning := followup.get("morning_report"):
+            lines.append(f"早报 {morning['report_id']} · 生成 {morning['generated_at']} · 候选 {followup['morning_candidate_count']} 只")
+        for row in followup["rows"]:
+            lines.append(f"### {row['name']} {row['symbol']} · {row['status_label']}")
+            for label, q in (("早报参考价", row["morning"]), ("当日收盘价", row["closing"])):
+                if q:
+                    lines.append(f"- {label} {q['price']} 元 · {q['quote_time']} · {q['source_url']}")
+                elif label == "当日收盘价":
+                    lines.append("- 未取得可核验的当日收盘价")
+            if row["change_pct"] is not None:
+                lines.append(f"- 较早报参考价 {row['change_pct']:+.2f}%")
+            lines.extend("- " + reason for reason in row["reasons"])
+        lines += ["", "### 当日模拟信号"]
+        for e in followup["signals"]:
+            status = (" · 委托 " + e["order_status"]) if e["order_status"] else ""
+            lines.append(f"- {e['instrument_id']} · {e['result_label']}{status} · {e['reason']}")
+        if not followup["signals"]:
+            lines.append("未留有当日模拟信号记录。")
+    lines += ["", "## 模拟研究候选"]
     if not facts["candidates"]:
         lines.append("今日无合格模拟候选。")
     for c in facts["candidates"]:
         lines += [f"### {c['name']} {c['symbol']}",f"收盘价 {c['price']} 元；报价 {c['quote_time']}；模拟数量 {c['quantity']}；预计费用 {c['budget']['fees']['total']} 元；总成本 {c['budget']['total']} 元；评分 {c['score']}（非概率）。",f"研究理由：{c['rationale']}",f"反方观点：{c['counterargument']}",f"失效条件：{c['invalidation']}",f"来源：{c['source_url']}"]
+        if score := c.get("score_details"):
+            points = score["components"]
+            lines.append(f"- 排序分 {score['version']} · 技术与成交量 {points['technical']}/65 · 相对强弱 {points['relative_strength']}/10 · 公告与基本面 {points['risk']}/10 · 成本 {points['cost']}/10 · 风险收益情景 {points['reward_risk']}/5")
+            relative = score["relative_strength"]
+            lines.append(f"- 相对 {relative['instrument_id']} 20 期超额 {relative['excess_pct']:+.2f} 个百分点 · {relative['start_date']} 至 {relative['end_date']}" if relative else "- 同期基准行情缺失，未计算相对强弱。")
+            financials = score["risk"]["financials"]
+            if financials:
+                lines.append(f"- 财务报告期 {financials['period']} · 归档净利润 {'为负' if financials['profit'] < 0 else '非负'} · [{financials['source_id']}] {financials['source_url']}")
+            elif score["risk"]["financial_status"] == "unavailable":
+                lines.append("- 缺少可用财务摘要，基本面部分未加分。")
+            scenario = score["scenario"]
+            fee_basis = "假设费率" if score["fee_assumption"] else "已核对费率"
+            lines.append(f"- 估算往返成本 {score['round_trip_cost_pct']:.4f}%（{fee_basis}，含滑点） · 20 日区间情景 {scenario['support']}–{scenario['resistance']} 元 · 含费上行 {scenario['net_upside_pct']:+.2f}% / 下行 {scenario['net_downside_pct']:.2f}%")
+    if facts["mode"]=="full":
+        lines += ["", "## 深度研究证据"]
+        for item in facts.get("deep_context",[]):
+            lines.append(f"- {item['source']} · {item.get('instrument_id') or '宏观'} · 资料期 {item['as_of']} · {item['source_url']}")
+        for backtest in facts.get("backtests",[]):
+            metrics=backtest.get("summary",backtest.get("result",{}))
+            if metrics.get("return_pct") is not None:
+                proof="历史证据完整" if backtest.get("validated") else "未验证实验"
+                lines.append(f"- 回测 {backtest.get('instrument_id') or '归档证券'} · {proof} · 收益 {metrics['return_pct']}% · 最大回撤 {metrics.get('max_drawdown_pct','—')}%")
     lines += ["", "## 风险与数据缺口", *["- "+s for s in facts["risk_notes"]+facts["missing_data"]], "", "## 未入选记录"]
     for c in facts["excluded"]:
         lines.append(f"- {c['name']} {c['instrument_id']}：{'；'.join(c['reasons'])}")
@@ -172,11 +262,11 @@ def generate(logical_key, mode="standard", job_id=None, log=lambda m:None):
     facts["snapshot_id"]=digest
     log(f"全池校验完成，合格候选 {len(facts['candidates'])} 只")
     text,error=ai.explain(facts,mode)
-    if text:
+    if text and text["candidates"]:
         by_id={c["instrument_id"]:c for c in text["candidates"]}
         for c in facts["candidates"]:
             c.update({k:by_id[c["instrument_id"]][k] for k in ("rationale","counterargument","invalidation")})
-    facts["summary"] = "今日无合格模拟候选" if not facts["candidates"] else text["summary"] if text else f"{len(facts['candidates'])}只证券通过规则筛选"
+    facts["summary"] = "今日无合格模拟候选" if not facts["candidates"] else f"{len(facts['candidates'])}只证券通过规则筛选"
     facts["market_context"] = text["market_context"] if text else "使用已持久保存、带来源和报价时间的事实。日线为最近已完成交易日收盘价；未知风险和缺失数据按不合格处理。"
     facts["risk_notes"] = (text["risk_notes"] if text else []) + [db.settings().fees.note,"主观评分不等于上涨概率；实际模拟成交前需要重新核验。"]
     if text:
