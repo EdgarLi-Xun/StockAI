@@ -115,7 +115,7 @@ const failureMailStatus: Record<string, string> = {
   failed: '投递失败', uncertain: '投递结果不确定', cancelled: '已取消', expired: '已过期',
 }
 const statuses: Record<string, string> = { unknown: '未核验', active: '正常', suspended: '停牌', delisted: '退市', queued: '排队中', running: '运行中', success: '已完成', failed: '失败', partial: '部分完成', interrupted: '已中断', missed: '错过执行', pending: '待成交', filled: '已成交', cancelled: '已撤销', rejected: '已拒绝', unavailable: '不可用' }
-const modeNames: Record<string, string> = { standard: '标准版早报', full: '完整版复盘', closing: '收盘跟踪', sync: '全池数据同步', match: '模拟撮合', metals: '金银行情', backup: '数据备份', supplement:'报告补充 AI',profile_test:'模型连接测试',assistant:'AI 助手对话',experiment:'历史实验',names:'证券名称补全',instrument:'证券行情同步',announcements:'公告同步',context:'背景资料同步' }
+const modeNames: Record<string, string> = { standard: '标准版早报', full: '完整版复盘', closing: '收盘跟踪', sync: '全池数据同步', match: '模拟撮合', metals: '金银行情', backup: '数据备份', supplement:'报告补充 AI',profile_test:'模型连接测试',assistant:'AI 助手对话',experiment:'历史实验',names:'证券名称补全',instrument:'证券行情同步',announcements:'公告同步',context:'背景资料同步',trading_status:'停复牌状态核验' }
 // 将有效数值格式化为中文千分位，缺失值统一显示占位符。
 const fmt = (v: any, digits = 2) => v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 // 统一以北京时间显示带时区时间，无法解析时保留原始文本。
@@ -547,6 +547,30 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                   </p>
                   <p v-else class="report-reader-empty">金银比暂无可比报价，需同币种、同单位且相隔不超过 1 分钟的伦敦金银现货。</p>
                 </section>
+                <section v-if="selectedReport.metal_study" class="report-reader-section">
+                  <h3>金银波动率与矿业股联动</h3>
+                  <p>{{ selectedReport.metal_study.method }} 每项至少需要 {{ selectedReport.metal_study.minimum_samples }} 个有效样本。</p>
+                  <div v-for="metal in selectedReport.metal_study.series" :key="metal.instrument_id" class="prose-panel">
+                    <h4>上金所 {{ metal.contract }} · {{ metal.unit }}</h4>
+                    <p>年化波动率 {{ metal.annualized_volatility_pct === null ? '未计算' : fmt(metal.annualized_volatility_pct, 4) + '%' }} · {{ metal.sample_count }} 个样本
+                      <span v-if="metal.last_session"> · {{ metal.first_session }} 至 {{ metal.last_session }}</span>
+                    </p>
+                    <div class="table-scroll" role="region" :aria-label="metal.contract + ' 联动样本'" tabindex="0">
+                      <table class="watch-table">
+                        <thead><tr><th>证券</th><th>同期相关</th><th>金银领先一交易日</th></tr></thead>
+                        <tbody>
+                          <tr v-for="link in metal.linked" :key="link.instrument_id">
+                            <td>{{ link.name }}<small>{{ link.instrument_id }}</small></td>
+                            <td v-for="field in ['same_session', 'next_session']" :key="field">
+                              {{ link[field].coefficient === null ? '未计算' : fmt(link[field].coefficient, 4) }}
+                              <small>{{ link[field].sample_count }} 对<span v-if="link[field].coefficient !== null"> · {{ link[field].first_session }} 至 {{ link[field].last_session }}</span></small>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
                 <section v-if="selectedReport.closing_followup" class="report-reader-section">
                   <h3>早报与收盘对照</h3>
                   <p>{{ selectedReport.closing_followup.message }}</p>
@@ -592,12 +616,16 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                 </section>
                 <section v-if="selectedReport.mode === 'full'" class="report-reader-section">
                   <h3>深度研究证据</h3>
-                  <div v-for="row in selectedReport.deep_context || []" :key="row.id" class="report-reader-source"><a :href="row.source_url" target="_blank" rel="noopener">{{ row.instrument_id || '宏观' }} · {{ row.source }}</a><small>资料期 {{ row.as_of }} · 采集 {{ dt(row.fetched_at) }}</small></div>
+                  <div v-for="row in selectedReport.deep_context || []" :key="row.id" class="report-reader-source">
+                    <a :href="row.source_url" target="_blank" rel="noopener">{{ row.instrument_id || '宏观' }} · {{ row.source }}</a>
+                    <small v-if="row.category === 'macro' && row.data?.length">{{ row.data.at(-1)['指标'] }} · {{ row.data.at(-1)['今值'] }} {{ row.data.at(-1)['单位'] || '' }}</small>
+                    <small>资料期 {{ row.as_of }} · 采集 {{ dt(row.fetched_at) }}</small>
+                  </div>
                   <div v-for="item in [...selectedReport.candidates, ...(selectedReport.observations || [])]" :key="item.instrument_id" class="report-reader-source"><strong>{{ item.name }} · 多周期</strong><small>周线 {{ dt(item.weekly?.ts) }} · 15 分钟 {{ dt(item.multi_timeframe?.['15m']?.ts) }} · 60 分钟 {{ dt(item.multi_timeframe?.['60m']?.ts) }}</small></div>
                   <div v-for="test in selectedReport.backtests || []" :key="test.id" class="report-reader-source"><strong>回测 {{ test.instrument_id || '归档证券' }} · {{ test.validated ? '历史证据完整' : '未验证实验' }}</strong><small>样本外收益 {{ pct(test.out_of_sample?.metrics?.return_pct) }} · 最大回撤 {{ pct((test.summary || test.result)?.max_drawdown_pct) }}</small></div>
                 </section>
                 <section class="report-reader-section"><h3>风险与缺失数据</h3><ul v-if="selectedReport.risk_notes.length || selectedReport.missing_data.length"><li v-for="(r, idx) in [...selectedReport.risk_notes, ...selectedReport.missing_data]" :key="idx">{{ r }}</li></ul><p v-else class="report-reader-empty">报告中未列出风险或缺失数据。</p></section>
-                <section class="report-reader-section"><h3>未入选记录 <span>{{ selectedReport.excluded.length }} 只</span></h3><div v-if="selectedReport.excluded.length" class="table-scroll"><table class="watch-table exclusion-table"><thead><tr><th>证券</th><th>排除原因</th></tr></thead><tbody><tr v-for="r in selectedReport.excluded" :key="r.instrument_id"><td><button class="security-name" @click="openDetail(r.instrument_id)">{{ r.name }}</button><small>{{ r.instrument_id }}</small></td><td>{{ r.reasons.join('；') }}</td></tr></tbody></table></div><p v-else class="report-reader-empty">本报告没有未入选记录。</p></section>
+                <section class="report-reader-section"><h3>未入选记录 <span>{{ selectedReport.excluded.length }} 只</span></h3><div v-if="selectedReport.excluded.length" class="table-scroll"><table class="watch-table exclusion-table"><thead><tr><th>证券</th><th>排除原因</th></tr></thead><tbody><tr v-for="r in selectedReport.excluded" :key="r.instrument_id"><td><button class="security-name" @click="openDetail(r.instrument_id)">{{ r.name }}</button><small>{{ r.instrument_id }}</small></td><td>{{ r.reasons.join('；') }}<small v-if="r.trading_status_evidence"><a :href="r.trading_status_evidence.url" target="_blank" rel="noopener">官方停复牌证据</a> · {{ dt(r.trading_status_evidence.effective_at) }}</small></td></tr></tbody></table></div><p v-else class="report-reader-empty">本报告没有未入选记录。</p></section>
                 <section class="report-reader-section"><h3>原始证据 <span>{{ selectedReport.sources.length }} 项</span></h3><div v-for="s in selectedReport.sources" :key="s.id" class="report-reader-source"><a :href="s.url" target="_blank" rel="noopener">[{{ s.id }}] {{ s.instrument_id }} · {{ s.source }}</a><small>报价 {{ dt(s.quote_time) }} · 采集 {{ dt(s.collected_at) }}</small></div><p v-if="!selectedReport.sources.length" class="report-reader-empty">本报告没有附加原始证据。</p></section>
               </div>
               <details class="report-generation-info">
@@ -684,7 +712,9 @@ onBeforeUnmount(() => { clearInterval(timer); clearTimeout(toastTimer); window.r
                       <td>{{ j.started_at ? dt(j.started_at) : j.status === 'missed' ? '未执行' : '等待执行' }}<small>{{ j.finished_at ? dt(j.finished_at) : '尚未结束' }}</small></td>
                       <td>{{ j.scope === 'shared' ? '不调用模型' : j.attempts ?? '—' }}</td>
                       <td class="error-cell">
-                        {{ j.error || taskResult(j)?.message || (j.status === 'success' ? '执行完成' : j.status === 'running' ? '正在处理' : j.status === 'queued' ? '等待执行' : j.retry_reason || '查看任务详情') }}
+                        {{ j.next_attempt_at ? '等待自动重试' : j.error || taskResult(j)?.message || (j.status === 'success' ? '执行完成' : j.status === 'running' ? '正在处理' : j.status === 'queued' ? '等待执行' : j.retry_reason || '查看任务详情') }}
+                        <small v-if="j.next_attempt_at">下次执行 {{ dt(j.next_attempt_at) }}</small>
+                        <small v-if="j.automatic && j.run_attempts > 1">已执行 {{ j.run_attempts }} 次</small>
                         <small v-if="j.retry_reason && ['failed', 'cancelled', 'missed'].includes(j.status)">{{ j.retry_reason }}</small>
                         <small v-if="j.failure_mail_state">失败告警邮件{{ failureMailStatus[j.failure_mail_state] || j.failure_mail_state }}</small>
                       </td>

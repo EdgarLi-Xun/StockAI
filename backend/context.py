@@ -2,7 +2,7 @@
 """Traceable deep-research inputs. Missing context is never filled from model memory."""
 from concurrent.futures import ThreadPoolExecutor
 
-from . import collectors, db
+from . import collectors, db, instruments
 from .collector_worker import BLS_CPI_URL
 from .config import now, timestamp
 
@@ -27,6 +27,8 @@ def model_data(category, rows):
 # 刷新可追溯的市场背景，并分别记录采集结果与失败原因。
 def sync(log=lambda m:None, *, instrument_ids=None):
     tasks=[("macro_cpi_bls",None),("macro_cpi",None),("macro_pmi",None)]
+    tasks.extend(("sge_history", ident) for ident in collectors.SGE_HISTORY)
+    tasks.extend(("metal_equity", ident) for ident in instruments.METAL_LINKED_SECURITIES)
     if instrument_ids is None:
         instrument_ids=[r["id"] for r in db.query("SELECT id FROM instruments WHERE watched=1 AND asset_class='stock' AND market IN ('SH','SZ')")]
     tasks.extend((action,ident) for ident in instrument_ids for action in ("fundamentals","financials"))
@@ -34,6 +36,13 @@ def sync(log=lambda m:None, *, instrument_ids=None):
     def collect(task):
         action,ident=task
         try:
+            if action=="sge_history":
+                return collectors.sync_sge_history(ident)
+            if action=="metal_equity":
+                known = collectors.bars_for(ident, limit=1)
+                if known and not collectors.fresh_reasons(known[-1]):
+                    return {"id": ident, "status": "success", "last_quote_time": known[-1]["ts"]}
+                return collectors.sync_instrument(instruments.get(ident))
             rows=collectors.call(action,{"symbol":ident.split(":")[1]} if ident else {},timeout=25)
             asof=timestamp()
             if action=="fundamentals":

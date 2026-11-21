@@ -280,6 +280,21 @@ def project_input(facts,fixed,*,bounded=False):
         result["announcements"]=[select(r,("instrument_id","title","source_url","published_at","verified_at","severity","source_ids")) for r in facts.get("announcements",[])[:12]]
         result["backtests"]=[select(r,("instrument_id","strategy_version","created_at","validated","data_range","summary","in_sample","out_of_sample","cost_sensitivity")) for r in facts.get("backtests",[])[:5]]
         cited+=result["observations"]+result["deep_context"]+result["announcements"]
+        if study := facts.get("metal_study"):
+            result["metal_study"] = select(study, ("as_of", "window_sessions", "minimum_samples", "annual_sessions", "method"))
+            result["metal_study"]["series"] = []
+            for row in study.get("series", [])[:2]:
+                series = select(row, ("instrument_id", "contract", "unit", "source_ids", "annualized_volatility_pct", "sample_count", "first_session", "last_session"))
+                series["linked"] = []
+                for link in row.get("linked", [])[:7]:
+                    if not any(link.get(field, {}).get("sample_count") for field in ("same_session", "next_session")):
+                        continue
+                    item = select(link, ("instrument_id", "name", "source_ids"))
+                    for field in ("same_session", "next_session"):
+                        item[field] = select(link.get(field, {}), ("coefficient", "sample_count", "first_session", "last_session"))
+                    series["linked"].append(item)
+                result["metal_study"]["series"].append(series)
+                cited.extend([series, *series["linked"]])
     required={sid for row in cited for sid in row.get("source_ids",())}
     result["sources"]=[select(r,("id","instrument_id","source","url","quote_time","collected_at")) for idx,r in enumerate(facts.get("sources",[])) if not bounded or idx<32 or r["id"] in required]
     sim=facts.get("simulation",{})

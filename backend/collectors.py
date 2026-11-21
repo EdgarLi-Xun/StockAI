@@ -7,12 +7,20 @@ import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from urllib.parse import urlsplit
 
-from . import db, instruments
+from . import db, instruments, trading_status
 from .config import ROOT, TZ, now, timestamp
 from .processes import module_command,hidden_process
+
+SGE_HISTORY_SOURCE = "上海黄金交易所 · 日行情"
+SGE_HISTORY_URL = "https://www.sge.com.cn/sjzx/quotation_daily_new"
+SGE_HISTORY_CLOSE = time(15, 30)
+SGE_HISTORY = {
+    "SGE:AU99.99": ("Au99.99", "元/克"),
+    "SGE:AGTD": ("Ag(T+D)", "元/千克"),
+}
 
 
 # 通过有超时限制的子进程执行外部采集，失败时不伪造数据。
@@ -24,7 +32,7 @@ def call(action: str, args=None, timeout=25) -> list[dict]:
         raise ValueError(f"{action} 未返回标准数据（采集进程退出 {result.returncode}）") from None
     if isinstance(value, dict) and "error" in value:
         raise ValueError(value["error"])
-    if result.returncode or not isinstance(value, list) or (not value and action!="announcements"):
+    if result.returncode or not isinstance(value, list) or (not value and action not in {"announcements", "sse_suspensions"}):
         raise ValueError(f"{action} 返回空数据或运行失败")
     return value
 
@@ -181,7 +189,11 @@ def _sync_reference_data(actions,log):
     result = {"sources": [], "errors": []}
     for action in actions:
         try:
-            raw = call(action, timeout=25)
+            if action == "sse_suspensions":
+                end = now().date()
+                raw = call(action, {"start": (end-timedelta(days=30)).strftime("%Y%m%d"), "end": end.strftime("%Y%m%d")}, timeout=25)
+            else:
+                raw = call(action, timeout=25)
             if action == "calendar":
                 days = sorted({str(r["trade_date"])[:10] for r in raw})
                 for d in days:
@@ -190,6 +202,8 @@ def _sync_reference_data(actions,log):
                     c.executemany("INSERT INTO calendar(day,source,fetched_at) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET fetched_at=excluded.fetched_at", [(d,"新浪财经交易日历",timestamp()) for d in days])
             elif action in {"delist_sh","delist_sz"}:
                 _store_delisting(action,raw)
+            elif action=="sse_suspensions":
+                _store_sse_status(raw)
             elif action=="etf_names":
                 with db.connection() as c:
                     for row in raw:
@@ -262,6 +276,8 @@ def _store_listing(c,market,symbol,name,url,row):
         delisting=evidence.get("exchange_delisting")
         if delisting and listed_on>delisting["effective_date"]:
             evidence.pop("exchange_delisting")
+            evidence.pop("trading_status_events", None)
+            evidence.pop("manual_trading_status_at", None)
             status,verified,risk="unknown",None,instruments.name_risk(name) or "unknown"
     c.execute("UPDATE instruments SET name=?,source_url=?,status=?,risk_flag=?,verified_at=?,evidence_json=? WHERE id=?",
               (name,url,status,risk,verified,db.dumps(evidence),item["id"]))
@@ -300,7 +316,10 @@ def sync_all(log=lambda m: None) -> dict:
             result["instruments"].append(item)
             log(f"{item['id']} {item['status']}"+("："+item["message"] if item.get("message") else ""))
     result["metals"] = sync_metals(log)
-    result["disclosure_errors"] = sync_announcements(items,log)
+    trading = sync_trading_status(items, log)
+    result["sources"].extend(trading["sources"])
+    result["errors"].extend(trading["errors"])
+    result["disclosure_errors"] = trading["disclosure_errors"]
     succeeded = sum(x["status"] == "success" for x in result["instruments"]) + sum(x.get("status") == "success" for x in result["metals"])
     complete = all(x["status"] != "unavailable" for x in result["instruments"] + result["metals"])
     result["status"] = "success" if succeeded and not result["errors"] and not result["disclosure_errors"] and complete else "partial" if succeeded else "unavailable"
@@ -336,22 +355,57 @@ def sync_metals(log=lambda m: None):
     return results
 
 
+def sge_last_closed_day(at):
+    return (at.date() if at.time() >= SGE_HISTORY_CLOSE else at.date() - timedelta(days=1)).isoformat()
+
+
+def _fetch_sge_history(ident):
+    symbol, unit = SGE_HISTORY[ident]
+    cutoff = sge_last_closed_day(now())
+    series = {}
+    for row in call("sge", {"symbol": symbol}, timeout=20):
+        try:
+            day = datetime.fromisoformat(row["date"]).date().isoformat()
+            close = float(row["close"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if day > cutoff or not math.isfinite(close) or close <= 0:
+            continue
+        if day in series and series[day] != close:
+            raise ValueError("上金所同一交易日返回了不同收盘价")
+        series[day] = close
+    if not series:
+        raise ValueError("无有效的上金所已发布日收盘价")
+
+    key = f"metal_closes:{ident}"
+    fetched_at = timestamp()
+    with db.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+        old = c.execute("SELECT payload_json FROM research_context WHERE id=?", (key,)).fetchone()
+        cached = {row["date"]: row for row in json.loads(old["payload_json"])} if old else {}
+        cached.update({day: {"date": day, "close": close, "fetched_at": fetched_at} for day, close in series.items()})
+        days = sorted(cached)[-90:]
+        history = [cached[day] for day in days]
+        c.execute("""INSERT INTO research_context VALUES(?, 'metal_closes', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET payload_json=excluded.payload_json,as_of=excluded.as_of,
+            fetched_at=excluded.fetched_at""",
+            (key, ident, db.dumps(history), SGE_HISTORY_SOURCE, SGE_HISTORY_URL, days[-1], fetched_at))
+
+    day = max(series)
+    return dict(id=ident, price=series[day], quote_time=day, fetched_at=fetched_at,
+                source=SGE_HISTORY_SOURCE, source_url=SGE_HISTORY_URL, unit=unit,
+                kind="sge_daily", delay_type="日收盘，仅提供交易日期")
+
+
+def sync_sge_history(ident):
+    try:
+        quote = _fetch_sge_history(ident)
+        return {"id": ident, "status": "success", "last_quote_time": quote["quote_time"]}
+    except (ValueError, KeyError, TypeError, IndexError, OSError, subprocess.TimeoutExpired) as exc:
+        return {"id": ident, "status": "unavailable", "error": str(exc)[:300]}
+
+
 def _sync_gold_references(log):
-    def sge_close(ident):
-        rows = call("sge", {"symbol": "Au99.99"}, timeout=20)
-        today = now().date().isoformat()
-        recent = sorted((r for r in rows if (r.get("date") or "")[:10] <= today),
-                        key=lambda r: r.get("date") or "", reverse=True)
-        if not recent:
-            raise ValueError("无已发布的上金所日行情")
-        row = recent[0]
-        day = datetime.fromisoformat(row["date"]).date().isoformat()
-        close = float(row["close"])
-        if not math.isfinite(close) or close <= 0:
-            raise ValueError("上金所收盘价无效")
-        return dict(id=ident, price=close, quote_time=day, fetched_at=timestamp(),
-                    source="上海黄金交易所 · 日行情", source_url="https://www.sge.com.cn/sjzx/quotation_daily_new",
-                    unit="元/克", kind="sge_daily", delay_type="日收盘，仅提供交易日期")
 
     def etf_close(ident):
         rows = bars_for(ident, limit=1)
@@ -367,7 +421,7 @@ def _sync_gold_references(log):
                     source=row["source"], source_url=row["source_url"], unit="元/份",
                     kind="etf_close", delay_type="已完成的交易日收盘价")
 
-    for ident, fetch in (("SGE:AU99.99", sge_close), ("SH:518880", etf_close)):
+    for ident, fetch in (("SGE:AU99.99", _fetch_sge_history), ("SH:518880", etf_close)):
         try:
             quote = fetch(ident)
             quote.update(currency="CNY", timezone="Asia/Shanghai", status="success")
@@ -381,6 +435,87 @@ def _sync_gold_references(log):
             yield {"id":ident,"status":"unavailable","error":str(exc)[:300]}
 
 
+def _store_trading_events(c, ident, updates, at, *, disclosure=None):
+    item = c.execute("SELECT status,evidence_json FROM instruments WHERE id=?", (ident,)).fetchone()
+    evidence = json.loads(item["evidence_json"])
+    previous = evidence.get("trading_status_events", [])
+    verified = {}
+    for event in updates:
+        effective = trading_status.parse_local(event.get("effective_at"))
+        expiry = trading_status.parse_local(event.get("expires_at"))
+        url = event.get("url")
+        if not effective or event.get("status") not in {"active", "suspended"} or not instruments.official_status_url(url):
+            continue
+        day = effective.date().isoformat()
+        if day < evidence.get("exchange_listing_date", "") or (expiry and expiry <= effective):
+            continue
+        normalized = {**event, "effective_at": effective.isoformat(timespec="seconds")}
+        verified[(event["notice_key"], normalized["effective_at"], event["status"])] = normalized
+    if verified:
+        replacement = {r["notice_key"] for r in verified.values()}
+        events = [r for r in previous if r["notice_key"] not in replacement]
+        before = {(r["notice_key"], r["effective_at"], r["status"]): r for r in previous}
+        for key, event in verified.items():
+            payload = db.dumps(event)
+            old = before.get(key, {})
+            fetched = old.get("fetched_at") if {k:v for k,v in old.items() if k != "fetched_at"} == event else None
+            events.append({**event, "fetched_at": fetched or timestamp()})
+            c.execute("""INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json)
+                SELECT ?,'trading_status',?,?,?,?,? WHERE NOT EXISTS(
+                    SELECT 1 FROM risk_events WHERE instrument_id=? AND event_type='trading_status' AND payload_json=?)""",
+                (ident, "warning" if event["status"] == "suspended" else "info",
+                 ("停牌 · " if event["status"] == "suspended" else "复牌 · ") + event["title"],
+                 event["url"], fetched or timestamp(), payload, ident, payload))
+        events.sort(key=lambda r: r["effective_at"])
+        evidence["trading_status_events"] = events[-24:]
+    if disclosure is not None:
+        evidence["disclosure_check"] = disclosure
+    status, _ = trading_status.current_status(item["status"], evidence, at)
+    if updates or disclosure is not None or status != item["status"]:
+        c.execute("UPDATE instruments SET status=?,evidence_json=? WHERE id=?", (status, db.dumps(evidence), ident))
+
+
+def _store_sse_status(rows):
+    with db.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+
+        def next_session(day):
+            return c.execute("SELECT MIN(day) FROM calendar WHERE day>?", (day,)).fetchone()[0]
+
+        grouped = {}
+        for row in rows:
+            events = trading_status.sse_events(row, next_session)
+            if events:
+                grouped.setdefault("SH:" + row["productCode"], []).extend(events)
+        at = now()
+        for ident, events in grouped.items():
+            if c.execute("SELECT 1 FROM instruments WHERE id=? AND asset_class IN ('stock','etf')", (ident,)).fetchone():
+                _store_trading_events(c, ident, events, at)
+
+
+def sync_trading_status(items, log=lambda m: None, *, refresh_identity=False):
+    items = [item for item in items if item["market"] in {"SH", "SZ"} and item["asset_class"] in {"stock", "etf"}]
+    actions = []
+    if items and refresh_identity:
+        if not db.one("SELECT day FROM calendar WHERE day>=? LIMIT 1", (now().date().isoformat(),)):
+            actions.append("calendar")
+        markets = {item["market"].lower() for item in items if item["asset_class"] == "stock"}
+        for market in sorted(markets):
+            actions.extend((f"master_{market}", f"delist_{market}"))
+        if any(item["asset_class"] == "etf" for item in items):
+            actions.append("etf_names")
+    if any(r["market"] == "SH" for r in items):
+        actions.append("sse_suspensions")
+    result = _sync_reference_data(actions, log)
+    tracked = [instruments.get(item["id"]) for item in items] if refresh_identity else items
+    result["disclosure_errors"] = sync_announcements(tracked, log)
+    if result["errors"] or result["disclosure_errors"]:
+        result["status"] = "partial" if result["sources"] or len(result["disclosure_errors"]) < len(items) else "unavailable"
+    else:
+        result["status"] = "success"
+    return result
+
+
 # 采集指定证券的公告，并记录来源及抓取时间。
 def announcements(ident: str):
     item = instruments.get(ident)
@@ -388,7 +523,7 @@ def announcements(ident: str):
         raise ValueError("此公告适配器仅支持境内股票和场内 ETF")
     at=now()
     raw = call("announcements", {"symbol": item["symbol"], "asset_class":item["asset_class"],"start": (at-timedelta(days=30)).strftime("%Y%m%d"), "end": at.strftime("%Y%m%d")}, timeout=25)
-    out=[]
+    out=[]; updates=[]; incomplete=0
     with db.connection() as c:
         c.execute("BEGIN IMMEDIATE")
         for r in raw:
@@ -398,29 +533,37 @@ def announcements(ident: str):
                 url = "https://static.cninfo.com.cn" + url
             if url.startswith("http://"):
                 url = "https://" + url[7:]
-            code=r.get("代码") or r.get("证券代码")
+            code=r.get("代码") or r.get("证券代码") or r.get("secCode")
             if not title or not instruments.official_url(url) or code is not None and str(code).zfill(6)!=item["symbol"]:
                 continue
+            status_events = trading_status.notice_events(r, item["symbol"], title, url, at) if instruments.official_status_url(url) else []
+            updates.extend(status_events)
+            incomplete += bool(r.get("status_read_error") and not status_events)
             if c.execute("SELECT 1 FROM risk_events WHERE instrument_id=? AND source_url=? AND event_type='announcement'", (ident,url)).fetchone():
                 continue
-            severity = "warning" if any(k in title for k in ("风险警示", "终止上市", "退市", "停牌", "立案", "处罚","清算")) else "info"
+            business_risk = any(k in title for k in ("风险警示", "终止上市", "退市", "立案", "处罚", "清算"))
+            unresolved_halt = not status_events and any(k in title for k in ("停牌", "停复牌", "暂停交易"))
+            severity = "warning" if business_risk or unresolved_halt or any(event["status"] == "suspended" for event in status_events) else "info"
             c.execute("INSERT INTO risk_events(instrument_id,event_type,severity,title,source_url,verified_at,payload_json) VALUES(?,?,?,?,?,?,?)", (ident,"announcement",severity,title,url,timestamp(),db.dumps(r)))
-            if severity == "warning":
+            if business_risk or unresolved_halt:
                 c.execute("UPDATE instruments SET risk_flag='warning' WHERE id=? AND risk_flag<>'st'", (ident,))
             out.append({"title": title, "source_url": url, "severity": severity})
-        current=c.execute("SELECT evidence_json FROM instruments WHERE id=?",(ident,)).fetchone()
-        evidence=json.loads(current["evidence_json"])
-        evidence["disclosure_check"]={"url":"https://www.cninfo.com.cn/new/disclosure","fetched_at":timestamp()}
-        c.execute("UPDATE instruments SET evidence_json=? WHERE id=?",(db.dumps(evidence),ident))
+        _store_trading_events(c, ident, updates, at, disclosure={
+            "url": trading_status.CNINFO_NOTICE_URL, "fetched_at": timestamp(), "unread_status_notices": incomplete})
     return out
 
 
 def sync_announcements(items,log=lambda m:None):
     def refresh(item):
         try:
-            checked=item.get("evidence",{}).get("disclosure_check",{}).get("fetched_at")
-            if not checked or datetime.fromisoformat(checked)<now()-timedelta(hours=4):
+            disclosure=item.get("evidence",{}).get("disclosure_check",{})
+            checked=disclosure.get("fetched_at")
+            cached_for = timedelta(minutes=15) if disclosure.get("unread_status_notices") else timedelta(hours=4)
+            if not checked or datetime.fromisoformat(checked)<now()-cached_for:
                 announcements(item["id"])
+                disclosure = instruments.get(item["id"])["evidence"]["disclosure_check"]
+            if disclosure.get("unread_status_notices"):
+                return {"instrument_id":item["id"],"error":"有停复牌公告附件暂未读取"}
         except (ValueError,TypeError,RuntimeError,OSError,subprocess.TimeoutExpired) as exc:
             return {"instrument_id":item["id"],"error":str(exc)[:250]}
         return None

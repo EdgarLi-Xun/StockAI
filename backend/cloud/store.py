@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS personal_jobs(
  id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,logical_key TEXT NOT NULL,
  kind TEXT NOT NULL,target_date TEXT NOT NULL,status TEXT NOT NULL,automatic INTEGER NOT NULL DEFAULT 0,
  snapshot_json TEXT NOT NULL,lease_owner TEXT,lease_until TEXT,heartbeat_at TEXT,started_at TEXT,finished_at TEXT,
- error_code TEXT,result_json TEXT,created_at TEXT NOT NULL,UNIQUE(user_id,logical_key));
+ error_code TEXT,result_json TEXT,created_at TEXT NOT NULL,run_attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt_at TEXT,UNIQUE(user_id,logical_key));
 CREATE TABLE IF NOT EXISTS personal_job_logs(
  id INTEGER PRIMARY KEY,job_id TEXT NOT NULL REFERENCES personal_jobs(id) ON DELETE CASCADE,ts TEXT NOT NULL,level TEXT NOT NULL,message TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS model_calls(
@@ -130,6 +131,13 @@ CREATE INDEX IF NOT EXISTS ix_owned_orders ON sim_orders(user_id,status);
 # 生成 UTC 微秒时间戳，供跨线程排序、租约和归档使用。
 def stamp():
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def database_busy(exc):
+    code = getattr(exc, "sqlite_errorcode", None)
+    if code is not None:
+        return code & 255 in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    return str(exc).lower() in ("database is locked", "database is busy", "database table is locked", "database schema is locked")
 
 
 # 生成紧凑且保留中文的 JSON，拒绝 NaN 以维持稳定的签名输入。
@@ -218,6 +226,11 @@ class Store:
             columns={r[1] for r in c.execute('PRAGMA table_info(user_watchlist)')}
             if 'cost_price' not in columns:c.execute('ALTER TABLE user_watchlist ADD COLUMN cost_price TEXT')
             if 'quantity' not in columns:c.execute('ALTER TABLE user_watchlist ADD COLUMN quantity INTEGER')
+            job_columns={r[1] for r in c.execute('PRAGMA table_info(personal_jobs)')}
+            if 'run_attempts' not in job_columns:
+                c.execute('ALTER TABLE personal_jobs ADD COLUMN run_attempts INTEGER NOT NULL DEFAULT 0')
+            if 'next_attempt_at' not in job_columns:
+                c.execute('ALTER TABLE personal_jobs ADD COLUMN next_attempt_at TEXT')
             from .research_schema import SCHEMA as RESEARCH_SCHEMA,upgrade
             c.executescript(RESEARCH_SCHEMA)
             upgrade(c)
@@ -226,10 +239,10 @@ class Store:
             c.execute("INSERT OR IGNORE INTO cloud_meta VALUES('site_id',?)",(uuid.uuid4().hex,))
             c.execute("INSERT OR IGNORE INTO cloud_meta VALUES('schema_version','1')")
             c.execute("INSERT OR IGNORE INTO cloud_meta VALUES('maintenance','0')")
-            from backend.instruments import Rules,seed_gold_references
+            from backend.instruments import Rules,seed_metal_references
             for market,symbol,name,asset in (("SH","000001","上证指数","index"),("SZ","399001","深证成指","index"),("SZ","399006","创业板指","index"),("FX","XAUUSD","伦敦金现货","metal"),("FX","XAGUSD","伦敦银现货","metal"),("SHFE","AU0","沪金主力连续","future"),("SHFE","AG0","沪银主力连续","future")):
                 c.execute("INSERT OR IGNORE INTO instruments(id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)",(market+":"+symbol,symbol,market,name,asset,Rules().model_dump_json()))
-            seed_gold_references(c)
+            seed_metal_references(c)
         return self
 
     # 登记任务当前网络连接，供取消操作中断请求。

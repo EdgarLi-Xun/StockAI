@@ -8,13 +8,18 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import db
+from . import db, trading_status
 from .config import now, timestamp
 
 GOLD_REFERENCE_INSTRUMENTS = (
     ("SGE", "AU99.99", "上金所 Au99.99", "metal"),
     ("SH", "518880", "华安黄金 ETF", "etf"),
 )
+METAL_LINKED_SECURITIES = {
+    "SH:601899": "紫金矿业", "SH:600547": "山东黄金", "SH:600489": "中金黄金",
+    "SZ:000603": "盛达资源", "SZ:002716": "湖南白银", "SZ:000426": "兴业银锡",
+    "SH:518880": "华安黄金 ETF",
+}
 
 # 定义最小申报量、数量步长、报价单位、涨跌幅及结算周期。
 class Rules(BaseModel):
@@ -84,6 +89,13 @@ def official_url(url: str) -> bool:
     return p.scheme == "https" and p.username is None and p.password is None and any(host == h or host.endswith("." + h) for h in ("sse.com.cn", "szse.cn", "cninfo.com.cn", "sge.com.cn", "shfe.com.cn"))
 
 
+def official_status_url(url):
+    if not official_url(url):
+        return False
+    hostname = urlsplit(url).hostname
+    return any(hostname == h or hostname.endswith("." + h) for h in ("sse.com.cn", "szse.cn", "cninfo.com.cn"))
+
+
 def name_risk(name):
     code=name.strip().upper()
     if re.match(r"^(?:S)?\*?ST",code):
@@ -99,7 +111,9 @@ def review_evidence(previous,supplied,status):
         raise ValueError("需要三项官方 HTTPS 证据及人工核验结论")
     if previous.get("exchange_delisting") and status!="delisted":
         raise ValueError("证券仍在交易所终止上市记录中，请先同步核对是否重新上市")
-    evidence={k:previous[k] for k in ("exchange_delisting","exchange_listing_date","disclosure_check") if k in previous}
+    evidence={k:previous[k] for k in ("exchange_delisting","exchange_listing_date","disclosure_check","trading_status_events") if k in previous}
+    if evidence.get("trading_status_events"):
+        evidence["manual_trading_status_at"] = timestamp()
     return {**evidence,**{k:supplied[k] for k in (*keys,"review_note")}}
 
 
@@ -122,6 +136,7 @@ def get(ident: str) -> dict:
         raise ValueError("证券不存在")
     row["rules"] = json.loads(row.pop("rules_json"))
     row["evidence"] = json.loads(row.pop("evidence_json"))
+    trading_status.apply_status_view(row, now())
     return row
 
 
@@ -133,6 +148,8 @@ def risk_reasons(item: dict, at: datetime | None = None) -> list[str]:
         errors.append("仅供观察，不支持普通模拟买入")
     if item["status"] != "active":
         errors.append({"unknown": "交易状态未核验", "suspended": "停牌", "delisted": "已退市"}.get(item["status"], "交易状态不允许买入"))
+    elif trading_status.scheduled_halt(item, at):
+        errors.append("今日已有官方公告安排停牌")
     if item["risk_flag"] != "clear" or name_risk(item["name"]):
         errors.append("风险警示或公告尚未核验")
     if not item["verified_at"]:
@@ -182,7 +199,7 @@ def seed():
         return
     groups = {
         "原有自选": "603126:中材节能 601111:中国国航 002571:德力股份 000875:吉电股份 600115:中国东航 000911:南宁糖业 600121:郑州煤电 601939:建设银行 600804:鹏博士 600900:长江电力 600540:新赛股份 000425:徐工机械 601328:交通银行 000903:云内动力",
-        "贵金属关联": "601899:紫金矿业 600547:山东黄金 600489:中金黄金 000603:盛达资源 002716:湖南白银 000426:兴业银锡",
+        "贵金属关联": " ".join(f"{ident.split(':')[1]}:{name}" for ident, name in METAL_LINKED_SECURITIES.items() if ident != "SH:518880"),
         "其他观察": "601601:中国太保 600519:贵州茅台 600031:三一重工 002284:亚太股份 000702:正虹科技 002173:创新医疗",
         "场内ETF": "159330:ETF名称待核验 159337:ETF名称待核验 159692:ETF名称待核验 159992:ETF名称待核验 159599:ETF名称待核验",
     }
@@ -196,8 +213,10 @@ def seed():
         add(InstrumentInput(symbol=sym, market=market, name=name, asset_class=asset, group_name=group))
 
 
-def seed_gold_references(connection):
-    for market, symbol, name, asset in GOLD_REFERENCE_INSTRUMENTS:
+def seed_metal_references(connection):
+    references = [*GOLD_REFERENCE_INSTRUMENTS]
+    references.extend((*ident.split(":"), name, "stock") for ident, name in METAL_LINKED_SECURITIES.items() if ident != "SH:518880")
+    for market, symbol, name, asset in references:
         rules = Rules(price_tick="0.001" if asset == "etf" else "0.01")
         connection.execute("""INSERT OR IGNORE INTO instruments
             (id,symbol,market,name,asset_class,group_name,watched,rules_json) VALUES(?,?,?,?,?,'',0,?)""",

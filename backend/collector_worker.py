@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import contextlib
+import html
 import io
 import json
 import math
 import re
 import sys
+from datetime import datetime
+
+from .config import TZ
+from .trading_status import CNINFO_NOTICE_URL, NOTICE_KEYWORD, SSE_STATUS_URL, document_events
 
 
 BLS_CPI_SERIES="CUUR0000SA0"
@@ -33,8 +38,108 @@ def bls_cpi_rows(payload):
     return sorted(rows,key=lambda row:row["日期"])[-12:]
 
 
+def sse_suspensions(args):
+    import requests
+    headers = {"Referer": SSE_STATUS_URL, "User-Agent": "Mozilla/5.0"}
+    params = {"isPagination": "true", "sqlId": "GW_PL_JYTS_TFPXX", "pageHelp.pageSize": 100,
+              "startStopDate": args["start"], "endStopDate": args["end"], "productCode": "", "keyWords": ""}
+    rows = []
+    for page in range(1, 6):
+        params.update({"pageHelp.pageNo": page, "pageHelp.beginPage": page, "pageHelp.endPage": page, "pageHelp.cacheSize": 1})
+        response = requests.get("https://query.sse.com.cn/commonSoaQuery.do", params=params, headers=headers, timeout=(4, 8))
+        response.raise_for_status()
+        value = response.json()
+        if value.get("actionErrors") or value.get("fieldErrors") or not isinstance(value.get("result"), list):
+            raise ValueError("上交所停复牌查询返回格式有误")
+        rows.extend(value["result"])
+        if page >= int(value["pageHelp"]["pageCount"]):
+            return rows
+    raise ValueError("上交所停复牌查询分页未完成")
+
+
+def _notice_pdf(session, url):
+    from pypdf import PdfReader
+    limit = 3 * 1024 * 1024
+    with session.get(url, timeout=(3, 6), stream=True, allow_redirects=False) as response:
+        if response.status_code != 200:
+            raise ValueError("官方附件不可用")
+        payload = bytearray()
+        for chunk in response.iter_content(65536):
+            payload.extend(chunk)
+            if len(payload) > limit:
+                raise ValueError("官方附件超过读取上限")
+    if not payload.startswith(b"%PDF-"):
+        raise ValueError("附件并非 PDF")
+    reader = PdfReader(io.BytesIO(payload))
+    return "\n".join(page.extract_text() for page in reader.pages[:2])
+
+
+def cninfo_announcements(args):
+    import pandas as pd
+    import requests
+
+    symbol = args["symbol"]
+    if not re.fullmatch(r"\d{6}", symbol):
+        raise ValueError("巨潮资讯要求六位证券代码")
+    is_fund = args.get("asset_class") == "etf"
+    base = "https://www.cninfo.com.cn"
+    dates = [datetime.strptime(args[k], "%Y%m%d").date().isoformat() for k in ("start", "end")]
+    with requests.Session() as session:
+        session.headers.update({"Referer": CNINFO_NOTICE_URL, "User-Agent": "Mozilla/5.0"})
+        index = session.get(base + "/new/data/" + ("fund_stock.json" if is_fund else "szse_stock.json"), timeout=(4, 8))
+        index.raise_for_status()
+        org = next((r["orgId"] for r in index.json()["stockList"] if str(r.get("code")) == symbol), None)
+        if not org:
+            raise ValueError("巨潮资讯未返回该证券的官方机构编号")
+        form = {"pageSize": "30", "column": "fund" if is_fund else "szse", "tabName": "fulltext",
+                "stock": f"{symbol},{org}", "seDate": "~".join(dates), "isHLtitle": "false",
+                "plate": "", "searchkey": "", "secid": "", "category": "", "trade": "", "sortName": "", "sortType": ""}
+        raw = []
+        for page in range(1, 11):
+            response = session.post(base + "/new/hisAnnouncement/query", data={**form, "pageNum": page}, timeout=(4, 8))
+            response.raise_for_status()
+            payload = response.json()
+            total = int(payload["totalAnnouncement"])
+            if not total:
+                break
+            rows = payload.get("announcements")
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("巨潮资讯公告分页不完整")
+            raw.extend(rows)
+            if page * 30 >= total:
+                break
+        else:
+            raise ValueError("巨潮资讯公告分页超过单次采集上限")
+
+        result = []
+        for row in raw:
+            if str(row.get("secCode")) != symbol or str(row.get("orgId")) != str(org):
+                continue
+            title = html.unescape(str(row.get("announcementTitle") or ""))
+            notice_id = str(row.get("announcementId") or "")
+            if not title or not re.fullmatch(r"[0-9]+", notice_id):
+                continue
+            published = datetime.fromtimestamp(int(row["announcementTime"]) / 1000, tz=TZ).isoformat(sep=" ", timespec="seconds")[:19]
+            url = f"{base}/new/disclosure/detail?stockCode={symbol}&announcementId={notice_id}&orgId={org}&announcementTime={published}"
+            item = {"代码": symbol, "公告标题": title, "公告链接": url, "公告时间": published}
+            attachment = str(row.get("adjunctUrl") or "").lstrip("/")
+            if NOTICE_KEYWORD.search(title) and re.fullmatch(r"finalpage/\d{4}-\d{2}-\d{2}/[0-9]+\.[pP][dD][fF]", attachment):
+                item["附件链接"] = "https://static.cninfo.com.cn/" + attachment
+                try:
+                    item["trading_events"] = document_events(symbol, _notice_pdf(session, item["附件链接"]))
+                except Exception:
+                    item["status_read_error"] = True
+            result.append(item)
+        return pd.DataFrame(result)
+
+
 # 按请求选择数据源与采集动作，并将结果转换为可序列化记录。
 def collect(action: str, args: dict):
+    if action == "sse_suspensions":
+        import pandas as pd
+        return pd.DataFrame(sse_suspensions(args))
+    if action == "announcements":
+        return cninfo_announcements(args)
     if action=="macro_cpi_bls":
         import pandas as pd
         import requests
@@ -101,9 +206,6 @@ def collect(action: str, args: dict):
         return pd.DataFrame(out)
     if action == "sge":
         return ak.spot_hist_sge(symbol=args["symbol"])
-    if action == "announcements":
-        market="基金" if args.get("asset_class")=="etf" else "沪深京"
-        return ak.stock_zh_a_disclosure_report_cninfo(symbol=args["symbol"], market=market, start_date=args["start"], end_date=args["end"])
     if action == "fundamentals":
         return ak.stock_individual_info_em(symbol=args["symbol"])
     if action == "financials":

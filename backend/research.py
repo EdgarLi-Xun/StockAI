@@ -11,7 +11,7 @@ from datetime import datetime
 from . import ai, analytics, backtest, collectors, db, instruments
 from .budget import budget_check
 from .config import DATA, TZ, VERSION, STRATEGY_VERSION, now, timestamp
-from .report_facts import METAL_NAMES, attach_metals, closing_followup, rank_candidates
+from .report_facts import METAL_NAMES, attach_metal_study, attach_metals, closing_followup, excluded_security, rank_candidates
 
 
 # 汇总行情、风险、预算和技术指标，筛选最多三只合格模拟候选。
@@ -45,7 +45,7 @@ def build_facts(mode="standard") -> dict:
             reasons.append("趋势与成交量评分未达到60分（非上涨概率）")
         # 任一证据、行情、流动性或预算障碍都进入排除清单，不靠模型绕过规则。
         if reasons:
-            excluded.append({"instrument_id":item["id"],"name":item["name"],"reasons":list(dict.fromkeys(reasons)),"price":last["close"] if last else None})
+            excluded.append(excluded_security(item, reasons, last, sources))
             continue
         candidate = {"instrument_id":item["id"],"symbol":item["symbol"],"name":item["name"],"asset_class":item["asset_class"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"],"source_ids":[source_id],"quantity":estimate["max_quantity"],"budget":estimate,"score":points,"indicators":stats["latest"],"status":"verified","rules":item["rules"],"evidence":item["evidence"],"verified_at":item["verified_at"],"rationale":"趋势、成交量与预算规则同时通过；评分仅表示规则匹配程度。","counterargument":"历史技术形态不代表未来表现，费用和跳空会改变可执行性。","invalidation":"风险核验过期、出现风险公告、行情过期或成交总成本超过预算时失效。"}
         if mode == "full":
@@ -83,6 +83,7 @@ def build_facts(mode="standard") -> dict:
         facts["closing_followup"] = closing_followup(facts, morning, latest_bars, collectors.bars_for, signals)
     if mode=="full":
         facts["backtests"]=[backtest.report_summary(r) for r in db.query("SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT 5")]
+        attach_metal_study(facts, now(), db.query, lambda ident, limit: collectors.bars_for(ident, limit=limit))
         attach_full_evidence(facts,db.query("SELECT * FROM research_context"),db.query("SELECT * FROM risk_events WHERE event_type='announcement' ORDER BY verified_at DESC,id DESC LIMIT 40"))
         facts["simulation"]={"accounts":db.query("SELECT id,name,initial_cash,cash FROM accounts"),"recent_fills":db.query("SELECT instrument_id,side,quantity,fill_price,fees,filled_at FROM orders WHERE status='filled' ORDER BY filled_at DESC LIMIT 30")}
     from .idea_flow import attach_local
@@ -177,6 +178,25 @@ def markdown_report(facts):
         lines.append(f"金银比 {ratio['value']:.2f}{cached} · 伦敦现货同口径 · 金 {ratio['gold_quote_time']} · 银 {ratio['silver_quote_time']}")
     else:
         lines.append("金银比暂无可比报价，需同币种、同单位且相隔不超过 1 分钟的伦敦金银现货。")
+    if study := facts.get("metal_study"):
+        lines += ["", "## 金银波动率与矿业股联动", study["method"]]
+        for metal in study["series"]:
+            vol = metal["annualized_volatility_pct"]
+            lines.append(f"### 上金所 {metal['contract']} · {metal['unit']}")
+            if vol is None:
+                lines.append(f"年化波动率未计算（{metal['sample_count']} 个样本）。")
+            else:
+                lines.append(f"年化波动率 {vol:.4f}% · {metal['sample_count']} 个样本 · {metal['first_session']} 至 {metal['last_session']}")
+            for equity in metal["linked"]:
+                correlations = []
+                for key, label in (("same_session", "同期"), ("next_session", "金银领先一交易日")):
+                    result = equity[key]
+                    coefficient = result["coefficient"]
+                    evidence = f" · {result['first_session']} 至 {result['last_session']}" if coefficient is not None else ""
+                    display = "未计算" if coefficient is None else f"{coefficient:+.4f}"
+                    correlations.append(f"{label} {display}（{result['sample_count']} 对{evidence}）")
+                citations = " ".join(f"[{sid}]" for sid in equity["source_ids"])
+                lines.append(f"- {equity['name']} {equity['instrument_id']} · {' · '.join(correlations)} {citations}".rstrip())
     followup = facts.get("closing_followup")
     if followup:
         lines += ["", "## 早报与收盘对照", followup["message"]]
@@ -220,6 +240,10 @@ def markdown_report(facts):
         lines += ["", "## 深度研究证据"]
         for item in facts.get("deep_context",[]):
             lines.append(f"- {item['source']} · {item.get('instrument_id') or '宏观'} · 资料期 {item['as_of']} · {item['source_url']}")
+            if item.get("category") == "macro" and item.get("data"):
+                latest = item["data"][-1]
+                if "今值" in latest:
+                    lines.append(f"  {latest.get('日期') or item['as_of']} · {latest.get('指标') or '宏观指标'} {latest['今值']} {latest.get('单位') or ''}".rstrip())
         for backtest in facts.get("backtests",[]):
             metrics=backtest.get("summary",backtest.get("result",{}))
             if metrics.get("return_pct") is not None:
@@ -228,6 +252,8 @@ def markdown_report(facts):
     lines += ["", "## 风险与数据缺口", *["- "+s for s in facts["risk_notes"]+facts["missing_data"]], "", "## 未入选记录"]
     for c in facts["excluded"]:
         lines.append(f"- {c['name']} {c['instrument_id']}：{'；'.join(c['reasons'])}")
+        if evidence := c.get("trading_status_evidence"):
+            lines.append(f"  官方停复牌证据 [{evidence['source_id']}] · {evidence['effective_at']} · {evidence['url']}")
     lines += ["", "## 原始证据"]
     for s in facts["sources"]:
         lines.append(f"- [{s['id']}] {s['source']} | 报价 {s['quote_time']} | 采集 {s['collected_at']} | {s['url']}")

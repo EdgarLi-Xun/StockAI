@@ -11,7 +11,7 @@ from backend.collectors import fresh_reasons
 from backend.config import Fees,STRATEGY_VERSION,now,timestamp
 from . import VERSION
 from backend.research import attach_full_evidence,resample_weekly
-from backend.report_facts import attach_metals,closing_followup,rank_candidates
+from backend.report_facts import attach_metal_study,attach_metals,closing_followup,excluded_security,rank_candidates
 from . import market
 from .auth import AuthError
 from .preferences import get_preferences,Preferences
@@ -87,7 +87,7 @@ def facts(store,uid,mode,prefs=None,*,scheduled_for=None,context_update=None,mar
         if reasons:
             if mode=="full" and last and not fresh_reasons(last,ctx) and stats["latest"]:
                 observations.append({"instrument_id":item["id"],"name":item["name"],"score":points,"source_ids":[sid],"indicators":stats["latest"]})
-            excluded.append({"instrument_id":item["id"],"name":item["name"],"reasons":list(dict.fromkeys(reasons)),"price":last["close"] if last else None});continue
+            excluded.append(excluded_security(item, reasons, last, sources));continue
         c={"instrument_id":item["id"],"symbol":item["symbol"],"name":item["name"],"asset_class":item["asset_class"],"price":last["close"],"quote_time":last["ts"],"source_url":last["source_url"],"source_ids":[sid],"quantity":estimate["max_quantity"],"budget":estimate,"score":points,"indicators":stats["latest"],"status":"verified","rules":item["rules"],"evidence":item["evidence"],"verified_at":item["verified_at"],"rationale":"趋势、成交量与预算规则同时通过。","counterargument":"历史形态不代表未来表现，费用和跳空会改变可执行性。","invalidation":"风险、行情或预算条件变化时失效。"}
         if mode=="full":
             c["multi_timeframe"]={tf:analytics.indicators(market.bars_for(store,item["id"],tf))["latest"] for tf in ("15m","60m")};c["weekly"]=analytics.indicators(resample_weekly(bars))["latest"]
@@ -130,6 +130,7 @@ def facts(store,uid,mode,prefs=None,*,scheduled_for=None,context_update=None,mar
         announcements=store.query("""SELECT instrument_id,title,source_url,verified_at,severity,payload_json FROM risk_events
             WHERE event_type='announcement' AND instrument_id IN (SELECT instrument_id FROM user_watchlist WHERE user_id=?)
             ORDER BY verified_at DESC,id DESC LIMIT 40""",(uid,))
+        attach_metal_study(value, now(), store.query, read_bars)
         attach_full_evidence(value,context_rows,announcements)
         if context_update and context_update!="success":
             value["missing_data"].append("本次深度资料未全部刷新，报告引用已归档证据及其采集时间。")

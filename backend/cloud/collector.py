@@ -19,7 +19,7 @@ from backend.processes import module_command,hidden_process
 
 # 校验站点采集类型并按证券和周期构造幂等任务键。
 def enqueue(store,kind="sync",instrument_id=None,timeframe="1d",*,c=None,retry_of=None):
-    if kind not in {"sync","names","metals","instrument","announcements","context"}:
+    if kind not in {"sync","names","metals","instrument","announcements","context","trading_status"}:
         raise ValueError("不支持的站点任务")
     if c is None:
         with store.tx(immediate=True) as conn:
@@ -49,6 +49,14 @@ def queue_names(store,*,c=None):
         WHERE u.status='active' AND i.market IN('SH','SZ') AND i.asset_class IN('stock','etf')
         AND (i.name LIKE '%待核验%' OR trim(i.name)='') LIMIT 1""").fetchone()
     return enqueue(store,"names",c=c) if pending else None
+
+
+def queue_trading_status(store):
+    with store.tx(immediate=True) as c:
+        required = c.execute("""SELECT 1 FROM instruments i JOIN user_watchlist w ON w.instrument_id=i.id
+            JOIN users u ON u.id=w.user_id WHERE u.status='active' AND i.market IN ('SH','SZ')
+            AND i.asset_class IN ('stock','etf') LIMIT 1""").fetchone()
+        return enqueue(store, "trading_status", c=c) if required else None
 
 
 # 领取一项站点任务，在受控子进程中采集并记录结果。
@@ -90,7 +98,7 @@ def list_jobs(store):
     for row in rows:
         row['result']=json.loads(row.pop('result_json') or '{}')
         row['error']={'SHARED_COLLECTION_FAILED':'共享资料采集失败，请检查网络后重新运行','SHARED_COLLECTION_PARTIAL':'部分资料未能取得，保留已有缓存','PROCESS_RESTARTED':'服务重启中断了任务','ENCRYPTED_BACKUP_FAILED':'加密备份失败，请检查备份配置和磁盘空间'}.get(row['error_code'],row['error_code'])
-        row['can_retry']=row['status'] in {'failed','partial'} and row['kind'] in {'sync','names','metals','context','instrument','announcements'} and (row['kind'] not in {'instrument','announcements'} or bool(row['result'].get('_request',{}).get('instrument_id')))
+        row['can_retry']=row['status'] in {'failed','partial'} and row['kind'] in {'sync','names','metals','context','instrument','announcements','trading_status'} and (row['kind'] not in {'instrument','announcements'} or bool(row['result'].get('_request',{}).get('instrument_id')))
         row['retry_label']='重新采集'
         row['retry_reason']='请在原证券页面重新同步' if row['kind'] in {'instrument','announcements'} and not row['can_retry'] else ''
     return rows
@@ -171,6 +179,11 @@ def main():
         value=collectors.sync_instrument(instruments.get(args["instrument_id"]),args["timeframe"])
     elif kind=="announcements":
         value={"announcements":collectors.announcements(args["instrument_id"])}
+    elif kind=="trading_status":
+        rows = db.query("""SELECT DISTINCT i.id FROM instruments i JOIN user_watchlist w ON w.instrument_id=i.id
+            JOIN users u ON u.id=w.user_id WHERE u.status='active' AND i.market IN ('SH','SZ')
+            AND i.asset_class IN ('stock','etf')""")
+        value = collectors.sync_trading_status([instruments.get(row["id"]) for row in rows], refresh_identity=True)
     elif kind=="context":
         value=collect_context(db,collectors,instruments,context)
     else:

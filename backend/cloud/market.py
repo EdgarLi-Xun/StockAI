@@ -8,7 +8,7 @@ import math
 from datetime import datetime,timedelta
 from decimal import Decimal,ROUND_HALF_UP
 
-from backend import analytics
+from backend import analytics,trading_status
 from backend.budget import budget_check,dec,money
 from backend.config import now,timestamp
 from backend.collectors import fresh_reasons, newer_spot
@@ -26,6 +26,7 @@ def instrument(store,ident):
     if not row:
         raise AuthError("NOT_FOUND","证券不存在",404)
     row["rules"]=json.loads(row.pop("rules_json"));row["evidence"]=json.loads(row.pop("evidence_json"))
+    trading_status.apply_status_view(row, now())
     for k in ("group_name","pinned","watched"):
         row.pop(k,None)
     return row
@@ -58,6 +59,8 @@ def risk_reasons(item,prefs,at=None):
         errors.append("仅供观察，不支持普通模拟买入")
     if item["status"]!="active":
         errors.append({"unknown":"交易状态未核验","suspended":"停牌","delisted":"已退市"}.get(item["status"],"交易状态不允许买入"))
+    elif trading_status.scheduled_halt(item, at):
+        errors.append("今日已有官方公告安排停牌")
     if item["risk_flag"]!="clear" or name_risk(item["name"]):
         errors.append("风险警示或公告尚未核验")
     try:

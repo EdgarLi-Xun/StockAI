@@ -162,7 +162,7 @@ def initialize():
         c.executescript(SCHEMA)
         c.execute("INSERT OR IGNORE INTO migrations VALUES(1,?)", (timestamp(),))
         c.execute("INSERT OR IGNORE INTO settings VALUES('app',?)", (Settings().model_dump_json(),))
-    from .instruments import seed, seed_gold_references
+    from .instruments import seed, seed_metal_references
     seed()
     with connection() as c:
-        seed_gold_references(c)
+        seed_metal_references(c)

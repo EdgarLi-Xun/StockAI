@@ -13,13 +13,7 @@ from . import backups,collector,jobs,mail
 from .auth import Auth
 from .crypto import Keyring
 from .lifecycle import ErasureJournal,ProcessLock,reconcile,recover_swap,clean_staging
-from .store import Store,stamp,json_text
-
-
-def _database_busy(exc):
-    code=getattr(exc,'sqlite_errorcode',None)
-    if code is not None:return code&255 in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED)
-    return str(exc).lower() in ('database is locked','database is busy','database table is locked','database schema is locked')
+from .store import Store,database_busy,stamp,json_text
 
 
 # 持有服务资源与后台线程，保证启动恢复和退出收尾的统一顺序。
@@ -52,7 +46,7 @@ class Runtime:
             clean_staging(self.store)
             jobs.recover(self.store)
             if self.store.cfg.background:
-                collector.queue_names(self.store)
+                collector.queue_trading_status(self.store)
                 for i in range(2):
                     self._start(self._worker,f"report-{i}")
                 self._start(self._control,"site-control")
@@ -89,7 +83,7 @@ class Runtime:
                 if self.paused():self.stop.wait(1);continue
                 job=jobs.claim(self.store,worker)
             except sqlite3.OperationalError as exc:
-                if not _database_busy(exc):raise
+                if not database_busy(exc):raise
                 self.stop.wait(0.5);continue
             if not job:
                 self.stop.wait(0.5);continue
@@ -101,18 +95,20 @@ class Runtime:
                         try:
                             jobs.heartbeat(self.store,job["id"],worker);break
                         except sqlite3.OperationalError as exc:
-                            if not _database_busy(exc):raise
+                            if not database_busy(exc):raise
                             if done.wait(0.5):return
             heart=threading.Thread(target=beat,daemon=True);heart.start()
             try:
                 jobs.run(self.store,self.keys,job)
             finally:
+                done.set();heart.join()
                 if job.get('automatic'):
                     try:
-                        uncertain=self.store.one("SELECT id FROM model_calls WHERE job_id=? AND phase='uncertain'",(job['id'],))
-                        self.store.sync_service.automatic(job['user_id'],'report',job['logical_key'],complete='uncertain' if uncertain else 'completed')
+                        final = self.store.one("SELECT status FROM personal_jobs WHERE id=? AND status NOT IN ('queued','running')", (job["id"],))
+                        if final:
+                            uncertain=self.store.one("SELECT id FROM model_calls WHERE job_id=? AND phase='uncertain'",(job['id'],))
+                            self.store.sync_service.automatic(job['user_id'],'report',job['logical_key'],complete='uncertain' if uncertain else 'completed')
                     except Exception:pass
-                done.set();heart.join()
 
     # 定期处理个人调度、邮件队列和控制面维护。
     def _control(self):

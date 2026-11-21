@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from datetime import date, datetime
 
 from . import analytics
-from .collectors import fresh_reasons
+from .collectors import SGE_HISTORY, SGE_HISTORY_URL, fresh_reasons, sge_last_closed_day
 from .config import TZ
-from .instruments import GOLD_REFERENCE_INSTRUMENTS, official_url
+from .instruments import GOLD_REFERENCE_INSTRUMENTS, METAL_LINKED_SECURITIES, official_url
 
 METAL_NAMES = {
     "FX:XAUUSD": "伦敦金现货",
@@ -21,6 +22,8 @@ BENCHMARKS = {"SH": "SH:000001", "SZ": "SZ:399001"}
 CLOSING_STATUS = {"retained": "继续入选", "removed": "收盘未入选", "added": "收盘新增"}
 SIGNAL_RESULTS = {"created": "已生成模拟委托", "skipped": "跳过", "no_trigger": "未触发",
                   "rejected": "未通过模拟规则"}
+METAL_RETURN_WINDOW = 20
+MIN_METAL_SAMPLES = 10
 
 
 def add_source(sources, instrument_id, url, source, quote_time, collected_at):
@@ -28,6 +31,16 @@ def add_source(sources, instrument_id, url, source, quote_time, collected_at):
     sources.append(dict(id=source_id, instrument_id=instrument_id, url=url, source=source,
                         quote_time=quote_time, collected_at=collected_at))
     return source_id
+
+
+def excluded_security(item, reasons, last, sources):
+    row = {"instrument_id": item["id"], "name": item["name"], "reasons": list(dict.fromkeys(reasons)),
+           "price": last["close"] if last else None}
+    if event := item["evidence"].get("exchange_trading_status"):
+        label = "官方停复牌证据"
+        source = add_source(sources, item["id"], event["url"], label, event["effective_at"], event.get("fetched_at"))
+        row["trading_status_evidence"] = {"url": event["url"], "effective_at": event["effective_at"], "source_id": source}
+    return row
 
 
 def gold_silver_ratio(quotes, at):
@@ -92,6 +105,93 @@ def attach_metals(facts, quotes, at):
     facts["gold_silver_ratio"] = gold_silver_ratio(metals, at)
     if missing:
         facts["missing_data"].append("未取得可核验的贵金属报价：" + "、".join(missing))
+
+
+def _session_returns(sessions, closes):
+    return {end: math.log(closes[end]) - math.log(closes[start])
+            for start, end in zip(sessions, sessions[1:]) if start in closes and end in closes}
+
+
+def _correlation(returns, equity, pairs):
+    matched = [(equity_day, returns[metal_day], equity[equity_day])
+               for metal_day, equity_day in pairs if metal_day in returns and equity_day in equity]
+    coefficient = None
+    if len(matched) >= MIN_METAL_SAMPLES:
+        _, x, y = zip(*matched)
+        try:
+            coefficient = round(statistics.correlation(x, y), 4)
+        except statistics.StatisticsError:
+            pass
+    return {"coefficient": coefficient, "sample_count": len(matched),
+            "first_session": matched[0][0] if matched else None, "last_session": matched[-1][0] if matched else None}
+
+
+def attach_metal_study(facts, at, query, read_bars):
+    cutoff = sge_last_closed_day(at)
+    sessions = [row["day"] for row in reversed(query(
+        "SELECT day FROM calendar WHERE day<=? ORDER BY day DESC LIMIT ?", (cutoff, METAL_RETURN_WINDOW + 2)))]
+    session_set = set(sessions)
+    names = {r["id"]: r["name"] for r in query(
+        "SELECT id,name FROM instruments WHERE id IN (" + ",".join("?" for _ in METAL_LINKED_SECURITIES) + ")",
+        tuple(METAL_LINKED_SECURITIES))}
+    history = {row["instrument_id"]: row for row in query(
+        "SELECT * FROM research_context WHERE category='metal_closes' AND instrument_id IN (?,?)", tuple(SGE_HISTORY))
+        if row["source_url"] == SGE_HISTORY_URL}
+    sources = facts["sources"]
+    equities = {}
+    for ident in METAL_LINKED_SECURITIES:
+        bars = [b for b in read_bars(ident, 90) if b["ts"][:10] in session_set and b["quality"] == "valid"
+                and b["adjustment"] == "none" and b["source_url"] and b["source"]
+                and b["volume"] > 0 and math.isfinite(b["close"]) and b["close"] > 0]
+        if not bars:
+            continue
+        last = bars[-1]
+        closes = {b["ts"][:10]: b["close"] for b in bars
+                  if (b["source"], b["source_url"]) == (last["source"], last["source_url"])}
+        returns = _session_returns(sessions, closes)
+        if returns:
+            equities[ident] = (returns, add_source(sources, ident, last["source_url"], last["source"], last["ts"], last["fetched_at"]))
+
+    prior_metal_day = list(zip(sessions, sessions[1:]))[-METAL_RETURN_WINDOW:]
+    recent = [end for _, end in prior_metal_day]
+    same_day = [(day, day) for day in recent]
+    facts["metal_study"] = {
+        "as_of": sessions[-1] if sessions else None, "window_sessions": METAL_RETURN_WINDOW,
+        "minimum_samples": MIN_METAL_SAMPLES, "annual_sessions": 252, "series": [],
+        "method": f"用最近 {METAL_RETURN_WINDOW} 个已完成交易日的相邻日对数收益计算，年化按 252 个交易日。"
+                  "同期按同一收盘日期配对。上金所日盘收于 15:30，A 股日盘收于 15:00。"
+                  "滞后按金银前一交易日收益与股票下一交易日收益配对。"
+                  "股票和 ETF 使用未复权收盘价，除权除息会影响结果。相关系数描述历史联动。",
+    }
+    for ident, (contract, unit) in SGE_HISTORY.items():
+        row = history.get(ident)
+        points = {point["date"]: point for point in json.loads(row["payload_json"])
+                  if point["date"] in session_set and math.isfinite(point["close"]) and point["close"] > 0} if row else {}
+        closes = {day: point["close"] for day, point in points.items()}
+        returns = _session_returns(sessions, closes)
+        samples = {day: returns[day] for day in recent if day in returns}
+        metal_sources = []
+        if closes:
+            latest = max(closes)
+            metal_sources.append(add_source(sources, ident, row["source_url"], row["source"], latest, points[latest].get("fetched_at") or row["fetched_at"]))
+        volatility = round(statistics.stdev(samples.values()) * math.sqrt(252) * 100, 4) if len(samples) >= MIN_METAL_SAMPLES else None
+        linked = []
+        for code, name in METAL_LINKED_SECURITIES.items():
+            security_returns, source = equities.get(code, ({}, None))
+            official_name = names.get(code, "")
+            linked.append({"instrument_id": code, "name": official_name if official_name and "待核验" not in official_name else name,
+                           "same_session": _correlation(returns, security_returns, same_day),
+                           "next_session": _correlation(returns, security_returns, prior_metal_day),
+                           "source_ids": metal_sources + ([source] if source else [])})
+        facts["metal_study"]["series"].append({
+            "instrument_id": ident, "contract": contract, "unit": unit, "source_ids": metal_sources,
+            "annualized_volatility_pct": volatility, "sample_count": len(samples),
+            "first_session": next(iter(samples), None), "last_session": next(reversed(samples), None), "linked": linked,
+        })
+        if volatility is None:
+            facts["missing_data"].append(f"上金所 {contract} 年化波动率缺少足够的已完成交易日收盘样本（{len(samples)}/{MIN_METAL_SAMPLES}）。")
+        if not any(r[k]["coefficient"] is not None for r in linked for k in ("same_session", "next_session")):
+            facts["missing_data"].append(f"上金所 {contract} 与矿业股及黄金 ETF 缺少可计算的配对收益。")
 
 
 def _profit(row, report_date):

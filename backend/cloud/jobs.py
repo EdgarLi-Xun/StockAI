@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import html
 import json
+import sqlite3
 import threading
 import time
 import uuid
@@ -12,14 +13,16 @@ from datetime import date,datetime,time as clock_time,timedelta,timezone
 from backend.config import TZ,now,timestamp
 from backend.budget import budget_check
 from backend.research import markdown_report
+from backend.sync.protocol import SyncError
 from . import mail,models,workspace
 from .auth import AuthError
 from .crypto import atomic_private
 from .preferences import get_preferences,Preferences
-from .store import stamp,json_text
+from .store import database_busy,stamp,json_text
 
 KINDS={"standard","closing","full","supplement","profile_test"}
 REPORT_NAMES={"standard":"标准版早报","closing":"收盘跟踪","full":"周度复盘","supplement":"报告补充 AI"}
+AUTOMATIC_RETRY_DELAYS=(30, 120)
 
 
 # 将助手或研究实验任务与调用方业务记录放入同一事务，保持队列容量一致。
@@ -31,7 +34,7 @@ def enqueue_task(store,uid,kind,snapshot,client_key,c=None):
         logical=kind+':'+client_key
         row=conn.execute('SELECT id,status FROM personal_jobs WHERE user_id=? AND logical_key=?',(uid,logical)).fetchone()
         if row:return dict(row)
-        if conn.execute("SELECT COUNT(*) FROM personal_jobs WHERE user_id=? AND status='queued'",(uid,)).fetchone()[0]>=1:raise AuthError('QUEUE_FULL','每人最多一项运行及一项等待任务',409)
+        if conn.execute("SELECT 1 FROM personal_jobs WHERE user_id=? AND status='queued' AND next_attempt_at IS NULL",(uid,)).fetchone():raise AuthError('QUEUE_FULL','每人最多一项运行及一项等待任务',409)
         ident=uuid.uuid4().hex
         conn.execute("INSERT INTO personal_jobs(id,user_id,logical_key,kind,target_date,status,snapshot_json,created_at) VALUES(?,?,?,?,?,'queued',?,?)",(ident,uid,logical,kind,now().date().isoformat(),json_text(snapshot),stamp()))
         return {'id':ident,'status':'queued'}
@@ -58,7 +61,7 @@ def enqueue(store,uid,kind="standard",*,automatic=False,at=None,parent_id=None,p
             def check_queue(conn):
                 old=conn.execute("SELECT id,status FROM personal_jobs WHERE user_id=? AND logical_key=?",(uid,logical)).fetchone()
                 if old:return {**dict(old),"reused":True}
-                if conn.execute("SELECT COUNT(*) FROM personal_jobs WHERE user_id=? AND status='queued'",(uid,)).fetchone()[0]>=1:
+                if conn.execute("SELECT 1 FROM personal_jobs WHERE user_id=? AND status='queued' AND next_attempt_at IS NULL",(uid,)).fetchone():
                     raise AuthError("QUEUE_FULL","每人最多一项运行任务和一项等待任务，请等待当前队列",409)
             old=check_queue(c)
             if old:return old
@@ -78,7 +81,6 @@ def enqueue(store,uid,kind="standard",*,automatic=False,at=None,parent_id=None,p
         # 用户锁继续防止同一用户重复提交；HTTPS 协调不占用全站数据库写锁。
         sync=getattr(store,'sync_service',None)
         if automatic and sync:
-            from backend.sync.protocol import SyncError
             try:
                 if not sync.automatic(uid,'report',logical):raise AuthError('SYNC_EXECUTION_CLAIMED','同一自动报告已由其他端领取',409)
             except SyncError as exc:raise AuthError('SYNC_EXECUTOR',str(exc),409) from None
@@ -95,22 +97,28 @@ def claim(store,worker):
     with store.tx(immediate=True) as c:
         if c.execute("SELECT value FROM cloud_meta WHERE key='maintenance'").fetchone()[0]!="0":
             return None
+        at=now()
+        eligible_at=at.astimezone(timezone.utc).isoformat(timespec="microseconds")
         c.execute("""UPDATE personal_jobs SET status=CASE WHEN automatic=1 THEN 'missed' ELSE 'cancelled' END,
-            error_code='NO_HISTORICAL_CATCHUP',finished_at=?
+            error_code='NO_HISTORICAL_CATCHUP',finished_at=?,next_attempt_at=NULL
             WHERE status='queued' AND kind NOT IN('supplement','assistant','experiment') AND target_date<?
-            AND NOT (? AND kind='full' AND automatic=1)""",(stamp(),now().date().isoformat(),store.cfg.desktop_mode))
+            AND NOT (? AND kind='full' AND automatic=1)""",(stamp(),at.date().isoformat(),store.cfg.desktop_mode))
         if c.execute("SELECT COUNT(*) FROM personal_jobs WHERE status='running'").fetchone()[0]>=2:
             return None
         row=c.execute("""SELECT j.* FROM personal_jobs j JOIN users u ON u.id=j.user_id
             WHERE j.status='queued' AND u.status='active' AND u.verified_at IS NOT NULL
-            AND NOT EXISTS(SELECT 1 FROM personal_jobs r WHERE r.user_id=j.user_id AND r.status='running')
-            ORDER BY COALESCE(u.last_dispatch_at,''),j.created_at,j.id LIMIT 1""").fetchone()
+            AND (j.next_attempt_at IS NULL OR j.next_attempt_at<=?)
+            AND NOT EXISTS(SELECT 1 FROM personal_jobs r WHERE r.user_id=j.user_id AND
+                (r.status='running' OR (j.next_attempt_at IS NULL AND r.status='queued' AND r.next_attempt_at IS NOT NULL)))
+            ORDER BY COALESCE(u.last_dispatch_at,''),j.created_at,j.id LIMIT 1""",(eligible_at,)).fetchone()
         if not row:
             return None
         ts=stamp();until=(datetime.now(timezone.utc)+timedelta(seconds=45)).isoformat(timespec="microseconds")
-        c.execute("UPDATE personal_jobs SET status='running',lease_owner=?,lease_until=?,heartbeat_at=?,started_at=COALESCE(started_at,?) WHERE id=? AND status='queued'",(worker,until,ts,ts,row["id"]))
+        c.execute("""UPDATE personal_jobs SET status='running',lease_owner=?,lease_until=?,heartbeat_at=?,
+            started_at=COALESCE(started_at,?),run_attempts=run_attempts+1,next_attempt_at=NULL WHERE id=?""",
+            (worker,until,ts,ts,row["id"]))
         c.execute("UPDATE users SET last_dispatch_at=? WHERE id=?",(ts,row["user_id"]))
-        return {**dict(row),"status":"running","lease_owner":worker}
+        return {**dict(row),"status":"running","lease_owner":worker,"run_attempts":row["run_attempts"]+1,"next_attempt_at":None}
 
 
 # 仅为当前领取者续期运行中任务的租约。
@@ -129,14 +137,14 @@ def recover(store):
         c.execute("UPDATE model_calls SET phase='uncertain',error_code='UNCERTAIN_TIMEOUT',finished_at=? WHERE phase='sent'",(stamp(),))
         for r in c.execute("SELECT * FROM personal_jobs WHERE status IN ('running','queued')").fetchall():
             if not store.active(r["user_id"],c=c):
-                c.execute("UPDATE personal_jobs SET status='cancelled',error_code='ACCOUNT_DISABLED',finished_at=? WHERE id=?",(stamp(),r["id"]));continue
+                c.execute("UPDATE personal_jobs SET status='cancelled',error_code='ACCOUNT_DISABLED',finished_at=?,next_attempt_at=NULL WHERE id=?",(stamp(),r["id"]));continue
             if r['kind']=='experiment' and r['status']=='running':
                 c.execute("UPDATE research_experiments SET status='interrupted',finished_at=?,error_code='PROCESS_RESTARTED' WHERE job_id=? AND user_id=?",(stamp(),r['id'],r['user_id']))
                 c.execute("UPDATE personal_jobs SET status='failed',error_code='PROCESS_RESTARTED',finished_at=? WHERE id=?",(stamp(),r['id']));continue
             recoverable_weekly=store.cfg.desktop_mode and r["kind"]=="full" and r["automatic"]
             if r["target_date"]!=today and r["kind"] not in {'supplement','assistant','experiment'} and not recoverable_weekly:
                 state="missed" if r["automatic"] else "cancelled"
-                c.execute("UPDATE personal_jobs SET status=?,error_code='NO_HISTORICAL_CATCHUP',finished_at=? WHERE id=?",(state,stamp(),r["id"]));continue
+                c.execute("UPDATE personal_jobs SET status=?,error_code='NO_HISTORICAL_CATCHUP',finished_at=?,next_attempt_at=NULL WHERE id=?",(state,stamp(),r["id"]));continue
             if r["status"]=="running":
                 snap=json.loads(r["snapshot_json"])
                 calls=c.execute("SELECT * FROM model_calls WHERE job_id=? ORDER BY attempt",(r["id"],)).fetchall()
@@ -151,7 +159,8 @@ def recover(store):
                     c.execute("UPDATE model_calls SET phase='uncertain',error_code='UNCERTAIN_TIMEOUT',finished_at=? WHERE job_id=? AND phase='sent'",(stamp(),r["id"]))
                 elif calls and (len(calls)>=2 or calls[-1]["error_code"] not in {None,"CONNECT_FAILED","RATE_LIMITED","TEMPORARY_PROVIDER_ERROR"}):
                     snap["recovery_error"]=calls[-1]["error_code"] or "INTERNAL_MODEL_ERROR"
-                c.execute("UPDATE personal_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,snapshot_json=? WHERE id=?",(json_text(snap),r["id"]))
+                resume_at = stamp() if r["automatic"] else None
+                c.execute("UPDATE personal_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,next_attempt_at=?,snapshot_json=? WHERE id=?",(resume_at,json_text(snap),r["id"]))
                 if r['kind']=='assistant':
                     c.execute("UPDATE assistant_requests SET status='queued',updated_at=? WHERE job_id=? AND user_id=? AND status IN('running','validating')",(stamp(),r['id'],r['user_id']))
         # 账号邮件可以续用同一令牌，任务失败邮件在交付不确定时保留状态供核对。
@@ -221,6 +230,7 @@ def run(store,keys,job,transport=None):
     if job['kind']=='experiment':
         from .experiments import run as run_experiment
         return run_experiment(store,job)
+    can_delay = True
     try:
         snap=json.loads(job["snapshot_json"]);prefs=Preferences.model_validate(snap["preferences"])
         if not store.active(job["user_id"]):
@@ -237,7 +247,6 @@ def run(store,keys,job,transport=None):
             raise models.ModelError("NO_HISTORICAL_CATCHUP")
         if job["kind"]=="closing":
             from . import simulation as sim
-            from backend.sync.protocol import SyncError
             try:
                 sim.evaluate(store,job["user_id"])
                 sim.match(store,job["user_id"])
@@ -257,11 +266,12 @@ def run(store,keys,job,transport=None):
                 facts.update(candidates=[],excluded=[],watchlist=[],simulation={},backtests=[],sources=[],metals=[],gold_silver_ratio=None,auxiliary_markets=[])
             snap["facts"]=facts
             job["snapshot_json"]=json_text(snap)
-            store.execute("UPDATE personal_jobs SET snapshot_json=? WHERE id=? AND user_id=? AND status='running'",(job["snapshot_json"],job["id"],job["user_id"]))
+            store.execute("UPDATE personal_jobs SET snapshot_json=? WHERE id=? AND user_id=? AND status='running' AND lease_owner=?",(job["snapshot_json"],job["id"],job["user_id"],job["lease_owner"]))
         text=None;meta={};error=snap.get("recovery_error")
         if not error:
             error="AUTO_AI_DISABLED" if not snap["ai"] else "NO_PROFILE" if not snap.get("profile") else None
         if not error:
+            can_delay = False
             previous=store.one("SELECT COALESCE(MAX(attempt),0) n FROM model_calls WHERE job_id=?",(job["id"],))["n"]
             for attempt in range(previous+1,3):
                 try:
@@ -281,16 +291,49 @@ def run(store,keys,job,transport=None):
             return result
         if daily and job["target_date"]!=facts["report_date"]:
             raise models.ModelError("NO_HISTORICAL_CATCHUP")
+        can_delay = False
         return publish(store,job,facts,text,meta,error)
     except (AuthError,models.ModelError) as exc:
         code=exc.code
-    except Exception:
+    except Exception as exc:
+        if can_delay and job.get("automatic") and job["kind"] in {"standard", "closing", "full"}:
+            temporary = (
+                isinstance(exc, OSError) and not isinstance(exc, (PermissionError, IsADirectoryError, NotADirectoryError))
+                or isinstance(exc, sqlite3.OperationalError) and database_busy(exc)
+                or isinstance(exc, SyncError) and exc.code == "OFFLINE"
+            )
+            if temporary and (retry_at := _delay_report(store, job)):
+                return {"next_attempt_at": retry_at}
         code="REPORT_GENERATION_FAILED"
     _fail_report(store,keys,job,code)
     return {"error_code":code}
 
 
 JOB_MESSAGES={**models.MESSAGES,"REPORT_GENERATION_FAILED":"研究任务执行失败，请检查数据和配置后重新运行","PROCESS_RESTARTED":"服务重启中断了任务","NO_HISTORICAL_CATCHUP":"已错过原计划日期，该日无归档报告","CLOSE_NOT_AVAILABLE":"交易日历尚未确认当日已收盘","EVIDENCE_OR_DATA_INSUFFICIENT":"历史数据或证据不足","SOURCE_DELETED":"关联资料已删除","NOT_FOUND":"关联记录不存在或已删除"}
+
+
+def _delay_report(store, job):
+    attempt = job["run_attempts"]
+    if not 1 <= attempt <= len(AUTOMATIC_RETRY_DELAYS):
+        return None
+    seconds = AUTOMATIC_RETRY_DELAYS[attempt - 1]
+    at = now()
+    next_at = at + timedelta(seconds=seconds)
+    if next_at.date().isoformat() != job["target_date"] and (job["kind"] != "full" or not store.cfg.desktop_mode):
+        return None
+    retry_at = next_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    uid, ident = job["user_id"], job["id"]
+    with store.user_lock(uid), store.tx(immediate=True) as c:
+        if not store.active(uid, c=c) or c.execute("SELECT 1 FROM model_calls WHERE job_id=? LIMIT 1", (ident,)).fetchone():
+            return None
+        changed = c.execute("""UPDATE personal_jobs SET status='queued',next_attempt_at=?,lease_owner=NULL,
+            lease_until=NULL,heartbeat_at=NULL WHERE id=? AND user_id=? AND status='running' AND lease_owner=?""",
+            (retry_at, ident, uid, job["lease_owner"])).rowcount
+        if not changed:
+            return None
+        c.execute("INSERT INTO personal_job_logs(job_id,ts,level,message) VALUES(?,?,'warning',?)",
+            (ident, stamp(), f"遇到暂时的数据访问或连接错误。第 {attempt} 次执行结束，{seconds} 秒后自动重试。"))
+    return retry_at
 
 
 def _fail_report(store, keys, job, code):
@@ -343,7 +386,8 @@ def retry(store,uid,ident):
 # 只返回本人的任务和日志，将内部错误码转换为展示消息。
 def list_jobs(store,uid):
     rows=store.query("""SELECT j.id,j.logical_key,j.kind,j.target_date,j.status,j.automatic,j.created_at,j.started_at,
-        j.finished_at,j.error_code,j.result_json,m.state failure_mail_state
+        j.finished_at,j.error_code,j.result_json,j.run_attempts,
+        CASE WHEN j.status='queued' THEN j.next_attempt_at END next_attempt_at,m.state failure_mail_state
         FROM personal_jobs j LEFT JOIN mail_outbox m ON m.id='task-failure:'||j.id AND m.user_id=j.user_id
         WHERE j.user_id=? ORDER BY j.created_at DESC,j.target_date DESC LIMIT 100""",(uid,))
     for row in rows:

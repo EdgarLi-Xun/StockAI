@@ -1,5 +1,7 @@
 """Verify the report and job behavior exposed by the shared desktop/Web backend."""
 import json
+import math
+import statistics
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -7,13 +9,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend import collectors, config, db, report_facts, research
-from backend.cloud import jobs, mail, market, simulation, workspace
+from backend.cloud import jobs, mail, market, models, simulation, workspace
 from backend.cloud.preferences import Preferences, save_preferences
 from backend.cloud.store import json_text, stamp
 from backend.instruments import InstrumentInput
 from backend.public_app import create_app
 from conftest import sample_bars
-from test_cloud import cloud, login, run_job
+from test_cloud import GOOD, cloud, login, profile, run_job
 
 
 def test_report_archives_metals_and_checks_ratio_comparability(cloud):
@@ -71,6 +73,101 @@ def test_sge_and_gold_etf_are_separate_observations_with_source_dates(monkeypatc
     assert gold["source_url"].startswith("https://www.sge.com.cn/")
     assert (etf["price"], etf["quote_time"], etf["unit"]) == (etf_bar["close"], etf_bar["ts"], "元/份")
     assert facts["gold_silver_ratio"] is None and not facts["candidates"]
+
+
+def test_full_report_archives_completed_gold_silver_returns_and_exact_session_pairs(cloud, monkeypatch):
+    store, _, _, _, _, uid = cloud
+    days = sample_bars(22)
+    at = datetime.fromisoformat(days[-1]["ts"]) + timedelta(hours=1)
+    for module in (collectors, config, jobs, market, workspace):
+        monkeypatch.setattr(module, "now", lambda: at)
+    monkeypatch.setattr(db, "DATA", store.cfg.data)
+    gold_returns = [0.01 if i % 4 == 0 else -0.005 + i / 10000 for i in range(1, 22)]
+    gold, silver, stock = 500.0, 6000.0, 10.0
+    daily = {"Au99.99": [], "Ag(T+D)": []}
+    equity = []
+    for i, bar in enumerate(days):
+        day = bar["ts"][:10]
+        store.execute("INSERT INTO calendar VALUES(?,?,?)", (day, "交易日历验收样本", stamp()))
+        if i:
+            gold *= math.exp(gold_returns[i - 1])
+            silver *= math.exp(-gold_returns[i - 1])
+            stock *= math.exp(2 * gold_returns[i - 1])
+        daily["Au99.99"].append({"date": day, "close": gold})
+        daily["Ag(T+D)"].append({"date": day, "close": silver})
+        equity.append({**bar, "close": stock, "open": stock, "high": stock, "low": stock})
+    collectors.save_bars("SH:601899", [row for i, row in enumerate(equity) if i != 8])
+    for rows in daily.values():
+        rows.append({"date": (at + timedelta(days=1)).date().isoformat(), "close": 1e6})
+    monkeypatch.setattr(collectors, "call", lambda action, args, **kw: daily[args["symbol"]])
+    assert all(collectors.sync_sge_history(ident)["status"] == "success" for ident in collectors.SGE_HISTORY)
+    assert len(store.query("SELECT id FROM research_context WHERE category='metal_closes'")) == 2
+    ordinary = workspace.facts(store, uid, "standard")
+    assert "metal_study" not in ordinary
+
+    result = run_job(cloud, kind="full", ai=False)
+    report = workspace.report_detail(store, uid, result["report_id"])["payload"]
+    study = report["metal_study"]
+    gold_study, silver_study = study["series"]
+    expected = round(statistics.stdev(gold_returns[-20:]) * math.sqrt(252) * 100, 4)
+    assert study["as_of"] == at.date().isoformat()
+    assert gold_study["unit"] == "元/克" and silver_study["unit"] == "元/千克"
+    assert gold_study["sample_count"] == silver_study["sample_count"] == 20
+    assert gold_study["annualized_volatility_pct"] == silver_study["annualized_volatility_pct"] == expected
+    for series, coefficient in ((gold_study, 1.0), (silver_study, -1.0)):
+        by_code = {r["instrument_id"]: r for r in series["linked"]}
+        assert by_code["SH:601899"]["same_session"]["coefficient"] == coefficient
+        assert by_code["SH:601899"]["same_session"]["sample_count"] == 18
+        assert by_code["SH:518880"]["same_session"]["coefficient"] is None
+        available = {sid for r in series["linked"] for sid in r["source_ids"]}
+        assert available <= {source["id"] for source in report["sources"]}
+    expected_lag = round(statistics.correlation(
+        [gold_returns[i - 2] for i in range(2, 22) if i not in {8, 9}],
+        [gold_returns[i - 1] for i in range(2, 22) if i not in {8, 9}]), 4)
+    assert gold_study["linked"][0]["next_session"]["coefficient"] == expected_lag
+    projected = models.project_input(report, {}, bounded=True)
+    assert projected["metal_study"]["series"][1]["linked"][0]["same_session"]["coefficient"] == -1.0
+    assert set(silver_study["linked"][0]["source_ids"]) <= {s["id"] for s in projected["sources"]}
+    with TestClient(create_app(store.cfg)) as client:
+        login(client)
+        base = "/api/me/reports/" + result["report_id"]
+        assert client.get(base).json()["metal_study"] == study
+        for fmt in ("md", "html"):
+            body = client.get(base + "/export", params={"format": fmt}).text
+            assert all(term in body for term in ("金银波动率与矿业股联动", f"{expected:.4f}%", "Ag(T+D)", "金银领先一交易日"))
+    store.execute("DELETE FROM research_context WHERE category='metal_closes'")
+    empty = workspace.facts(store, uid, "full")
+    assert all(r["annualized_volatility_pct"] is None for r in empty["metal_study"]["series"])
+    assert workspace.report_detail(store, uid, result["report_id"])["payload"]["metal_study"] == study
+
+
+def test_exchange_suspension_is_visible_in_watch_risk_and_report(cloud, monkeypatch):
+    store, _, _, _, _, uid = cloud
+    at = datetime(2025, 1, 3, 10, tzinfo=config.TZ)
+    for module in (collectors, config, jobs, market, workspace):
+        monkeypatch.setattr(module, "now", lambda: at)
+    monkeypatch.setattr(db, "DATA", store.cfg.data)
+    ident = "SH:601899"
+    market.add_watch(store, uid, InstrumentInput(symbol="601899", market="SH", name="验收证券", asset_class="stock"))
+    for day in ("2025-01-03", "2025-01-06"):
+        store.execute("INSERT INTO calendar VALUES(?,?,?)", (day, "交易日历样本", stamp()))
+    raw = {"productCode":"601899","type":"LXTP","controlType":"TR","stopTime":"","startStopDate":"20250103",
+           "endStopDate":"20250103","stopReason":"重要公告","endStopReason":"重要公告"}
+    collectors._store_sse_status([raw])
+    item = market.instrument(store, ident)
+    assert item["status"] == "suspended" and item["risk_flag"] == "unknown"
+    result = run_job(cloud, ai=False)
+    report = workspace.report_detail(store, uid, result["report_id"])["payload"]
+    excluded = next(row for row in report["excluded"] if row["instrument_id"] == ident)
+    assert "停牌" in excluded["reasons"]
+    evidence = excluded["trading_status_evidence"]
+    assert any(s["id"] == evidence["source_id"] and s["url"] == evidence["url"] for s in report["sources"])
+    at = datetime(2025, 1, 6, 9, 29, tzinfo=config.TZ)
+    assert market.instrument(store, ident)["status"] == "suspended"
+    at += timedelta(minutes=1)
+    resumed = market.instrument(store, ident)
+    assert resumed["status"] == "active" and resumed["risk_flag"] == "unknown"
+    assert market.risk_reasons(resumed, Preferences(), at)
 
 
 def test_recovered_morning_uses_previous_close_and_closing_tracks_original(cloud, monkeypatch):
@@ -200,3 +297,86 @@ def test_task_failure_delivers_only_to_opted_in_verified_user(cloud, monkeypatch
     save_preferences(store, uid, Preferences().model_dump())
     assert mail.send_one(store, keys, sent.append) and len(sent) == 1
     assert store.one("SELECT state FROM mail_outbox WHERE id=?", ("task-failure:" + next_job["id"],))["state"] == "cancelled"
+
+
+def test_automatic_report_backoff_keeps_id_and_survives_recovery(cloud, monkeypatch):
+    store, keys, _, _, admin, uid = cloud
+    at = config.now().replace(hour=8, minute=1, second=0, microsecond=0)
+    monkeypatch.setattr(jobs, "now", lambda: at)
+    save_preferences(store, uid, Preferences(morning_enabled=True).model_dump())
+    facts = workspace.facts
+    failures = []
+
+    def intermittent(*args, **kwargs):
+        if not failures:
+            failures.append(True)
+            raise TimeoutError("临时数据不可达")
+        return facts(*args, **kwargs)
+
+    monkeypatch.setattr(workspace, "facts", intermittent)
+    assert jobs.schedule(store, at) == 1
+    first = jobs.claim(store, "attempt-1")
+    pending = jobs.enqueue(store, uid, "full", ai=False)
+    retry_at = jobs.run(store, keys, first)["next_attempt_at"]
+    assert jobs.claim(store, "before-due") is None
+    other = jobs.enqueue(store, admin, "standard", ai=False)
+    assert jobs.claim(store, "other-user")["id"] == other["id"]
+    assert jobs.schedule(store, at) == 0
+    info = next(row for row in jobs.list_jobs(store, uid)["jobs"] if row["id"] == first["id"])
+    assert info["next_attempt_at"] == retry_at and info["run_attempts"] == 1 and info["attempts"] == 0
+    assert not store.query("SELECT id FROM personal_reports WHERE user_id=?", (uid,))
+    jobs.recover(store)
+    assert jobs.claim(store, "still-before-due") is not None  # 另一用户的中断任务可继续
+    assert jobs.claim(store, "backoff-persists") is None
+    at += timedelta(seconds=jobs.AUTOMATIC_RETRY_DELAYS[0])
+    second = jobs.claim(store, "attempt-2")
+    assert second["id"] == first["id"] and second["run_attempts"] == 2
+    assert jobs.run(store, keys, second)["report_id"]
+    assert jobs.schedule(store, at) == 0
+    assert jobs.claim(store, "pending")["id"] == pending["id"]
+    assert len(store.query("SELECT id FROM personal_reports WHERE user_id=?", (uid,))) == 1
+    assert any("30 秒后自动重试" in row["message"] for row in jobs.list_jobs(store, uid)["logs"])
+
+
+def test_automatic_report_backoff_exhausts_once_and_alerts(cloud, monkeypatch):
+    store, keys, _, _, _, uid = cloud
+    at = config.now().replace(hour=8, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr(jobs, "now", lambda: at)
+    store.cfg = replace(store.cfg, smtp_host="loopback-fixture", smtp_from="stockai@example.test")
+    save_preferences(store, uid, Preferences(task_failure_email_enabled=True).model_dump())
+
+    def offline(*_args, **_kwargs):
+        raise OSError("private transport detail")
+
+    monkeypatch.setattr(workspace, "facts", offline)
+    ident = jobs.enqueue(store, uid, automatic=True, ai=False)["id"]
+    for attempt, delay in enumerate(jobs.AUTOMATIC_RETRY_DELAYS, 1):
+        current = jobs.claim(store, f"attempt-{attempt}")
+        assert current["id"] == ident
+        assert jobs.run(store, keys, current)["next_attempt_at"]
+        assert jobs.claim(store, "early") is None
+        assert not store.query("SELECT * FROM mail_outbox")
+        at += timedelta(seconds=delay)
+    final = jobs.claim(store, "final")
+    assert final["run_attempts"] == 3
+    assert jobs.run(store, keys, final)["error_code"] == "REPORT_GENERATION_FAILED"
+    assert jobs.claim(store, "exhausted") is None
+    assert len(store.query("SELECT * FROM mail_outbox")) == 1
+    assert len(store.query("SELECT * FROM personal_notifications WHERE level='error'")) == 1
+    assert "private transport detail" not in json_text(jobs.list_jobs(store, uid))
+
+
+def test_automatic_report_does_not_replay_a_model_call_after_publication_error(cloud, monkeypatch):
+    store, keys, _, _, _, uid = cloud
+    profile(cloud)
+    save_preferences(store, uid, Preferences(automatic_ai=True).model_dump())
+
+    def publication_error(*_args, **_kwargs):
+        raise OSError("simulated error after model returned")
+
+    monkeypatch.setattr(jobs, "publish", publication_error)
+    jobs.enqueue(store, uid, automatic=True)
+    job = jobs.claim(store, "model-request")
+    assert jobs.run(store, keys, job, lambda *_args: (GOOD, {"total_tokens": 10}, "one-call"))["error_code"] == "REPORT_GENERATION_FAILED"
+    assert jobs.claim(store, "no-replay") is None
+    assert [r["phase"] for r in store.query("SELECT phase FROM model_calls WHERE job_id=?", (job["id"],))] == ["received"]

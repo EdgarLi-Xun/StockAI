@@ -181,6 +181,90 @@ def test_disclosure_timeout_keeps_coverage_unknown(monkeypatch):
     assert current['status']=='unknown' and current['risk_flag']=='unknown'
 
 
+def test_official_notice_applies_effective_halt_and_resume_without_clearing_risk(monkeypatch, valid_item):
+    from datetime import datetime, timedelta
+    from backend import config, instruments, trading_status
+
+    code, ident = valid_item["symbol"], valid_item["id"]
+    at = datetime(2025, 2, 20, 8, tzinfo=config.TZ)
+    for module in (collectors, instruments):
+        monkeypatch.setattr(module, "now", lambda: at)
+    source = "https://static.cninfo.com.cn/finalpage/2025-02-20/1234567800.PDF"
+    official_body = f"证券代码：{code}。公司股票将于2025年2月20日（星期四）开市起停牌一天，并于2025年2月21日开市起复牌。"
+    events = trading_status.document_events(code, official_body)
+    assert [e["status"] for e in events] == ["suspended", "active"]
+    assert not trading_status.document_events("600000", official_body)
+    assert not trading_status.document_events(code, f"证券代码：{code}。公司股票预计于2025年2月21日开市起复牌。")
+    short_clause = f"证券代码：{code}。公司股票将于2025年2月20日停牌1天，2025年2月21日开市起复牌。"
+    assert [e["status"] for e in trading_status.document_events(code, short_clause)] == ["suspended", "active"]
+    row = {"代码": code, "公告标题": "关于股票风险警示及停复牌的公告", "公告时间": "2025-02-20 07:30:00",
+           "公告链接": "https://www.cninfo.com.cn/new/disclosure/detail?announcementId=1234567800",
+           "附件链接": source, "trading_events": events}
+    mismatch = {**row, "代码": "600000", "公告链接": row["公告链接"] + "01"}
+    monkeypatch.setattr(collectors, "call", lambda *_args, **_kw: [mismatch, row])
+    assert len(collectors.announcements(ident)) == 1
+    pending = instruments.get(ident)
+    assert pending["status"] == "active"
+    assert "今日已有官方公告安排停牌" in instruments.risk_reasons(pending, at)
+    at += timedelta(hours=2)
+    assert not collectors.announcements(ident)
+    current = instruments.get(ident)
+    assert db.one("SELECT status FROM instruments WHERE id=?", (ident,))["status"] == "suspended"
+    assert current["risk_flag"] == "warning" and current["verified_at"] == valid_item["verified_at"]
+    assert current["evidence"]["exchange_trading_status"]["url"] == source
+    assert "停牌" in instruments.risk_reasons(current, at)
+    assert len(db.query("SELECT id FROM risk_events WHERE instrument_id=? AND event_type='trading_status'", (ident,))) == 2
+    at += timedelta(days=1)
+    assert not collectors.announcements(ident)
+    resumed = instruments.get(ident)
+    assert resumed["status"] == "active" and resumed["risk_flag"] == "warning"
+    assert resumed["evidence"]["exchange_trading_status"]["effective_at"] == "2025-02-21T09:30:00+08:00"
+    db.execute("UPDATE instruments SET status='delisted' WHERE id=?", (ident,))
+    assert instruments.get(ident)["status"] == "delisted"
+
+
+def test_expired_single_day_notice_leaves_unknown_until_positive_evidence(monkeypatch, valid_item):
+    from datetime import datetime, timedelta
+    from backend import config, instruments
+
+    at = datetime(2025, 2, 20, 10, tzinfo=config.TZ)
+    for module in (collectors, instruments):
+        monkeypatch.setattr(module, "now", lambda: at)
+    row = {"代码": valid_item["symbol"], "公告标题": "关于公司股票当日临时停牌的公告",
+           "公告时间": "2025-02-20 09:55:00", "公告链接": "https://www.szse.cn/disclosure/fixture-one"}
+    hypothetical = {**row, "公告标题": "关于公司拟申请停牌的风险提示", "公告链接": "https://www.szse.cn/disclosure/fixture-two"}
+    monkeypatch.setattr(collectors, "call", lambda *_args, **_kw: [row, hypothetical])
+    collectors.announcements(valid_item["id"])
+    item = instruments.get(valid_item["id"])
+    assert item["status"] == "suspended"
+    assert len(item["evidence"]["trading_status_events"]) == 1
+    at += timedelta(days=1)
+    assert instruments.get(item["id"])["status"] == "unknown"
+
+
+def test_startup_status_refresh_checks_listing_and_delisting_before_announcements(monkeypatch, valid_item):
+    from datetime import datetime
+    from backend import config, instruments
+
+    seen = []
+    monkeypatch.setattr(collectors, "now", lambda: datetime(2026, 11, 21, tzinfo=config.TZ))
+
+    def fetch(action, _args=None, **_kwargs):
+        seen.append(action)
+        return {
+            "calendar": [{"trade_date": "2026-12-01"}],
+            "master_sh": [{"证券代码": valid_item["symbol"], "证券简称": "核验后的名称", "上市日期": "2007-05-01"}],
+            "delist_sh": [{"公司代码": valid_item["symbol"], "公司简称": "核验后的名称", "暂停上市日期": "2025-03-06"}],
+            "sse_suspensions": [],
+        }[action]
+
+    monkeypatch.setattr(collectors, "call", fetch)
+    assert collectors.sync_trading_status([valid_item], refresh_identity=True)["status"] == "success"
+    assert seen == ["calendar", "master_sh", "delist_sh", "sse_suspensions"]
+    item = instruments.get(valid_item["id"])
+    assert item["name"] == "核验后的名称" and item["status"] == "delisted"
+
+
 def test_macro_fallback_accepts_only_the_verified_monthly_series():
     from backend.collector_worker import BLS_CPI_SERIES,bls_cpi_rows
     info={'status':'REQUEST_SUCCEEDED','Results':{'series':[{'seriesID':BLS_CPI_SERIES,'data':[
