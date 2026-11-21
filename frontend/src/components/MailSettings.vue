@@ -118,9 +118,10 @@ defineExpose({ dirty })
 
 <style scoped>
 .mail-settings h2 { display: flex; align-items: center; gap: 8px; }
-.mail-settings h2 svg { color: var(--green); }
+.mail-settings h2 svg { color: var(--accent-text); }
 .mail-alert { margin: 0 24px 16px; }
-.mail-switch { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; margin: 0 24px 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--green) 6%, var(--surface, #fff)); }
+.mail-switch { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; margin: 0 24px 8px; padding: 15px 16px; border: 1px solid color-mix(in srgb, var(--accent-text) 20%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface)); cursor: pointer; transition: border-color .16s ease, background-color .16s ease; }
+.mail-switch:hover { border-color: color-mix(in srgb, var(--accent-text) 40%, var(--border)); }
 .mail-switch input { width: 15px; height: 15px; margin-top: 3px; flex-shrink: 0; }
 .mail-switch span { display: grid; gap: 4px; }
 .mail-switch strong { color: var(--dark); font-size: 14px; font-weight: 600; }

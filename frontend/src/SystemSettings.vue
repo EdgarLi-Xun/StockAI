@@ -269,7 +269,47 @@ onBeforeUnmount(()=>{stopUpgradeFlow();recoveryRead++;clearInterval(timer);windo
   </main>
 </template>
 <style scoped>
-.data-source-options{border:0;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.source-legend{font-size:13px;color:var(--muted);margin-bottom:14px}.data-source-option{display:flex;flex-direction:row;align-items:flex-start;gap:12px;margin:0;border:1px solid var(--border);border-radius:8px;padding:18px;cursor:pointer}.data-source-option.selected{border-color:var(--green);background:#f1f7f3}.data-source-option:focus-within{outline:2px solid var(--green);outline-offset:2px}.data-source-option input{width:16px;height:16px;min-height:0;margin:2px 0 0;flex-shrink:0;accent-color:var(--green)}.data-source-option strong{font-size:14px}.data-source-option small{margin-top:8px;font-weight:400;line-height:1.8}.source-next{margin-top:22px;border-top:1px solid var(--border);padding-top:22px}.source-next h3{font-size:15px}.source-next ol{padding-left:24px;color:var(--muted);font-size:14px;line-height:1.9}.source-next li+li{margin-top:8px}.source-next code{display:block;background:#f5f7f6;border-radius:6px;padding:14px;white-space:pre-wrap;font-size:12px}.system-settings .recovery-file input{max-width:100%;font-size:13px}
-.system-settings{max-width:1160px;margin:auto;padding-bottom:70px}.system-settings .panel{padding:24px}.system-settings .panel-heading{padding:0 0 22px}.system-settings .personal-form .form-grid{padding:0;gap:0 20px}.system-settings p{line-height:1.85;color:#77887e;margin:12px 0 20px}.system-settings h2{margin-bottom:12px}.system-settings .page-heading{display:flex;align-items:center;justify-content:space-between}.system-settings .personal-list-row small{margin-top:7px}.system-tabs{margin-bottom:24px}.system-settings>.panel{margin-top:22px}.system-settings .panel{margin-bottom:22px}.system-summary{display:flex;gap:24px;flex-wrap:wrap;padding:18px 0 24px;color:var(--muted)}.system-summary b{color:var(--dark);font-size:21px}.system-subsection{margin-top:25px;padding-top:22px;border-top:1px solid var(--border)}.system-conflict{padding:18px 0;border-bottom:1px solid var(--border)}pre{max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--surface-soft);padding:15px;border-radius:9px;font-size:12px}summary{cursor:pointer;margin-bottom:12px}progress{width:100%}small{display:block;color:var(--muted)}.form-grid>.secondary{align-self:end}.invite-result{overflow-wrap:anywhere}input[type=file]{max-width:260px;font-size:12px}code{overflow-wrap:anywhere}ul{padding-left:22px}
+.data-source-options{border:0;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.source-legend{font-size:13px;color:var(--muted);margin-bottom:14px}
+.data-source-option{display:flex;flex-direction:row;align-items:flex-start;gap:12px;margin:0;border:1px solid var(--border);border-radius:10px;padding:18px;background:var(--surface);cursor:pointer;transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease}
+.data-source-option:hover{border-color:color-mix(in srgb,var(--accent-text) 38%,var(--border));background:var(--surface-soft)}
+.data-source-option.selected{border-color:var(--accent-text);background:var(--accent-soft);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent-text) 40%,transparent)}
+.data-source-option:focus-within{outline:2px solid var(--accent-text);outline-offset:2px}
+.data-source-option input{width:16px;height:16px;min-height:0;margin:2px 0 0;flex-shrink:0;accent-color:var(--accent)}
+.data-source-option strong{font-size:14px;color:var(--dark)}
+.data-source-option small{margin-top:7px;font-weight:400;line-height:1.75;color:var(--muted)}
+.source-next{margin-top:22px;border-top:1px solid var(--border);padding-top:22px}
+.source-next h3{font-size:15px;color:var(--dark)}
+.source-next ol{padding-left:24px;color:var(--muted);font-size:14px;line-height:1.9}
+.source-next li+li{margin-top:8px}
+.source-next code{display:block;background:var(--surface-soft);border:1px solid var(--border);color:var(--dark);border-radius:8px;padding:14px;white-space:pre-wrap;font-size:12px}
+.system-settings .recovery-file input{max-width:100%;font-size:13px}
+.system-settings{max-width:1160px;margin:auto;padding-bottom:70px}
+.system-settings .panel{padding:24px}
+.system-settings .panel-heading{padding:0 0 22px}
+.system-settings .personal-form .form-grid{padding:0;gap:0 20px}
+.system-settings p{line-height:1.85;color:var(--muted);margin:12px 0 20px}
+.system-settings h2{margin-bottom:12px;color:var(--dark)}
+.system-settings .page-heading{display:flex;align-items:center;justify-content:space-between}
+.system-settings .personal-list-row small{margin-top:7px}
+.system-tabs{margin-bottom:24px}
+.system-settings>.panel{margin-top:22px}
+.system-settings .panel{margin-bottom:22px}
+.system-summary{display:flex;gap:24px;flex-wrap:wrap;padding:18px 0 24px;color:var(--muted)}
+.system-summary b{color:var(--dark);font-size:21px;font-variant-numeric:tabular-nums}
+.system-subsection{margin-top:25px;padding-top:22px;border-top:1px solid var(--border)}
+.system-conflict{padding:18px 0;border-bottom:1px solid var(--border)}
+pre{max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--surface-soft);border:1px solid var(--border);color:var(--dark);padding:15px;border-radius:10px;font-size:12px}
+summary{cursor:pointer;margin-bottom:12px}
+progress{width:100%;height:8px;border:0;border-radius:999px;overflow:hidden;appearance:none;background:var(--surface-soft)}
+progress::-webkit-progress-bar{background:var(--surface-soft);border-radius:999px}
+progress::-webkit-progress-value{background:var(--accent);border-radius:999px}
+progress::-moz-progress-bar{background:var(--accent);border-radius:999px}
+small{display:block;color:var(--muted)}
+.form-grid>.secondary{align-self:end}
+.invite-result{overflow-wrap:anywhere}
+input[type=file]{max-width:260px;font-size:12px}
+code{overflow-wrap:anywhere}
+ul{padding-left:22px}
 @media(max-width:700px){.data-source-options{grid-template-columns:1fr}.system-settings .form-grid{grid-template-columns:1fr}.system-settings .span-two{grid-column:span 1}.system-settings .panel{padding:20px}.system-summary{gap:14px}}
 </style>

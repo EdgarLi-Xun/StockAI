@@ -199,9 +199,10 @@ onMounted(load)
 .idea-who strong { display: block; font-size: 13px; font-weight: 600; color: var(--dark); }
 .idea-who small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
 .idea-card h3 { margin: 14px 0 12px; font-size: 16px; font-weight: 650; letter-spacing: -.2px; line-height: 1.55; color: var(--dark); overflow-wrap: anywhere; }
-.idea-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.idea-rules > div { min-width: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--green) 18%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--green) 7%, var(--surface, #fff)); }
-.idea-rules small { display: block; margin-bottom: 6px; color: var(--green); font-size: 11px; font-weight: 650; }
+.idea-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.idea-rules > div { min-width: 0; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--accent-text) 18%, var(--border)); border-top: 2px solid color-mix(in srgb, var(--accent-text) 48%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); transition: border-color .16s ease; }
+.idea-rules > div:hover { border-color: color-mix(in srgb, var(--accent-text) 35%, var(--border)); }
+.idea-rules small { display: block; margin-bottom: 6px; color: var(--accent-text); font-size: 11px; font-weight: 650; letter-spacing: .04em; }
 .idea-rules p { margin: 0; color: var(--dark); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
 .idea-card footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .idea-card footer time { margin-left: auto; color: var(--muted); font-size: 12px; }

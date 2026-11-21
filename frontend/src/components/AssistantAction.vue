@@ -89,7 +89,13 @@ const applyLabel = (action: any) => action.kind === 'preferences' ? '应用配�
 </template>
 
 <style scoped>
-.assistant-action{margin:12px 0;padding:13px;border:1px solid #cdded2;border-radius:8px;background:#f5f9f5;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
-.assistant-action>strong{font-size:13px}.assistant-action p{margin:7px 0}.assistant-action small{display:block;color:var(--muted);margin:7px 0}.assistant-action button{margin-top:5px}
-.assistant-action-changes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:12px 0}.assistant-action-changes dt{color:var(--muted)}.assistant-action-changes dd{margin:0}
+.assistant-action{margin:12px 0;padding:14px 16px;border:1px solid var(--border);border-left:3px solid var(--accent-text);border-radius:10px;background:var(--surface-soft);color:var(--dark);font-size:12px;line-height:1.75;overflow-wrap:anywhere;box-shadow:var(--shadow-xs,none)}
+.assistant-action>strong{display:block;font-size:13px;font-weight:600;color:var(--dark)}
+.assistant-action p{margin:7px 0;color:var(--dark)}
+.assistant-action small{display:block;color:var(--muted);margin:7px 0}
+.assistant-action button{margin-top:8px}
+.assistant-action-changes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 12px;margin:12px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.assistant-action-changes dt{color:var(--muted)}
+.assistant-action-changes dd{margin:0;color:var(--dark);font-variant-numeric:tabular-nums}
+.assistant-action-changes dd b{color:var(--accent-text);font-weight:600}
 </style>

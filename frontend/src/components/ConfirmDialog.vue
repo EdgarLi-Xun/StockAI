@@ -17,5 +17,8 @@ function trap(event: KeyboardEvent) { if (event.shiftKey) (document.activeElemen
 </template>
 <style scoped>
 /* 限定弹窗宽度并保留足够的正文行距与操作区间隔。 */
-.confirm-card{width:min(460px,calc(100vw - 32px));padding:27px;box-shadow:0 16px 50px #18352924}.confirm-card h2{font-size:17px}.confirm-card p{font-size:13px;color:#738278;line-height:1.95;margin:20px 0 25px;white-space:pre-line}.confirm-card .button-row{justify-content:flex-end}
+.confirm-card{width:min(460px,calc(100vw - 32px));padding:26px 28px;border-radius:16px;box-shadow:var(--shadow-lg,0 18px 50px #18352924)}
+.confirm-card h2{font-size:17px;font-weight:650;color:var(--dark)}
+.confirm-card p{font-size:13.5px;color:var(--muted);line-height:1.85;margin:16px 0 24px;white-space:pre-line}
+.confirm-card .button-row{justify-content:flex-end;gap:10px}
 </style>

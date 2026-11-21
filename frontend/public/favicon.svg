@@ -1,2 +1,18 @@
-<!-- 绿色圆角背景与白色行情线组成应用图标，使用矢量路径保持缩放清晰。 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#137e66"/><path d="M10 29V21M16 29V18M22 29V22M28 29V13M9 18l8-7 6 4 8-9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<!-- 柔和渐变的圆角底色搭配精简行情柱与趋势线，在浏览器与桌面窗口均保持清晰。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#228666"/>
+      <stop offset="100%" stop-color="#13523d"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".92"/>
+      <stop offset="100%" stop-color="#bcebd7" stop-opacity=".42"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="10" fill="url(#bg)"/>
+  <rect x=".75" y=".75" width="38.5" height="38.5" rx="9.25" fill="none" stroke="#ffffff" stroke-opacity=".18" stroke-width="1"/>
+  <path d="M10.5 30v-7.5M16.5 30v-11M22.5 30v-7M28.5 30V14.5" fill="none" stroke="url(#bar)" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M9.5 18.5l7.2-6.4 5.8 3.6 7.8-8.2" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="30.3" cy="7.5" r="2.2" fill="#b7f5d8"/>
+</svg>

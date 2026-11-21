@@ -21,4 +21,14 @@ function value(v:any):string{if(v===null||v===undefined)return'未提供';if(typ
 <template v-else-if="source.kind==='account'"><dl><template v-for="(v,k) in source.facts" :key="k"><template v-if="fields[k]"><dt>{{fields[k]}}</dt><dd>{{value(v)}}</dd></template></template></dl><p v-for="g in source.facts.gaps" :key="g.instrument_id">{{g.instrument_id}} · {{g.reasons.join('；')}}</p><div v-if="source.facts.fills" class="table-scroll"><table class="watch-table"><thead><tr><th>已授权模拟成交</th><th>方向 / 数量</th><th>价格 / 费用</th></tr></thead><tbody><tr v-for="(f,i) in source.facts.fills" :key="i"><td>{{f.instrument_id}}<small>{{date(f.filled_at)}}</small></td><td>{{f.side==='buy'?'买':'卖'}} {{f.quantity}}</td><td>{{fmt(f.fill_price)}} / {{fmt(f.fees)}}</td></tr></tbody></table></div></template>
 <template v-else><p v-if="source.facts.validated!==undefined">历史证据：{{source.facts.validated?'已核验':'未验证或无结果'}}</p><dl><template v-for="(v,k) in {...source.facts.parameters,...source.facts.summary}" :key="k"><template v-if="fields[k]"><dt>{{fields[k]}}</dt><dd>{{value(v)}}</dd></template></template></dl><p v-for="w in source.facts.warnings" :key="w">{{w}}</p></template></div></template>
 <style scoped>/* 事实卡使用紧凑标签与可换行正文，表格保留横向滚动以容纳证据时间。 */
-.source-facts{padding:10px 0;font-size:11px;line-height:1.9;overflow-wrap:anywhere}.source-facts p{margin:7px 0}.source-facts b{font-weight:550;color:#536e59}.source-facts small{display:block;color:#94a095;font-size:10px}.source-facts dl{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,1fr);gap:8px;margin:10px 0}.source-facts dt{color:#84968a}.source-facts dd{margin:0}.source-facts a{color:#488763}.source-facts .watch-table{font-size:11px}.source-facts details{margin-top:12px}</style>
+.source-facts{padding:10px 0 4px;font-size:11.5px;line-height:1.85;overflow-wrap:anywhere;color:var(--dark)}
+.source-facts p{margin:7px 0}
+.source-facts b{font-weight:600;color:var(--dark)}
+.source-facts small{display:block;color:var(--muted);font-size:10.5px}
+.source-facts dl{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,1fr);gap:8px 12px;margin:10px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.source-facts dt{color:var(--muted)}
+.source-facts dd{margin:0;color:var(--dark);font-variant-numeric:tabular-nums}
+.source-facts a{color:var(--accent-text)}
+.source-facts .watch-table{font-size:11px}
+.source-facts details{margin-top:12px}
+</style>
